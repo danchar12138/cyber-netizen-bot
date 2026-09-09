@@ -51,6 +51,13 @@ class AgentRunStatus(StrEnum):
     FAILED = "failed"
 
 
+class MessageFeedbackRating(StrEnum):
+    """用户对单条 Agent 回复的轻量反馈。"""
+
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+
+
 @dataclass(frozen=True, slots=True)
 class DevelopmentIdentity:
     """本地开发环境使用的稳定身份集合。"""
@@ -75,6 +82,11 @@ class Conversation:
     event_sequence: int
     created_at: datetime
     updated_at: datetime
+    pinned_at: datetime | None = None
+    archived_at: datetime | None = None
+    deleted_at: datetime | None = None
+    branched_from_conversation_id: UUID | None = None
+    branched_from_message_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +103,7 @@ class Message:
     client_message_id: UUID | None
     created_at: datetime
     updated_at: datetime
+    edited_from_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,3 +153,26 @@ class PendingAgentRun:
     response_message: Message
     run: AgentRun
     created: bool
+
+
+@dataclass(frozen=True, slots=True)
+class MessageFeedback:
+    """当前用户对一条 Agent 消息的可更新反馈。"""
+
+    id: UUID
+    tenant_id: UUID
+    conversation_id: UUID
+    message_id: UUID
+    user_id: UUID
+    rating: MessageFeedbackRating
+    comment: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class MessageSearchResult:
+    """跨会话全文搜索结果。"""
+
+    conversation: Conversation
+    message: Message

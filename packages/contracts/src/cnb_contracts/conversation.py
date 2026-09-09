@@ -10,6 +10,7 @@ from cnb_domain import (
     AgentRunStatus,
     ConversationStatus,
     JsonValue,
+    MessageFeedbackRating,
     MessageSenderType,
     MessageStatus,
 )
@@ -42,6 +43,19 @@ class ConversationResponse(BaseModel):
     event_sequence: int = Field(ge=0)
     created_at: datetime
     updated_at: datetime
+    pinned_at: datetime | None = None
+    archived_at: datetime | None = None
+    deleted_at: datetime | None = None
+    branched_from_conversation_id: UUID | None = None
+    branched_from_message_id: UUID | None = None
+
+
+class ConversationUpdate(BaseModel):
+    """重命名、归档或置顶会话的部分更新命令。"""
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    status: ConversationStatus | None = None
+    pinned: bool | None = None
 
 
 class ConversationListResponse(BaseModel):
@@ -63,6 +77,7 @@ class MessageResponse(BaseModel):
     client_message_id: UUID | None
     created_at: datetime
     updated_at: datetime
+    edited_from_id: UUID | None = None
 
 
 class MessageListResponse(BaseModel):
@@ -86,6 +101,66 @@ class MessageCreate(BaseModel):
         if not normalized:
             raise ValueError("消息内容不能为空")
         return normalized
+
+
+class MessageRegenerate(BaseModel):
+    """带幂等 ID 的重新生成命令。"""
+
+    client_request_id: UUID
+
+
+class MessageEdit(BaseModel):
+    """编辑用户消息并创建会话分支的命令。"""
+
+    client_message_id: UUID
+    content: str = Field(min_length=1, max_length=20_000)
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("消息内容不能为空")
+        return normalized
+
+
+class MessageFeedbackSet(BaseModel):
+    """新增或覆盖当前用户对 Agent 回复的反馈。"""
+
+    rating: MessageFeedbackRating
+    comment: str | None = Field(default=None, max_length=2_000)
+
+
+class MessageFeedbackResponse(BaseModel):
+    """一条不包含内部推理的消息反馈。"""
+
+    id: UUID
+    conversation_id: UUID
+    message_id: UUID
+    user_id: UUID
+    rating: MessageFeedbackRating
+    comment: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MessageFeedbackListResponse(BaseModel):
+    """当前用户在会话中的全部反馈。"""
+
+    items: tuple[MessageFeedbackResponse, ...]
+
+
+class MessageSearchItemResponse(BaseModel):
+    """带会话摘要的消息搜索命中。"""
+
+    conversation: ConversationResponse
+    message: MessageResponse
+
+
+class MessageSearchResponse(BaseModel):
+    """跨会话或会话内消息搜索结果。"""
+
+    items: tuple[MessageSearchItemResponse, ...]
 
 
 class AgentRunResponse(BaseModel):

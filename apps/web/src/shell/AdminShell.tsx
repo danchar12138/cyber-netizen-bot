@@ -13,6 +13,7 @@ import {
   ListChecks,
   MemoryStick,
   MessageCircleMore,
+  MessagesSquare,
   ScrollText,
   Settings2,
   ShieldCheck,
@@ -34,6 +35,7 @@ interface NavigationItem {
 const primaryNavigation: NavigationItem[] = [
   { label: '运行总览', path: '/', icon: CircleGauge },
   { label: '内部对话', path: '/chat', icon: MessageCircleMore },
+  { label: '会话与消息', path: '/conversations', icon: MessagesSquare },
   { label: 'Agent 与人格', path: '/agents', icon: Bot },
   { label: '模型与路由', path: '/models', icon: BrainCircuit },
   { label: 'Prompt 与上下文', path: '/prompts', icon: Sparkles },

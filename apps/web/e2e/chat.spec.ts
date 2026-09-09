@@ -74,6 +74,9 @@ test('可以创建会话并发送一条持久化消息', async ({ page }) => {
   await page.route(`**/api/v1/chat/conversations/${conversationId}/messages?limit=200`, async (route) => {
     await route.fulfill({ json: { items: [], next_cursor: null } })
   })
+  await page.route(`**/api/v1/chat/conversations/${conversationId}/feedback`, async (route) => {
+    await route.fulfill({ json: { items: [] } })
+  })
   await page.route(`**/api/v1/chat/conversations/${conversationId}/messages`, async (route) => {
     const command = route.request().postDataJSON() as {
       client_message_id: string

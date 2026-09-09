@@ -246,10 +246,25 @@ class ConversationModel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    branched_from_conversation_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL")
+    )
+    branched_from_message_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey(
+            "messages.id",
+            name="fk_conversations_branch_message",
+            ondelete="SET NULL",
+            use_alter=True,
+        )
+    )
 
     __table_args__ = (
         CheckConstraint("status IN ('active', 'archived')", name="ck_conversations_status"),
         Index("ix_conversations_tenant_updated", "tenant_id", "updated_at"),
+        Index("ix_conversations_member_state", "deleted_at", "pinned_at", "updated_at"),
     )
 
 
@@ -299,6 +314,9 @@ class MessageModel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+    edited_from_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL")
+    )
 
     __table_args__ = (
         CheckConstraint(
@@ -317,6 +335,11 @@ class MessageModel(Base):
             postgresql_where=text("client_message_id IS NOT NULL"),
         ),
         Index("ix_messages_conversation_created", "conversation_id", "created_at"),
+        Index(
+            "ix_messages_content_search",
+            text("to_tsvector('simple', content)"),
+            postgresql_using="gin",
+        ),
     )
 
 
@@ -336,7 +359,7 @@ class AgentRunModel(Base):
         ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False
     )
     trigger_message_id: Mapped[UUID] = mapped_column(
-        ForeignKey("messages.id", ondelete="RESTRICT"), nullable=False, unique=True
+        ForeignKey("messages.id", ondelete="RESTRICT"), nullable=False
     )
     response_message_id: Mapped[UUID] = mapped_column(
         ForeignKey("messages.id", ondelete="RESTRICT"), nullable=False, unique=True
@@ -361,6 +384,7 @@ class AgentRunModel(Base):
             name="ck_agent_runs_status",
         ),
         Index("ix_agent_runs_conversation_created", "conversation_id", "created_at"),
+        Index("ix_agent_runs_trigger", "trigger_message_id"),
     )
 
 
@@ -389,4 +413,38 @@ class ConversationEventModel(Base):
         UniqueConstraint("conversation_id", "sequence", name="uq_conversation_events_sequence"),
         CheckConstraint("sequence > 0", name="ck_conversation_events_sequence_positive"),
         Index("ix_conversation_events_replay", "conversation_id", "sequence"),
+    )
+
+
+class MessageFeedbackModel(Base):
+    """用户对 Agent 回复的可更新反馈。"""
+
+    __tablename__ = "message_feedback"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    conversation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    rating: Mapped[str] = mapped_column(String(24), nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("rating IN ('positive', 'negative')", name="ck_message_feedback_rating"),
+        UniqueConstraint("message_id", "user_id", name="uq_message_feedback_user"),
+        Index("ix_message_feedback_conversation", "conversation_id", "created_at"),
     )

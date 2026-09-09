@@ -1,42 +1,30 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Bot,
-  CircleStop,
-  ImagePlus,
-  LoaderCircle,
-  Paperclip,
-  SendHorizontal,
-  Sparkles,
-  UserRound,
+  Archive, Bot, CircleStop, Copy, CornerDownLeft, ImagePlus, LoaderCircle,
+  Paperclip, Pencil, Pin, RotateCcw, Search, SendHorizontal, Sparkles,
+  ThumbsDown, ThumbsUp, Trash2, UserRound,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
-  type ChatMessage,
-  type ConversationEvent,
-  cancelAgentRun,
-  createConversation,
-  getAdminSession,
-  getConversations,
-  getDevelopmentIdentity,
-  getMessages,
-  sendChatMessage,
+  type ChatMessage, type ConversationEvent, type MessageAccepted,
+  cancelAgentRun, clearMessageFeedback, createConversation, deleteConversation,
+  editChatMessage, getAdminSession, getConversations, getDevelopmentIdentity,
+  getMessageFeedback, getMessages, regenerateChatMessage, searchChatMessages,
+  sendChatMessage, setMessageFeedback, updateConversation,
 } from '../api'
 import { applyConversationEvent } from '../chatEvents'
 
 const messageStatusLabels: Record<ChatMessage['status'], string> = {
-  received: '已接收',
-  processing: '处理中',
-  streaming: '正在输入',
-  completed: '已完成',
-  cancelled: '已取消',
-  failed: '失败',
+  received: '已接收', processing: '处理中', streaming: '正在输入',
+  completed: '已完成', cancelled: '已取消', failed: '失败',
 }
 
 export function ChatPage() {
   const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [searchText, setSearchText] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [connection, setConnection] = useState<'连接中' | '已连接' | '正在重连'>('连接中')
@@ -45,10 +33,23 @@ export function ChatPage() {
   const identity = useQuery({ queryKey: ['chat-identity'], queryFn: getDevelopmentIdentity })
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const canUseConversation = session.data?.permissions.includes('conversation:use') ?? false
-  const conversations = useQuery({ queryKey: ['conversations'], queryFn: getConversations })
+  const conversations = useQuery({
+    queryKey: ['conversations', searchText],
+    queryFn: () => getConversations(searchText),
+  })
+  const messageSearch = useQuery({
+    queryKey: ['message-search', searchText],
+    queryFn: () => searchChatMessages(searchText),
+    enabled: searchText.trim().length >= 2,
+  })
   const messageHistory = useQuery({
     queryKey: ['messages', selectedId],
     queryFn: () => getMessages(selectedId!),
+    enabled: selectedId !== null,
+  })
+  const feedback = useQuery({
+    queryKey: ['message-feedback', selectedId],
+    queryFn: () => getMessageFeedback(selectedId!),
     enabled: selectedId !== null,
   })
 
@@ -58,16 +59,13 @@ export function ChatPage() {
     }
   }, [conversations.data, selectedId])
 
-  useEffect(() => {
-    setMessages(messageHistory.data?.items ?? [])
-  }, [messageHistory.data])
+  useEffect(() => setMessages(messageHistory.data?.items ?? []), [messageHistory.data])
 
   useEffect(() => {
     if (!selectedId) return
     let disposed = false
     let socket: WebSocket | null = null
     let reconnectTimer: number | undefined
-
     const connect = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       socket = new WebSocket(
@@ -79,19 +77,17 @@ export function ChatPage() {
         const event = JSON.parse(frame.data as string) as
           | ConversationEvent
           | { event_type: 'system.heartbeat'; last_sequence: number }
-        if (!("sequence" in event)) return
-        if (event.sequence <= lastSequence.current) return
+        if (!('sequence' in event) || event.sequence <= lastSequence.current) return
         lastSequence.current = event.sequence
         setMessages((current) => applyConversationEvent(current, event))
-        if (event.event_type === 'run.queued' || event.event_type === 'run.started') {
-          if (event.run_id) setActiveRunId(event.run_id)
+        if ((event.event_type === 'run.queued' || event.event_type === 'run.started') && event.run_id) {
+          setActiveRunId(event.run_id)
         }
-        if (
-          event.event_type === 'run.completed' ||
-          event.event_type === 'run.cancelled' ||
-          event.event_type === 'run.failed'
-        ) {
+        if (['run.completed', 'run.cancelled', 'run.failed'].includes(event.event_type)) {
           setActiveRunId(null)
+        }
+        if (event.event_type.startsWith('message.feedback.')) {
+          void queryClient.invalidateQueries({ queryKey: ['message-feedback', selectedId] })
         }
       }
       socket.onclose = () => {
@@ -100,7 +96,6 @@ export function ChatPage() {
         reconnectTimer = window.setTimeout(connect, 1000)
       }
     }
-
     lastSequence.current = 0
     connect()
     return () => {
@@ -108,53 +103,74 @@ export function ChatPage() {
       if (reconnectTimer) window.clearTimeout(reconnectTimer)
       socket?.close()
     }
-  }, [selectedId])
+  }, [queryClient, selectedId])
+
+  const acceptRun = (accepted: MessageAccepted) => {
+    setMessages((current) => {
+      const event = (message: ChatMessage, sequence: number): ConversationEvent => ({
+        schema_version: '1', event_id: crypto.randomUUID(),
+        conversation_id: message.conversation_id, sequence, event_type: 'message.created',
+        occurred_at: message.created_at, run_id: accepted.run.id, message_id: message.id,
+        payload: { ...message },
+      })
+      return applyConversationEvent(
+        applyConversationEvent(current, event(accepted.user_message, Number.MAX_SAFE_INTEGER - 1)),
+        event(accepted.response_message, Number.MAX_SAFE_INTEGER),
+      )
+    })
+    setActiveRunId(accepted.run.id)
+    void queryClient.invalidateQueries({ queryKey: ['conversations'] })
+  }
 
   const createConversationMutation = useMutation({
     mutationFn: () => createConversation(),
     onSuccess: async (conversation) => {
+      setSearchText('')
       await queryClient.invalidateQueries({ queryKey: ['conversations'] })
       setSelectedId(conversation.id)
     },
   })
-
-  const sendMessage = useMutation({
-    mutationFn: (content: string) =>
-      sendChatMessage(selectedId!, {
-        client_message_id: crypto.randomUUID(),
-        content,
-      }),
-    onSuccess: (accepted) => {
-      setMessages((current) => {
-        const withUser = applyConversationEvent(current, {
-          schema_version: '1',
-          event_id: crypto.randomUUID(),
-          conversation_id: accepted.user_message.conversation_id,
-          sequence: Number.MAX_SAFE_INTEGER - 1,
-          event_type: 'message.created',
-          occurred_at: accepted.user_message.created_at,
-          run_id: accepted.run.id,
-          message_id: accepted.user_message.id,
-          payload: { ...accepted.user_message },
-        })
-        return applyConversationEvent(withUser, {
-          schema_version: '1',
-          event_id: crypto.randomUUID(),
-          conversation_id: accepted.response_message.conversation_id,
-          sequence: Number.MAX_SAFE_INTEGER,
-          event_type: 'message.created',
-          occurred_at: accepted.response_message.created_at,
-          run_id: accepted.run.id,
-          message_id: accepted.response_message.id,
-          payload: { ...accepted.response_message },
-        })
-      })
-      setActiveRunId(accepted.run.id)
-      setDraft('')
-      void queryClient.invalidateQueries({ queryKey: ['conversations'] })
+  const updateConversationMutation = useMutation({
+    mutationFn: ({ conversationId, command }: {
+      conversationId: string
+      command: { title?: string; status?: 'active' | 'archived'; pinned?: boolean }
+    }) => updateConversation(conversationId, command),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['conversations'] }),
+  })
+  const deleteConversationMutation = useMutation({
+    mutationFn: deleteConversation,
+    onSuccess: async (_, conversationId) => {
+      if (selectedId === conversationId) setSelectedId(null)
+      await queryClient.invalidateQueries({ queryKey: ['conversations'] })
     },
   })
-
+  const sendMessage = useMutation({
+    mutationFn: (content: string) => sendChatMessage(selectedId!, {
+      client_message_id: crypto.randomUUID(), content,
+    }),
+    onSuccess: (accepted) => { acceptRun(accepted); setDraft('') },
+  })
+  const regenerateMessage = useMutation({ mutationFn: regenerateChatMessage, onSuccess: acceptRun })
+  const editMessage = useMutation({
+    mutationFn: ({ messageId, content }: { messageId: string; content: string }) =>
+      editChatMessage(messageId, content),
+    onSuccess: async (accepted) => {
+      setSearchText('')
+      await queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      setSelectedId(accepted.run.conversation_id)
+      setMessages([accepted.user_message, accepted.response_message])
+      setActiveRunId(accepted.run.id)
+    },
+  })
+  const feedbackMutation = useMutation({
+    mutationFn: ({ messageId, rating }: { messageId: string; rating: 'positive' | 'negative' }) =>
+      setMessageFeedback(messageId, rating),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['message-feedback', selectedId] }),
+  })
+  const clearFeedbackMutation = useMutation({
+    mutationFn: clearMessageFeedback,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['message-feedback', selectedId] }),
+  })
   const cancelRun = useMutation({
     mutationFn: (runId: string) => cancelAgentRun(runId),
     onSuccess: () => setActiveRunId(null),
@@ -164,13 +180,29 @@ export function ChatPage() {
     () => conversations.data?.items.find((item) => item.id === selectedId),
     [conversations.data, selectedId],
   )
-  const operationError =
-    createConversationMutation.error ?? sendMessage.error ?? cancelRun.error
+  const feedbackByMessage = useMemo(
+    () => new Map(feedback.data?.items.map((item) => [item.message_id, item.rating])),
+    [feedback.data],
+  )
+  const operationError = createConversationMutation.error ?? updateConversationMutation.error ??
+    deleteConversationMutation.error ?? sendMessage.error ?? regenerateMessage.error ??
+    editMessage.error ?? feedbackMutation.error ?? clearFeedbackMutation.error ?? cancelRun.error
 
   const submit = () => {
     const content = draft.trim()
-    if (!content || !selectedId || activeRunId || sendMessage.isPending) return
-    sendMessage.mutate(content)
+    if (content && selectedId && !activeRunId && !sendMessage.isPending) sendMessage.mutate(content)
+  }
+  const renameConversation = (conversationId: string, currentTitle: string) => {
+    const title = window.prompt('请输入新的会话标题', currentTitle)?.trim()
+    if (title && title !== currentTitle) updateConversationMutation.mutate({ conversationId, command: { title } })
+  }
+  const editUserMessage = (message: ChatMessage) => {
+    const content = window.prompt('编辑消息后将创建新会话分支', message.content)?.trim()
+    if (content && content !== message.content) editMessage.mutate({ messageId: message.id, content })
+  }
+  const toggleFeedback = (messageId: string, rating: 'positive' | 'negative') => {
+    if (feedbackByMessage.get(messageId) === rating) clearFeedbackMutation.mutate(messageId)
+    else feedbackMutation.mutate({ messageId, rating })
   }
 
   return (
@@ -179,46 +211,56 @@ export function ChatPage() {
         <div>
           <p className="eyebrow">内部对话工作台</p>
           <h1>内部对话</h1>
-          <p>消息、Agent Run 与流式事件全部持久化，并支持断线后按事件序号恢复。</p>
+          <p>管理会话、搜索消息、创建分支与反馈，并按事件序号恢复流式响应。</p>
         </div>
-        <span className={`phase-tag connection ${connection === '已连接' ? 'online' : ''}`}>
-          {connection}
-        </span>
+        <span className={`phase-tag connection ${connection === '已连接' ? 'online' : ''}`}>{connection}</span>
       </section>
-
       {operationError && <div className="notice error">{operationError.message}</div>}
-
       <section className="chat-workspace panel">
         <aside className="conversation-list">
-          <button
-            className="new-conversation"
-            onClick={() => createConversationMutation.mutate()}
-            disabled={!canUseConversation || createConversationMutation.isPending}
-          >
+          <button className="new-conversation" onClick={() => createConversationMutation.mutate()}
+            disabled={!canUseConversation || createConversationMutation.isPending}>
             <Sparkles size={15} /> 新建会话
           </button>
-          <p className="nav-label">最近会话</p>
+          <label className="chat-search">
+            <Search size={14} />
+            <input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="搜索会话或消息" />
+          </label>
+          {messageSearch.data?.items.length ? (
+            <div className="message-search-results" aria-label="消息搜索结果">
+              <p className="nav-label">消息命中</p>
+              {messageSearch.data.items.slice(0, 5).map((result) => (
+                <button key={result.message.id} onClick={() => setSelectedId(result.conversation.id)}>
+                  <strong>{result.conversation.title}</strong><span>{result.message.content}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <p className="nav-label">会话</p>
           {conversations.data?.items.map((conversation) => (
-            <button
-              className={`conversation ${conversation.id === selectedId ? 'active' : ''}`}
-              key={conversation.id}
-              onClick={() => setSelectedId(conversation.id)}
-            >
-              <strong>{conversation.title}</strong>
-              <span>{conversation.status === 'active' ? '进行中' : '已归档'}</span>
-            </button>
+            <div className={`conversation-row ${conversation.id === selectedId ? 'active' : ''}`} key={conversation.id}>
+              <button className="conversation" onClick={() => setSelectedId(conversation.id)}>
+                <strong>{conversation.title}</strong>
+                <span>{conversation.status === 'active' ? '进行中' : '已归档'}{conversation.pinned_at ? ' · 已置顶' : ''}</span>
+              </button>
+              {canUseConversation && (
+                <div className="conversation-actions">
+                  <button aria-label={`重命名 ${conversation.title}`} onClick={() => renameConversation(conversation.id, conversation.title)}><Pencil size={12} /></button>
+                  <button aria-label={`${conversation.pinned_at ? '取消置顶' : '置顶'} ${conversation.title}`} onClick={() => updateConversationMutation.mutate({ conversationId: conversation.id, command: { pinned: !conversation.pinned_at } })}><Pin size={12} /></button>
+                  <button aria-label={`${conversation.status === 'active' ? '归档' : '恢复'} ${conversation.title}`} onClick={() => updateConversationMutation.mutate({ conversationId: conversation.id, command: { status: conversation.status === 'active' ? 'archived' : 'active' } })}><Archive size={12} /></button>
+                  <button aria-label={`删除 ${conversation.title}`} onClick={() => {
+                    if (window.confirm(`确定删除“${conversation.title}”吗？数据将在保留期后清理。`)) deleteConversationMutation.mutate(conversation.id)
+                  }}><Trash2 size={12} /></button>
+                </div>
+              )}
+            </div>
           ))}
-          {!conversations.isLoading && !conversations.data?.items.length && (
-            <p className="empty-copy">还没有会话，创建一个开始聊天吧。</p>
-          )}
+          {!conversations.isLoading && !conversations.data?.items.length && <p className="empty-copy">没有符合条件的会话。</p>}
         </aside>
         <div className="conversation-main">
           <div className="conversation-header">
             <div className="agent-avatar"><Bot size={20} /></div>
-            <div>
-              <strong>{identity.data?.agent_name ?? '赛博网友'}</strong>
-              <span>{selectedConversation?.title ?? '请选择或创建会话'}</span>
-            </div>
+            <div><strong>{identity.data?.agent_name ?? '赛博网友'}</strong><span>{selectedConversation?.title ?? '请选择或创建会话'}</span></div>
           </div>
           <div className={`message-stage ${messages.length ? 'has-messages' : ''}`}>
             {messageHistory.isLoading && <LoaderCircle className="spin" size={24} />}
@@ -226,72 +268,48 @@ export function ChatPage() {
               <div className="chat-empty">
                 <div className="welcome-orb"><Bot size={28} /></div>
                 <h2>{selectedId ? '从一句真心话开始吧' : '对话工作台已经就位'}</h2>
-                <p>
-                  {selectedId
-                    ? '当前使用无需密钥的本地流式 Provider，可直接验证完整链路。'
-                    : '创建会话后即可验证消息持久化、流式响应、取消和断线恢复。'}
-                </p>
+                <p>{selectedId ? '可以直接聊天，也可以从历史消息创建分支。' : '创建会话后即可开始。'}</p>
               </div>
             )}
-            {messages.map((message) => (
-              <article className={`chat-message ${message.sender_type}`} key={message.id}>
-                <div className="message-avatar">
-                  {message.sender_type === 'agent' ? <Bot size={15} /> : <UserRound size={15} />}
-                </div>
-                <div className="message-bubble">
-                  <div className="message-meta">
-                    <strong>
-                      {message.sender_type === 'agent'
-                        ? identity.data?.agent_name ?? 'Agent'
-                        : '我'}
-                    </strong>
-                    <span>{messageStatusLabels[message.status]}</span>
+            {messages.map((message) => {
+              const selectedFeedback = feedbackByMessage.get(message.id)
+              return (
+                <article className={`chat-message ${message.sender_type}`} key={message.id}>
+                  <div className="message-avatar">{message.sender_type === 'agent' ? <Bot size={15} /> : <UserRound size={15} />}</div>
+                  <div className="message-bubble">
+                    <div className="message-meta">
+                      <strong>{message.sender_type === 'agent' ? identity.data?.agent_name ?? 'Agent' : '我'}</strong>
+                      <span>{message.edited_from_id ? '分支消息 · ' : ''}{messageStatusLabels[message.status]}</span>
+                    </div>
+                    <p>{message.content || (message.status === 'processing' ? '正在思考…' : '…')}</p>
+                    <div className="message-actions">
+                      <button aria-label="复制消息" onClick={() => void navigator.clipboard.writeText(message.content)}><Copy size={13} /></button>
+                      <button aria-label="引用消息" onClick={() => setDraft(`> ${message.content.replaceAll('\n', '\n> ')}\n\n`)}><CornerDownLeft size={13} /></button>
+                      {message.sender_type === 'user' && canUseConversation && <button aria-label="编辑并创建分支" onClick={() => editUserMessage(message)}><Pencil size={13} /></button>}
+                      {message.sender_type === 'agent' && canUseConversation && (
+                        <>
+                          <button className={selectedFeedback === 'positive' ? 'selected' : ''} aria-label="有帮助" onClick={() => toggleFeedback(message.id, 'positive')}><ThumbsUp size={13} /></button>
+                          <button className={selectedFeedback === 'negative' ? 'selected' : ''} aria-label="没帮助" onClick={() => toggleFeedback(message.id, 'negative')}><ThumbsDown size={13} /></button>
+                          <button aria-label="重新生成" disabled={Boolean(activeRunId)} onClick={() => regenerateMessage.mutate(message.id)}><RotateCcw size={13} /></button>
+                        </>
+                      )}
+                    </div>
                   </div>
-                  <p>{message.content || (message.status === 'processing' ? '正在思考…' : '…')}</p>
-                </div>
-              </article>
-            ))}
+                </article>
+              )
+            })}
           </div>
           <div className="composer-shell">
-            <textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault()
-                  submit()
-                }
-              }}
+            <textarea value={draft} onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit() } }}
               disabled={!canUseConversation || !selectedId}
-              placeholder={
-                selectedId
-                  ? '输入消息，Enter 发送，Shift + Enter 换行'
-                  : '请先创建会话'
-              }
-            />
+              placeholder={selectedId ? '输入消息，Enter 发送，Shift + Enter 换行' : '请先创建会话'} />
             <div className="composer-actions">
-              <div>
-                <button disabled aria-label="添加附件"><Paperclip size={17} /></button>
-                <button disabled aria-label="添加图片"><ImagePlus size={17} /></button>
-              </div>
+              <div><button disabled aria-label="添加附件"><Paperclip size={17} /></button><button disabled aria-label="添加图片"><ImagePlus size={17} /></button></div>
               {activeRunId ? (
-                <button
-                  className="stop-button"
-                  aria-label="停止生成"
-                  onClick={() => cancelRun.mutate(activeRunId)}
-                  disabled={!canUseConversation || cancelRun.isPending}
-                >
-                  <CircleStop size={17} />
-                </button>
+                <button className="stop-button" aria-label="停止生成" onClick={() => cancelRun.mutate(activeRunId)} disabled={!canUseConversation || cancelRun.isPending}><CircleStop size={17} /></button>
               ) : (
-                <button
-                  className="send-button"
-                  aria-label="发送消息"
-                  onClick={submit}
-                  disabled={!canUseConversation || !selectedId || !draft.trim() || sendMessage.isPending}
-                >
-                  <SendHorizontal size={16} />
-                </button>
+                <button className="send-button" aria-label="发送消息" onClick={submit} disabled={!canUseConversation || !selectedId || !draft.trim() || sendMessage.isPending}><SendHorizontal size={16} /></button>
               )}
             </div>
           </div>

@@ -20,7 +20,9 @@ from cnb_contracts import (
     ConversationResponse,
     HealthResponse,
     MessageAcceptedResponse,
+    MessageFeedbackResponse,
     MessageListResponse,
+    MessageSearchResponse,
     SystemOverviewResponse,
 )
 from cnb_infrastructure import (
@@ -430,6 +432,80 @@ async def test_internal_chat_rejects_invalid_cursor_and_unknown_conversation() -
     assert invalid_cursor.status_code == 422
     assert ApiErrorResponse.model_validate(invalid_cursor.json()).error.message == "分页游标无效"
     assert missing_conversation.status_code == 404
+
+
+async def test_internal_chat_management_branch_feedback_and_search_flow() -> None:
+    repository = MemoryConversationRepository()
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=repository,
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created_response = await client.post(
+            "/api/v1/chat/conversations", json={"title": "会话管理测试"}
+        )
+        conversation = ConversationResponse.model_validate(created_response.json())
+        accepted_response = await client.post(
+            f"/api/v1/chat/conversations/{conversation.id}/messages",
+            json={"client_message_id": str(uuid4()), "content": "你好，搜索我"},
+        )
+        accepted = MessageAcceptedResponse.model_validate(accepted_response.json())
+        for _ in range(50):
+            message_response = await client.get(
+                f"/api/v1/chat/conversations/{conversation.id}/messages"
+            )
+            messages = MessageListResponse.model_validate(message_response.json())
+            if messages.items[-1].status == "completed":
+                break
+            await asyncio.sleep(0.01)
+
+        update_response = await client.patch(
+            f"/api/v1/chat/conversations/{conversation.id}",
+            json={"title": "已置顶会话", "status": "archived", "pinned": True},
+        )
+        feedback_response = await client.put(
+            f"/api/v1/chat/messages/{accepted.response_message.id}/feedback",
+            json={"rating": "positive", "comment": "自然"},
+        )
+        feedback = MessageFeedbackResponse.model_validate(feedback_response.json())
+        feedback_list = await client.get(f"/api/v1/chat/conversations/{conversation.id}/feedback")
+        search_response = await client.get(
+            "/api/v1/chat/messages/search", params={"query": "搜索我"}
+        )
+        search = MessageSearchResponse.model_validate(search_response.json())
+        regenerate_response = await client.post(
+            f"/api/v1/chat/messages/{accepted.response_message.id}/regenerate",
+            json={"client_request_id": str(uuid4())},
+        )
+        branch_response = await client.post(
+            f"/api/v1/chat/messages/{accepted.user_message.id}/edit",
+            json={"client_message_id": str(uuid4()), "content": "你好"},
+        )
+        branch = MessageAcceptedResponse.model_validate(branch_response.json())
+        delete_feedback_response = await client.delete(
+            f"/api/v1/chat/messages/{accepted.response_message.id}/feedback"
+        )
+        delete_conversation_response = await client.delete(
+            f"/api/v1/chat/conversations/{conversation.id}"
+        )
+        conversations_response = await client.get("/api/v1/chat/conversations")
+
+    updated = ConversationResponse.model_validate(update_response.json())
+    regenerated = MessageAcceptedResponse.model_validate(regenerate_response.json())
+    assert updated.title == "已置顶会话"
+    assert updated.status == "archived"
+    assert updated.pinned_at is not None
+    assert feedback.rating == "positive"
+    assert feedback_list.json()["items"][0]["id"] == str(feedback.id)
+    assert accepted.user_message.id in {item.message.id for item in search.items}
+    assert regenerated.response_message.id != accepted.response_message.id
+    assert branch.user_message.edited_from_id == accepted.user_message.id
+    assert branch.user_message.conversation_id != conversation.id
+    assert delete_feedback_response.status_code == 204
+    assert delete_conversation_response.status_code == 200
+    remaining = ConversationListResponse.model_validate(conversations_response.json()).items
+    assert [item.id for item in remaining] == [branch.user_message.conversation_id]
 
 
 async def test_api_validation_errors_use_versioned_envelope_and_request_id() -> None:

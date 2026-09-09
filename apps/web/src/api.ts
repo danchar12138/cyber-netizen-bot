@@ -117,6 +117,11 @@ export interface Conversation {
   event_sequence: number
   created_at: string
   updated_at: string
+  pinned_at: string | null
+  archived_at: string | null
+  deleted_at: string | null
+  branched_from_conversation_id: string | null
+  branched_from_message_id: string | null
 }
 
 export interface ChatMessage {
@@ -129,6 +134,25 @@ export interface ChatMessage {
   client_message_id: string | null
   created_at: string
   updated_at: string
+  edited_from_id: string | null
+}
+
+export type MessageFeedbackRating = 'positive' | 'negative'
+
+export interface MessageFeedback {
+  id: string
+  conversation_id: string
+  message_id: string
+  user_id: string
+  rating: MessageFeedbackRating
+  comment: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MessageSearchResult {
+  conversation: Conversation
+  message: ChatMessage
 }
 
 export interface AgentRun {
@@ -288,6 +312,47 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   return response.json() as Promise<T>
 }
 
+async function patchJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: 'PATCH',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: { message?: string }
+    } | null
+    throw new Error(payload?.error?.message ?? `请求失败，状态码 ${response.status}`)
+  }
+  return response.json() as Promise<T>
+}
+
+async function putJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: 'PUT',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: { message?: string }
+    } | null
+    throw new Error(payload?.error?.message ?? `请求失败，状态码 ${response.status}`)
+  }
+  return response.json() as Promise<T>
+}
+
+async function deleteJson<T>(path: string): Promise<T> {
+  const response = await fetch(path, { method: 'DELETE', headers: { Accept: 'application/json' } })
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: { message?: string }
+    } | null
+    throw new Error(payload?.error?.message ?? `请求失败，状态码 ${response.status}`)
+  }
+  return response.json() as Promise<T>
+}
+
 async function deleteRequest(path: string): Promise<void> {
   const response = await fetch(path, { method: 'DELETE', headers: { Accept: 'application/json' } })
   if (!response.ok) {
@@ -396,11 +461,23 @@ export const clearSecret = (secretId: string) =>
 export const getDevelopmentIdentity = () =>
   getJson<DevelopmentIdentity>('/api/v1/chat/identity')
 
-export const getConversations = () =>
-  getJson<CursorPage<Conversation>>('/api/v1/chat/conversations?limit=100')
+export const getConversations = (search = '', status?: ConversationStatus) => {
+  const query = new URLSearchParams({ limit: '100' })
+  if (search.trim()) query.set('search', search.trim())
+  if (status) query.set('conversation_status', status)
+  return getJson<CursorPage<Conversation>>(`/api/v1/chat/conversations?${query}`)
+}
 
 export const createConversation = (title?: string) =>
   postJson<Conversation>('/api/v1/chat/conversations', { title: title || null })
+
+export const updateConversation = (
+  conversationId: string,
+  command: { title?: string; status?: ConversationStatus; pinned?: boolean },
+) => patchJson<Conversation>(`/api/v1/chat/conversations/${conversationId}`, command)
+
+export const deleteConversation = (conversationId: string) =>
+  deleteJson<Conversation>(`/api/v1/chat/conversations/${conversationId}`)
 
 export const getMessages = (conversationId: string) =>
   getJson<CursorPage<ChatMessage>>(
@@ -415,6 +492,40 @@ export const sendChatMessage = (
 
 export const cancelAgentRun = (runId: string) =>
   postJson<AgentRun>(`/api/v1/chat/runs/${runId}/cancel`)
+
+export const regenerateChatMessage = (messageId: string) =>
+  postJson<MessageAccepted>(`/api/v1/chat/messages/${messageId}/regenerate`, {
+    client_request_id: crypto.randomUUID(),
+  })
+
+export const editChatMessage = (messageId: string, content: string) =>
+  postJson<MessageAccepted>(`/api/v1/chat/messages/${messageId}/edit`, {
+    client_message_id: crypto.randomUUID(),
+    content,
+  })
+
+export const getMessageFeedback = (conversationId: string) =>
+  getJson<{ items: MessageFeedback[] }>(
+    `/api/v1/chat/conversations/${conversationId}/feedback`,
+  )
+
+export const setMessageFeedback = (
+  messageId: string,
+  rating: MessageFeedbackRating,
+  comment?: string,
+) => putJson<MessageFeedback>(`/api/v1/chat/messages/${messageId}/feedback`, {
+  rating,
+  comment: comment || null,
+})
+
+export const clearMessageFeedback = (messageId: string) =>
+  deleteRequest(`/api/v1/chat/messages/${messageId}/feedback`)
+
+export const searchChatMessages = (queryText: string, conversationId?: string) => {
+  const query = new URLSearchParams({ query: queryText, limit: '100' })
+  if (conversationId) query.set('conversation_id', conversationId)
+  return getJson<{ items: MessageSearchResult[] }>(`/api/v1/chat/messages/search?${query}`)
+}
 
 export function formatConfigValue(value: ConfigValue): string {
   if (value === null) return '未设置'

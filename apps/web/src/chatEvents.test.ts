@@ -13,6 +13,7 @@ const assistant: ChatMessage = {
   client_message_id: null,
   created_at: '2026-09-09T00:00:00Z',
   updated_at: '2026-09-09T00:00:00Z',
+  edited_from_id: null,
 }
 
 function event(eventType: string, payload: Record<string, unknown>): ConversationEvent {

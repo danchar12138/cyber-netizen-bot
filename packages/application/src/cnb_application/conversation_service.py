@@ -22,8 +22,12 @@ from cnb_domain import (
     AgentRun,
     Conversation,
     ConversationEvent,
+    ConversationStatus,
     DevelopmentIdentity,
     Message,
+    MessageFeedback,
+    MessageFeedbackRating,
+    MessageSearchResult,
     MessageSenderType,
     MessageStatus,
     PendingAgentRun,
@@ -67,6 +71,8 @@ class ConversationRepository(Protocol):
         user_id: UUID,
         limit: int,
         cursor: EntityCursor | None,
+        search: str | None,
+        status: ConversationStatus | None,
     ) -> tuple[Conversation, ...]: ...
 
     async def create_conversation(
@@ -79,6 +85,20 @@ class ConversationRepository(Protocol):
     async def get_conversation_for_user(
         self, conversation_id: UUID, user_id: UUID
     ) -> Conversation | None: ...
+
+    async def update_conversation(
+        self,
+        *,
+        conversation_id: UUID,
+        user_id: UUID,
+        title: str | None,
+        status: ConversationStatus | None,
+        pinned: bool | None,
+    ) -> Conversation: ...
+
+    async def soft_delete_conversation(
+        self, *, conversation_id: UUID, user_id: UUID
+    ) -> Conversation: ...
 
     async def list_messages(
         self,
@@ -94,6 +114,31 @@ class ConversationRepository(Protocol):
         *,
         identity: DevelopmentIdentity,
         conversation_id: UUID,
+        client_message_id: UUID,
+        content: str,
+        configuration_version: int,
+        persona_version: int,
+        prompt_version: int,
+        model_profile: str,
+    ) -> PendingAgentRun: ...
+
+    async def begin_regeneration(
+        self,
+        *,
+        identity: DevelopmentIdentity,
+        response_message_id: UUID,
+        client_request_id: UUID,
+        configuration_version: int,
+        persona_version: int,
+        prompt_version: int,
+        model_profile: str,
+    ) -> PendingAgentRun: ...
+
+    async def begin_edited_branch(
+        self,
+        *,
+        identity: DevelopmentIdentity,
+        source_message_id: UUID,
         client_message_id: UUID,
         content: str,
         configuration_version: int,
@@ -124,6 +169,30 @@ class ConversationRepository(Protocol):
         after_sequence: int,
         limit: int,
     ) -> tuple[ConversationEvent, ...]: ...
+
+    async def set_message_feedback(
+        self,
+        *,
+        message_id: UUID,
+        user_id: UUID,
+        rating: MessageFeedbackRating,
+        comment: str | None,
+    ) -> MessageFeedback: ...
+
+    async def delete_message_feedback(self, *, message_id: UUID, user_id: UUID) -> None: ...
+
+    async def list_message_feedback(
+        self, *, conversation_id: UUID, user_id: UUID
+    ) -> tuple[MessageFeedback, ...]: ...
+
+    async def search_messages(
+        self,
+        *,
+        user_id: UUID,
+        query: str,
+        conversation_id: UUID | None,
+        limit: int,
+    ) -> tuple[MessageSearchResult, ...]: ...
 
 
 class ModelProviderResolver(Protocol):
@@ -187,13 +256,20 @@ class ConversationService:
         return await self._repository.ensure_development_identity(self._identity)
 
     async def list_conversations(
-        self, *, limit: int, cursor: str | None
+        self,
+        *,
+        limit: int,
+        cursor: str | None,
+        search: str | None = None,
+        status: ConversationStatus | None = None,
     ) -> CursorPage[Conversation]:
         await self.ensure_development_identity()
         rows = await self._repository.list_conversations(
             user_id=self._identity.user_id,
             limit=limit + 1,
             cursor=decode_cursor(cursor),
+            search=search.strip() if search and search.strip() else None,
+            status=status,
         )
         return self._page(rows, limit, lambda item: EntityCursor(item.updated_at, item.id))
 
@@ -212,6 +288,31 @@ class ConversationService:
         if conversation is None:
             raise ConversationNotFoundError(f"会话不存在：{conversation_id}")
         return conversation
+
+    async def update_conversation(
+        self,
+        conversation_id: UUID,
+        *,
+        title: str | None,
+        status: ConversationStatus | None,
+        pinned: bool | None,
+    ) -> Conversation:
+        normalized_title = title.strip() if title is not None else None
+        if title is not None and not normalized_title:
+            raise ConversationConflictError("会话标题不能为空")
+        return await self._repository.update_conversation(
+            conversation_id=conversation_id,
+            user_id=self._identity.user_id,
+            title=normalized_title,
+            status=status,
+            pinned=pinned,
+        )
+
+    async def soft_delete_conversation(self, conversation_id: UUID) -> Conversation:
+        return await self._repository.soft_delete_conversation(
+            conversation_id=conversation_id,
+            user_id=self._identity.user_id,
+        )
 
     async def list_messages(
         self, conversation_id: UUID, *, limit: int, cursor: str | None
@@ -234,21 +335,51 @@ class ConversationService:
         content: str,
     ) -> PendingAgentRun:
         await self.get_conversation(conversation_id)
-        configuration = await self._configuration_service.resolve_effective(
-            tenant_id=self._identity.tenant_id,
-            agent_id=self._identity.agent_id,
-            user_id=self._identity.user_id,
-        )
-        provider_name, model_name = self._model_selection(configuration.values)
+        configuration_version, model_profile = await self._model_snapshot()
         return await self._repository.begin_agent_run(
             identity=self._identity,
             conversation_id=conversation_id,
             client_message_id=client_message_id,
             content=content.strip(),
-            configuration_version=configuration.version,
+            configuration_version=configuration_version,
             persona_version=1,
             prompt_version=1,
-            model_profile=f"{provider_name}/{model_name}",
+            model_profile=model_profile,
+        )
+
+    async def regenerate_response(
+        self, response_message_id: UUID, *, client_request_id: UUID
+    ) -> PendingAgentRun:
+        """保留旧回复和旧 Run，基于同一触发消息创建一次新运行。"""
+        configuration_version, model_profile = await self._model_snapshot()
+        return await self._repository.begin_regeneration(
+            identity=self._identity,
+            response_message_id=response_message_id,
+            client_request_id=client_request_id,
+            configuration_version=configuration_version,
+            persona_version=1,
+            prompt_version=1,
+            model_profile=model_profile,
+        )
+
+    async def edit_message_as_branch(
+        self,
+        source_message_id: UUID,
+        *,
+        client_message_id: UUID,
+        content: str,
+    ) -> PendingAgentRun:
+        """复制目标消息之前的可见历史，并以编辑内容启动新会话分支。"""
+        configuration_version, model_profile = await self._model_snapshot()
+        return await self._repository.begin_edited_branch(
+            identity=self._identity,
+            source_message_id=source_message_id,
+            client_message_id=client_message_id,
+            content=content.strip(),
+            configuration_version=configuration_version,
+            persona_version=1,
+            prompt_version=1,
+            model_profile=model_profile,
         )
 
     async def execute_run(self, pending: PendingAgentRun) -> None:
@@ -263,6 +394,17 @@ class ConversationService:
                 user_id=self._identity.user_id,
                 limit=40,
             )
+            trigger_index = next(
+                (
+                    index
+                    for index in range(len(context_messages) - 1, -1, -1)
+                    if context_messages[index].id == pending.trigger_message.id
+                ),
+                None,
+            )
+            if trigger_index is None:
+                raise ConversationConflictError("Agent Run 的触发消息不在会话上下文中")
+            context_messages = context_messages[: trigger_index + 1]
             context = CognitiveContext(
                 run_id=pending.run.id,
                 configuration_version=pending.run.configuration_version,
@@ -338,6 +480,51 @@ class ConversationService:
             limit=limit,
         )
 
+    async def set_message_feedback(
+        self,
+        message_id: UUID,
+        *,
+        rating: MessageFeedbackRating,
+        comment: str | None,
+    ) -> MessageFeedback:
+        normalized_comment = comment.strip() if comment and comment.strip() else None
+        return await self._repository.set_message_feedback(
+            message_id=message_id,
+            user_id=self._identity.user_id,
+            rating=rating,
+            comment=normalized_comment,
+        )
+
+    async def delete_message_feedback(self, message_id: UUID) -> None:
+        await self._repository.delete_message_feedback(
+            message_id=message_id, user_id=self._identity.user_id
+        )
+
+    async def list_message_feedback(self, conversation_id: UUID) -> tuple[MessageFeedback, ...]:
+        await self.get_conversation(conversation_id)
+        return await self._repository.list_message_feedback(
+            conversation_id=conversation_id, user_id=self._identity.user_id
+        )
+
+    async def search_messages(
+        self,
+        *,
+        query: str,
+        conversation_id: UUID | None,
+        limit: int,
+    ) -> tuple[MessageSearchResult, ...]:
+        normalized_query = query.strip()
+        if not normalized_query:
+            raise ConversationConflictError("搜索关键词不能为空")
+        if conversation_id is not None:
+            await self.get_conversation(conversation_id)
+        return await self._repository.search_messages(
+            user_id=self._identity.user_id,
+            query=normalized_query,
+            conversation_id=conversation_id,
+            limit=limit,
+        )
+
     @staticmethod
     def _page[T](
         rows: Sequence[T],
@@ -386,3 +573,12 @@ class ConversationService:
                 raise ModelProviderConfigurationError("OpenAI 模型名称不能为空")
             return provider, model
         raise ModelProviderConfigurationError(f"不支持的模型 Provider：{provider}")
+
+    async def _model_snapshot(self) -> tuple[int, str]:
+        configuration = await self._configuration_service.resolve_effective(
+            tenant_id=self._identity.tenant_id,
+            agent_id=self._identity.agent_id,
+            user_id=self._identity.user_id,
+        )
+        provider_name, model_name = self._model_selection(configuration.values)
+        return configuration.version, f"{provider_name}/{model_name}"

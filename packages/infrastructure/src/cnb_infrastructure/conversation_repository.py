@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -25,6 +25,9 @@ from cnb_domain import (
     DevelopmentIdentity,
     JsonValue,
     Message,
+    MessageFeedback,
+    MessageFeedbackRating,
+    MessageSearchResult,
     MessageSenderType,
     MessageStatus,
     PendingAgentRun,
@@ -35,6 +38,7 @@ from cnb_infrastructure.models import (
     ConversationEventModel,
     ConversationMember,
     ConversationModel,
+    MessageFeedbackModel,
     MessageModel,
     Tenant,
     User,
@@ -52,6 +56,8 @@ class MemoryConversationRepository:
         self._conversation_messages: dict[UUID, list[UUID]] = {}
         self._runs: dict[UUID, AgentRun] = {}
         self._client_runs: dict[tuple[UUID, UUID, UUID], UUID] = {}
+        self._edited_branches: dict[tuple[UUID, UUID, UUID], UUID] = {}
+        self._feedback: dict[tuple[UUID, UUID], MessageFeedback] = {}
         self._events: dict[UUID, list[ConversationEvent]] = {}
         self._lock = asyncio.Lock()
 
@@ -68,12 +74,17 @@ class MemoryConversationRepository:
         user_id: UUID,
         limit: int,
         cursor: EntityCursor | None,
+        search: str | None,
+        status: ConversationStatus | None,
     ) -> tuple[Conversation, ...]:
         async with self._lock:
             rows = [
                 item
                 for item in self._conversations.values()
                 if (item.id, user_id) in self._members
+                and item.deleted_at is None
+                and (search is None or search.casefold() in item.title.casefold())
+                and (status is None or item.status is status)
                 and (
                     cursor is None
                     or (item.updated_at, item.id) < (cursor.occurred_at, cursor.entity_id)
@@ -119,7 +130,69 @@ class MemoryConversationRepository:
         async with self._lock:
             if (conversation_id, user_id) not in self._members:
                 return None
-            return self._conversations.get(conversation_id)
+            conversation = self._conversations.get(conversation_id)
+            return (
+                conversation
+                if conversation is not None and conversation.deleted_at is None
+                else None
+            )
+
+    async def update_conversation(
+        self,
+        *,
+        conversation_id: UUID,
+        user_id: UUID,
+        title: str | None,
+        status: ConversationStatus | None,
+        pinned: bool | None,
+    ) -> Conversation:
+        async with self._lock:
+            conversation = self._require_conversation(conversation_id, user_id)
+            now = datetime.now(UTC)
+            updated = replace(
+                conversation,
+                title=title if title is not None else conversation.title,
+                status=status if status is not None else conversation.status,
+                pinned_at=(now if pinned else None)
+                if pinned is not None
+                else conversation.pinned_at,
+                archived_at=(
+                    now
+                    if status is ConversationStatus.ARCHIVED
+                    else None
+                    if status is ConversationStatus.ACTIVE
+                    else conversation.archived_at
+                ),
+                updated_at=now,
+            )
+            self._conversations[conversation_id] = updated
+            self._emit(
+                conversation_id,
+                "conversation.updated",
+                self.conversation_payload(updated),
+            )
+            return self._conversations[conversation_id]
+
+    async def soft_delete_conversation(
+        self, *, conversation_id: UUID, user_id: UUID
+    ) -> Conversation:
+        async with self._lock:
+            if (conversation_id, user_id) not in self._members:
+                raise ConversationConflictError("当前用户无权访问该会话")
+            conversation = self._conversations.get(conversation_id)
+            if conversation is None:
+                raise ConversationConflictError("会话不存在")
+            if conversation.deleted_at is not None:
+                return conversation
+            now = datetime.now(UTC)
+            deleted = replace(conversation, deleted_at=now, pinned_at=None, updated_at=now)
+            self._conversations[conversation_id] = deleted
+            self._emit(
+                conversation_id,
+                "conversation.deleted",
+                self.conversation_payload(deleted),
+            )
+            return self._conversations[conversation_id]
 
     async def list_messages(
         self,
@@ -166,7 +239,7 @@ class MemoryConversationRepository:
                 return self._pending(existing, created=False)
 
             conversation = self._require_conversation(conversation_id, identity.user_id)
-            now = datetime.now(UTC)
+            now = self._next_message_time(conversation.id)
             trigger = Message(
                 id=uuid4(),
                 tenant_id=identity.tenant_id,
@@ -232,6 +305,226 @@ class MemoryConversationRepository:
             )
             self._emit(
                 conversation_id,
+                "run.queued",
+                self.run_payload(run),
+                run_id=run.id,
+                message_id=response.id,
+            )
+            return self._pending(run, created=True)
+
+    async def begin_regeneration(
+        self,
+        *,
+        identity: DevelopmentIdentity,
+        response_message_id: UUID,
+        client_request_id: UUID,
+        configuration_version: int,
+        persona_version: int,
+        prompt_version: int,
+        model_profile: str,
+    ) -> PendingAgentRun:
+        async with self._lock:
+            original_response = self._messages.get(response_message_id)
+            if original_response is None:
+                raise ConversationConflictError("要重新生成的回复不存在")
+            conversation = self._require_conversation(
+                original_response.conversation_id, identity.user_id
+            )
+            if original_response.sender_type is not MessageSenderType.AGENT:
+                raise ConversationConflictError("只能重新生成 Agent 回复")
+            client_key = (conversation.id, identity.agent_id, client_request_id)
+            existing_id = self._client_runs.get(client_key)
+            if existing_id is not None:
+                return self._pending(self._runs[existing_id], created=False)
+            original_run = next(
+                (
+                    item
+                    for item in self._runs.values()
+                    if item.response_message_id == response_message_id
+                ),
+                None,
+            )
+            if original_run is None:
+                raise ConversationConflictError("要重新生成的回复缺少关联 Agent Run")
+            now = self._next_message_time(conversation.id)
+            response = Message(
+                id=uuid4(),
+                tenant_id=identity.tenant_id,
+                conversation_id=conversation.id,
+                sender_type=MessageSenderType.AGENT,
+                sender_id=identity.agent_id,
+                content="",
+                status=MessageStatus.PROCESSING,
+                client_message_id=client_request_id,
+                created_at=now,
+                updated_at=now,
+            )
+            run = AgentRun(
+                id=uuid4(),
+                tenant_id=identity.tenant_id,
+                conversation_id=conversation.id,
+                agent_id=identity.agent_id,
+                trigger_message_id=original_run.trigger_message_id,
+                response_message_id=response.id,
+                status=AgentRunStatus.QUEUED,
+                configuration_version=configuration_version,
+                persona_version=persona_version,
+                prompt_version=prompt_version,
+                model_profile=model_profile,
+                input_tokens=None,
+                output_tokens=None,
+                error_code=None,
+                created_at=now,
+                started_at=None,
+                completed_at=None,
+            )
+            self._messages[response.id] = response
+            self._conversation_messages[conversation.id].append(response.id)
+            self._runs[run.id] = run
+            self._client_runs[client_key] = run.id
+            self._conversations[conversation.id] = replace(conversation, updated_at=now)
+            self._emit(
+                conversation.id,
+                "message.created",
+                self.message_payload(response),
+                run_id=run.id,
+                message_id=response.id,
+            )
+            self._emit(
+                conversation.id,
+                "run.queued",
+                self.run_payload(run),
+                run_id=run.id,
+                message_id=response.id,
+            )
+            return self._pending(run, created=True)
+
+    async def begin_edited_branch(
+        self,
+        *,
+        identity: DevelopmentIdentity,
+        source_message_id: UUID,
+        client_message_id: UUID,
+        content: str,
+        configuration_version: int,
+        persona_version: int,
+        prompt_version: int,
+        model_profile: str,
+    ) -> PendingAgentRun:
+        async with self._lock:
+            branch_key = (source_message_id, identity.user_id, client_message_id)
+            existing_id = self._edited_branches.get(branch_key)
+            if existing_id is not None:
+                return self._pending(self._runs[existing_id], created=False)
+            source = self._messages.get(source_message_id)
+            if source is None:
+                raise ConversationConflictError("要编辑的消息不存在")
+            original = self._require_conversation(source.conversation_id, identity.user_id)
+            if source.sender_type is not MessageSenderType.USER:
+                raise ConversationConflictError("只能编辑用户消息并创建分支")
+            now = datetime.now(UTC)
+            branch = Conversation(
+                id=uuid4(),
+                tenant_id=original.tenant_id,
+                agent_id=original.agent_id,
+                title=f"{original.title}（分支）"[:200],
+                status=ConversationStatus.ACTIVE,
+                created_by=identity.user_id,
+                event_sequence=0,
+                created_at=now,
+                updated_at=now,
+                branched_from_conversation_id=original.id,
+                branched_from_message_id=source.id,
+            )
+            self._conversations[branch.id] = branch
+            self._members.add((branch.id, identity.user_id))
+            self._conversation_messages[branch.id] = []
+            self._events[branch.id] = []
+            self._emit(branch.id, "conversation.created", self.conversation_payload(branch))
+            ordered_source = [
+                self._messages[item]
+                for item in self._conversation_messages[original.id]
+                if (self._messages[item].created_at, self._messages[item].id)
+                < (source.created_at, source.id)
+            ]
+            for index, item in enumerate(ordered_source, start=1):
+                copied = replace(
+                    item,
+                    id=uuid4(),
+                    conversation_id=branch.id,
+                    client_message_id=None,
+                    created_at=now + timedelta(microseconds=index),
+                    updated_at=now + timedelta(microseconds=index),
+                )
+                self._messages[copied.id] = copied
+                self._conversation_messages[branch.id].append(copied.id)
+                self._emit(
+                    branch.id,
+                    "message.created",
+                    self.message_payload(copied),
+                    message_id=copied.id,
+                )
+            trigger_time = now + timedelta(microseconds=len(ordered_source) + 1)
+            trigger = Message(
+                id=uuid4(),
+                tenant_id=identity.tenant_id,
+                conversation_id=branch.id,
+                sender_type=MessageSenderType.USER,
+                sender_id=identity.user_id,
+                content=content,
+                status=MessageStatus.RECEIVED,
+                client_message_id=client_message_id,
+                created_at=trigger_time,
+                updated_at=trigger_time,
+                edited_from_id=source.id,
+            )
+            response = Message(
+                id=uuid4(),
+                tenant_id=identity.tenant_id,
+                conversation_id=branch.id,
+                sender_type=MessageSenderType.AGENT,
+                sender_id=identity.agent_id,
+                content="",
+                status=MessageStatus.PROCESSING,
+                client_message_id=None,
+                created_at=trigger_time + timedelta(microseconds=1),
+                updated_at=trigger_time + timedelta(microseconds=1),
+            )
+            run = AgentRun(
+                id=uuid4(),
+                tenant_id=identity.tenant_id,
+                conversation_id=branch.id,
+                agent_id=identity.agent_id,
+                trigger_message_id=trigger.id,
+                response_message_id=response.id,
+                status=AgentRunStatus.QUEUED,
+                configuration_version=configuration_version,
+                persona_version=persona_version,
+                prompt_version=prompt_version,
+                model_profile=model_profile,
+                input_tokens=None,
+                output_tokens=None,
+                error_code=None,
+                created_at=trigger_time,
+                started_at=None,
+                completed_at=None,
+            )
+            self._messages[trigger.id] = trigger
+            self._messages[response.id] = response
+            self._conversation_messages[branch.id].extend((trigger.id, response.id))
+            self._runs[run.id] = run
+            self._client_runs[(branch.id, identity.user_id, client_message_id)] = run.id
+            self._edited_branches[branch_key] = run.id
+            for item in (trigger, response):
+                self._emit(
+                    branch.id,
+                    "message.created",
+                    self.message_payload(item),
+                    run_id=run.id,
+                    message_id=item.id,
+                )
+            self._emit(
+                branch.id,
                 "run.queued",
                 self.run_payload(run),
                 run_id=run.id,
@@ -399,13 +692,125 @@ class MemoryConversationRepository:
                 if item.sequence > after_sequence
             )[:limit]
 
+    async def set_message_feedback(
+        self,
+        *,
+        message_id: UUID,
+        user_id: UUID,
+        rating: MessageFeedbackRating,
+        comment: str | None,
+    ) -> MessageFeedback:
+        async with self._lock:
+            message = self._messages.get(message_id)
+            if message is None:
+                raise ConversationConflictError("要反馈的消息不存在")
+            self._require_conversation(message.conversation_id, user_id)
+            if message.sender_type is not MessageSenderType.AGENT:
+                raise ConversationConflictError("只能对 Agent 回复提交反馈")
+            key = (message_id, user_id)
+            now = datetime.now(UTC)
+            existing = self._feedback.get(key)
+            feedback = (
+                replace(existing, rating=rating, comment=comment, updated_at=now)
+                if existing is not None
+                else MessageFeedback(
+                    id=uuid4(),
+                    tenant_id=message.tenant_id,
+                    conversation_id=message.conversation_id,
+                    message_id=message.id,
+                    user_id=user_id,
+                    rating=rating,
+                    comment=comment,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            self._feedback[key] = feedback
+            self._emit(
+                message.conversation_id,
+                "message.feedback.updated",
+                self.feedback_payload(feedback),
+                message_id=message.id,
+            )
+            return feedback
+
+    async def delete_message_feedback(self, *, message_id: UUID, user_id: UUID) -> None:
+        async with self._lock:
+            message = self._messages.get(message_id)
+            if message is None:
+                raise ConversationConflictError("要反馈的消息不存在")
+            self._require_conversation(message.conversation_id, user_id)
+            if self._feedback.pop((message_id, user_id), None) is not None:
+                self._emit(
+                    message.conversation_id,
+                    "message.feedback.deleted",
+                    {"message_id": str(message.id), "user_id": str(user_id)},
+                    message_id=message.id,
+                )
+
+    async def list_message_feedback(
+        self, *, conversation_id: UUID, user_id: UUID
+    ) -> tuple[MessageFeedback, ...]:
+        async with self._lock:
+            self._require_conversation(conversation_id, user_id)
+            return tuple(
+                sorted(
+                    (
+                        item
+                        for item in self._feedback.values()
+                        if item.conversation_id == conversation_id and item.user_id == user_id
+                    ),
+                    key=lambda item: (item.created_at, item.id),
+                )
+            )
+
+    async def search_messages(
+        self,
+        *,
+        user_id: UUID,
+        query: str,
+        conversation_id: UUID | None,
+        limit: int,
+    ) -> tuple[MessageSearchResult, ...]:
+        async with self._lock:
+            needle = query.casefold()
+            results = (
+                MessageSearchResult(
+                    conversation=self._conversations[item.conversation_id], message=item
+                )
+                for item in self._messages.values()
+                if needle in item.content.casefold()
+                and (item.conversation_id, user_id) in self._members
+                and self._conversations[item.conversation_id].deleted_at is None
+                and (conversation_id is None or item.conversation_id == conversation_id)
+            )
+            return tuple(
+                sorted(
+                    results,
+                    key=lambda item: (item.message.created_at, item.message.id),
+                    reverse=True,
+                )[:limit]
+            )
+
     def _require_conversation(self, conversation_id: UUID, user_id: UUID) -> Conversation:
         if (conversation_id, user_id) not in self._members:
             raise ConversationConflictError("当前用户无权访问该会话")
         try:
-            return self._conversations[conversation_id]
+            conversation = self._conversations[conversation_id]
         except KeyError as error:
             raise ConversationConflictError("会话不存在") from error
+        if conversation.deleted_at is not None:
+            raise ConversationConflictError("会话已删除")
+        return conversation
+
+    def _next_message_time(self, conversation_id: UUID) -> datetime:
+        """在系统时钟精度不足时仍保证同一会话内新消息严格后置。"""
+        now = datetime.now(UTC)
+        message_ids = self._conversation_messages.get(conversation_id, [])
+        if not message_ids:
+            return now
+        latest = max(self._messages[message_id].created_at for message_id in message_ids)
+        return max(now, latest + timedelta(microseconds=1))
 
     def _require_run(self, run_id: UUID) -> AgentRun:
         try:
@@ -468,6 +873,36 @@ class MemoryConversationRepository:
             ),
             "created_at": message.created_at.isoformat(),
             "updated_at": message.updated_at.isoformat(),
+            "edited_from_id": str(message.edited_from_id) if message.edited_from_id else None,
+        }
+
+    @staticmethod
+    def conversation_payload(conversation: Conversation) -> dict[str, JsonValue]:
+        return {
+            "id": str(conversation.id),
+            "title": conversation.title,
+            "status": conversation.status.value,
+            "pinned_at": conversation.pinned_at.isoformat() if conversation.pinned_at else None,
+            "archived_at": (
+                conversation.archived_at.isoformat() if conversation.archived_at else None
+            ),
+            "deleted_at": (
+                conversation.deleted_at.isoformat() if conversation.deleted_at else None
+            ),
+            "updated_at": conversation.updated_at.isoformat(),
+        }
+
+    @staticmethod
+    def feedback_payload(feedback: MessageFeedback) -> dict[str, JsonValue]:
+        return {
+            "id": str(feedback.id),
+            "conversation_id": str(feedback.conversation_id),
+            "message_id": str(feedback.message_id),
+            "user_id": str(feedback.user_id),
+            "rating": feedback.rating.value,
+            "comment": feedback.comment,
+            "created_at": feedback.created_at.isoformat(),
+            "updated_at": feedback.updated_at.isoformat(),
         }
 
     @staticmethod
@@ -527,11 +962,16 @@ class SqlAlchemyConversationRepository:
         user_id: UUID,
         limit: int,
         cursor: EntityCursor | None,
+        search: str | None,
+        status: ConversationStatus | None,
     ) -> tuple[Conversation, ...]:
         statement = (
             select(ConversationModel)
             .join(ConversationMember)
-            .where(ConversationMember.user_id == user_id)
+            .where(
+                ConversationMember.user_id == user_id,
+                ConversationModel.deleted_at.is_(None),
+            )
             .order_by(ConversationModel.updated_at.desc(), ConversationModel.id.desc())
             .limit(limit)
         )
@@ -545,6 +985,10 @@ class SqlAlchemyConversationRepository:
                     ),
                 )
             )
+        if search is not None:
+            statement = statement.where(ConversationModel.title.ilike(f"%{search}%"))
+        if status is not None:
+            statement = statement.where(ConversationModel.status == status.value)
         async with self._session_factory() as session:
             return tuple(self._conversation(row) for row in await session.scalars(statement))
 
@@ -593,9 +1037,69 @@ class SqlAlchemyConversationRepository:
                 .where(
                     ConversationModel.id == conversation_id,
                     ConversationMember.user_id == user_id,
+                    ConversationModel.deleted_at.is_(None),
                 )
             )
             return None if row is None else self._conversation(row)
+
+    async def update_conversation(
+        self,
+        *,
+        conversation_id: UUID,
+        user_id: UUID,
+        title: str | None,
+        status: ConversationStatus | None,
+        pinned: bool | None,
+    ) -> Conversation:
+        async with self._session_factory() as session, session.begin():
+            row = await self._locked_conversation(session, conversation_id, user_id)
+            now = datetime.now(UTC)
+            if title is not None:
+                row.title = title
+            if status is not None:
+                row.status = status.value
+                row.archived_at = now if status is ConversationStatus.ARCHIVED else None
+            if pinned is not None:
+                row.pinned_at = now if pinned else None
+            row.updated_at = now
+            await self._emit(
+                session,
+                row,
+                "conversation.updated",
+                self.conversation_payload(self._conversation(row)),
+            )
+            await session.flush()
+            return self._conversation(row)
+
+    async def soft_delete_conversation(
+        self, *, conversation_id: UUID, user_id: UUID
+    ) -> Conversation:
+        async with self._session_factory() as session, session.begin():
+            row = await session.scalar(
+                select(ConversationModel)
+                .join(ConversationMember)
+                .where(
+                    ConversationModel.id == conversation_id,
+                    ConversationMember.user_id == user_id,
+                )
+                .with_for_update()
+            )
+            if row is None:
+                raise ConversationConflictError("当前用户无权访问该会话")
+            if row.deleted_at is not None:
+                return self._conversation(row)
+            now = datetime.now(UTC)
+            row.deleted_at = now
+            row.pinned_at = None
+            row.updated_at = now
+            await self._emit(
+                session,
+                row,
+                "conversation.deleted",
+                self.conversation_payload(self._conversation(row)),
+            )
+            await session.flush()
+            return self._conversation(row)
 
     async def list_messages(
         self,
@@ -656,9 +1160,10 @@ class SqlAlchemyConversationRepository:
             )
             if existing_trigger is not None:
                 existing_run = await session.scalar(
-                    select(AgentRunModel).where(
-                        AgentRunModel.trigger_message_id == existing_trigger.id
-                    )
+                    select(AgentRunModel)
+                    .where(AgentRunModel.trigger_message_id == existing_trigger.id)
+                    .order_by(AgentRunModel.created_at, AgentRunModel.id)
+                    .limit(1)
                 )
                 if existing_run is None:
                     raise ConversationConflictError("幂等消息缺少关联的 Agent Run")
@@ -673,7 +1178,7 @@ class SqlAlchemyConversationRepository:
                     created=False,
                 )
 
-            now = datetime.now(UTC)
+            now = await self._next_persisted_message_time(session, conversation_id)
             trigger = MessageModel(
                 id=uuid4(),
                 tenant_id=identity.tenant_id,
@@ -743,6 +1248,334 @@ class SqlAlchemyConversationRepository:
             await session.flush()
             return PendingAgentRun(
                 conversation=self._conversation(conversation),
+                trigger_message=self._message(trigger),
+                response_message=self._message(response),
+                run=self._run(run),
+                created=True,
+            )
+
+    async def begin_regeneration(
+        self,
+        *,
+        identity: DevelopmentIdentity,
+        response_message_id: UUID,
+        client_request_id: UUID,
+        configuration_version: int,
+        persona_version: int,
+        prompt_version: int,
+        model_profile: str,
+    ) -> PendingAgentRun:
+        async with self._session_factory() as session, session.begin():
+            original_response = await session.scalar(
+                select(MessageModel)
+                .join(
+                    ConversationMember,
+                    ConversationMember.conversation_id == MessageModel.conversation_id,
+                )
+                .join(
+                    ConversationModel,
+                    ConversationModel.id == MessageModel.conversation_id,
+                )
+                .where(
+                    MessageModel.id == response_message_id,
+                    ConversationMember.user_id == identity.user_id,
+                    ConversationModel.deleted_at.is_(None),
+                )
+            )
+            if original_response is None:
+                raise ConversationConflictError("要重新生成的回复不存在")
+            if original_response.sender_type != MessageSenderType.AGENT.value:
+                raise ConversationConflictError("只能重新生成 Agent 回复")
+            conversation = await self._locked_conversation(
+                session, original_response.conversation_id, identity.user_id
+            )
+            existing_response = await session.scalar(
+                select(MessageModel).where(
+                    MessageModel.conversation_id == conversation.id,
+                    MessageModel.sender_id == identity.agent_id,
+                    MessageModel.client_message_id == client_request_id,
+                )
+            )
+            if existing_response is not None:
+                existing_run = await session.scalar(
+                    select(AgentRunModel).where(
+                        AgentRunModel.response_message_id == existing_response.id
+                    )
+                )
+                if existing_run is None:
+                    raise ConversationConflictError("幂等重新生成请求缺少 Agent Run")
+                trigger = await self._required_message(session, existing_run.trigger_message_id)
+                return PendingAgentRun(
+                    conversation=self._conversation(conversation),
+                    trigger_message=self._message(trigger),
+                    response_message=self._message(existing_response),
+                    run=self._run(existing_run),
+                    created=False,
+                )
+            original_run = await session.scalar(
+                select(AgentRunModel).where(
+                    AgentRunModel.response_message_id == response_message_id
+                )
+            )
+            if original_run is None:
+                raise ConversationConflictError("要重新生成的回复缺少关联 Agent Run")
+            trigger = await self._required_message(session, original_run.trigger_message_id)
+            now = await self._next_persisted_message_time(session, conversation.id)
+            response = MessageModel(
+                id=uuid4(),
+                tenant_id=identity.tenant_id,
+                conversation_id=conversation.id,
+                sender_type=MessageSenderType.AGENT.value,
+                sender_id=identity.agent_id,
+                content="",
+                status=MessageStatus.PROCESSING.value,
+                client_message_id=client_request_id,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(response)
+            await session.flush()
+            run = AgentRunModel(
+                id=uuid4(),
+                tenant_id=identity.tenant_id,
+                conversation_id=conversation.id,
+                agent_id=identity.agent_id,
+                trigger_message_id=trigger.id,
+                response_message_id=response.id,
+                status=AgentRunStatus.QUEUED.value,
+                configuration_version=configuration_version,
+                persona_version=persona_version,
+                prompt_version=prompt_version,
+                model_profile=model_profile,
+            )
+            session.add(run)
+            conversation.updated_at = now
+            await session.flush()
+            await self._emit(
+                session,
+                conversation,
+                "message.created",
+                self.message_payload(self._message(response)),
+                run_id=run.id,
+                message_id=response.id,
+            )
+            await self._emit(
+                session,
+                conversation,
+                "run.queued",
+                self.run_payload(self._run(run)),
+                run_id=run.id,
+                message_id=response.id,
+            )
+            await session.flush()
+            return PendingAgentRun(
+                conversation=self._conversation(conversation),
+                trigger_message=self._message(trigger),
+                response_message=self._message(response),
+                run=self._run(run),
+                created=True,
+            )
+
+    async def begin_edited_branch(
+        self,
+        *,
+        identity: DevelopmentIdentity,
+        source_message_id: UUID,
+        client_message_id: UUID,
+        content: str,
+        configuration_version: int,
+        persona_version: int,
+        prompt_version: int,
+        model_profile: str,
+    ) -> PendingAgentRun:
+        async with self._session_factory() as session, session.begin():
+            source = await session.scalar(
+                select(MessageModel)
+                .join(
+                    ConversationMember,
+                    ConversationMember.conversation_id == MessageModel.conversation_id,
+                )
+                .join(
+                    ConversationModel,
+                    ConversationModel.id == MessageModel.conversation_id,
+                )
+                .where(
+                    MessageModel.id == source_message_id,
+                    ConversationMember.user_id == identity.user_id,
+                    ConversationModel.deleted_at.is_(None),
+                )
+            )
+            if source is None:
+                raise ConversationConflictError("要编辑的消息不存在")
+            if source.sender_type != MessageSenderType.USER.value:
+                raise ConversationConflictError("只能编辑用户消息并创建分支")
+            existing_trigger = await session.scalar(
+                select(MessageModel)
+                .join(
+                    ConversationModel,
+                    ConversationModel.id == MessageModel.conversation_id,
+                )
+                .where(
+                    MessageModel.edited_from_id == source.id,
+                    MessageModel.sender_id == identity.user_id,
+                    MessageModel.client_message_id == client_message_id,
+                    ConversationModel.branched_from_message_id == source.id,
+                )
+            )
+            if existing_trigger is not None:
+                existing_run = await session.scalar(
+                    select(AgentRunModel).where(
+                        AgentRunModel.trigger_message_id == existing_trigger.id
+                    )
+                )
+                branch = await session.get(ConversationModel, existing_trigger.conversation_id)
+                response = (
+                    await session.get(MessageModel, existing_run.response_message_id)
+                    if existing_run is not None
+                    else None
+                )
+                if existing_run is None or branch is None or response is None:
+                    raise ConversationConflictError("幂等编辑分支缺少关联资源")
+                return PendingAgentRun(
+                    conversation=self._conversation(branch),
+                    trigger_message=self._message(existing_trigger),
+                    response_message=self._message(response),
+                    run=self._run(existing_run),
+                    created=False,
+                )
+            original = await self._locked_conversation(
+                session, source.conversation_id, identity.user_id
+            )
+            now = datetime.now(UTC)
+            branch = ConversationModel(
+                id=uuid4(),
+                tenant_id=original.tenant_id,
+                agent_id=original.agent_id,
+                title=f"{original.title}（分支）"[:200],
+                status=ConversationStatus.ACTIVE.value,
+                created_by=identity.user_id,
+                event_sequence=0,
+                created_at=now,
+                updated_at=now,
+                branched_from_conversation_id=original.id,
+                branched_from_message_id=source.id,
+            )
+            session.add(branch)
+            session.add(
+                ConversationMember(
+                    id=uuid4(),
+                    conversation_id=branch.id,
+                    user_id=identity.user_id,
+                    role="owner",
+                )
+            )
+            await session.flush()
+            await self._emit(
+                session,
+                branch,
+                "conversation.created",
+                self.conversation_payload(self._conversation(branch)),
+            )
+            source_rows = await session.scalars(
+                select(MessageModel)
+                .where(
+                    MessageModel.conversation_id == original.id,
+                    or_(
+                        MessageModel.created_at < source.created_at,
+                        and_(
+                            MessageModel.created_at == source.created_at,
+                            MessageModel.id < source.id,
+                        ),
+                    ),
+                )
+                .order_by(MessageModel.created_at, MessageModel.id)
+            )
+            copied_count = 0
+            for index, item in enumerate(source_rows, start=1):
+                copied_count = index
+                copied = MessageModel(
+                    id=uuid4(),
+                    tenant_id=item.tenant_id,
+                    conversation_id=branch.id,
+                    sender_type=item.sender_type,
+                    sender_id=item.sender_id,
+                    content=item.content,
+                    status=item.status,
+                    client_message_id=None,
+                    created_at=now + timedelta(microseconds=index),
+                    updated_at=now + timedelta(microseconds=index),
+                )
+                session.add(copied)
+                await session.flush()
+                await self._emit(
+                    session,
+                    branch,
+                    "message.created",
+                    self.message_payload(self._message(copied)),
+                    message_id=copied.id,
+                )
+            trigger_time = now + timedelta(microseconds=copied_count + 1)
+            trigger = MessageModel(
+                id=uuid4(),
+                tenant_id=identity.tenant_id,
+                conversation_id=branch.id,
+                sender_type=MessageSenderType.USER.value,
+                sender_id=identity.user_id,
+                content=content,
+                status=MessageStatus.RECEIVED.value,
+                client_message_id=client_message_id,
+                created_at=trigger_time,
+                updated_at=trigger_time,
+                edited_from_id=source.id,
+            )
+            response = MessageModel(
+                id=uuid4(),
+                tenant_id=identity.tenant_id,
+                conversation_id=branch.id,
+                sender_type=MessageSenderType.AGENT.value,
+                sender_id=identity.agent_id,
+                content="",
+                status=MessageStatus.PROCESSING.value,
+                client_message_id=None,
+                created_at=trigger_time + timedelta(microseconds=1),
+                updated_at=trigger_time + timedelta(microseconds=1),
+            )
+            session.add_all((trigger, response))
+            await session.flush()
+            run = AgentRunModel(
+                id=uuid4(),
+                tenant_id=identity.tenant_id,
+                conversation_id=branch.id,
+                agent_id=identity.agent_id,
+                trigger_message_id=trigger.id,
+                response_message_id=response.id,
+                status=AgentRunStatus.QUEUED.value,
+                configuration_version=configuration_version,
+                persona_version=persona_version,
+                prompt_version=prompt_version,
+                model_profile=model_profile,
+            )
+            session.add(run)
+            for item in (trigger, response):
+                await self._emit(
+                    session,
+                    branch,
+                    "message.created",
+                    self.message_payload(self._message(item)),
+                    run_id=run.id,
+                    message_id=item.id,
+                )
+            await self._emit(
+                session,
+                branch,
+                "run.queued",
+                self.run_payload(self._run(run)),
+                run_id=run.id,
+                message_id=response.id,
+            )
+            await session.flush()
+            return PendingAgentRun(
+                conversation=self._conversation(branch),
                 trigger_message=self._message(trigger),
                 response_message=self._message(response),
                 run=self._run(run),
@@ -912,6 +1745,137 @@ class SqlAlchemyConversationRepository:
             )
             return tuple(self._event(row) for row in rows)
 
+    async def set_message_feedback(
+        self,
+        *,
+        message_id: UUID,
+        user_id: UUID,
+        rating: MessageFeedbackRating,
+        comment: str | None,
+    ) -> MessageFeedback:
+        async with self._session_factory() as session, session.begin():
+            message = await self._accessible_message(session, message_id, user_id)
+            if message.sender_type != MessageSenderType.AGENT.value:
+                raise ConversationConflictError("只能对 Agent 回复提交反馈")
+            conversation = await self._locked_conversation(
+                session, message.conversation_id, user_id
+            )
+            now = datetime.now(UTC)
+            statement = (
+                insert(MessageFeedbackModel)
+                .values(
+                    id=uuid4(),
+                    tenant_id=message.tenant_id,
+                    conversation_id=message.conversation_id,
+                    message_id=message.id,
+                    user_id=user_id,
+                    rating=rating.value,
+                    comment=comment,
+                    created_at=now,
+                    updated_at=now,
+                )
+                .on_conflict_do_update(
+                    constraint="uq_message_feedback_user",
+                    set_={"rating": rating.value, "comment": comment, "updated_at": now},
+                )
+                .returning(MessageFeedbackModel)
+            )
+            feedback = (await session.scalars(statement)).one()
+            await self._emit(
+                session,
+                conversation,
+                "message.feedback.updated",
+                self.feedback_payload(self._feedback(feedback)),
+                message_id=message.id,
+            )
+            await session.flush()
+            return self._feedback(feedback)
+
+    async def delete_message_feedback(self, *, message_id: UUID, user_id: UUID) -> None:
+        async with self._session_factory() as session, session.begin():
+            message = await self._accessible_message(session, message_id, user_id)
+            feedback = await session.scalar(
+                select(MessageFeedbackModel).where(
+                    MessageFeedbackModel.message_id == message.id,
+                    MessageFeedbackModel.user_id == user_id,
+                )
+            )
+            if feedback is None:
+                return
+            conversation = await self._locked_conversation(
+                session, message.conversation_id, user_id
+            )
+            await session.delete(feedback)
+            await self._emit(
+                session,
+                conversation,
+                "message.feedback.deleted",
+                {"message_id": str(message.id), "user_id": str(user_id)},
+                message_id=message.id,
+            )
+
+    async def list_message_feedback(
+        self, *, conversation_id: UUID, user_id: UUID
+    ) -> tuple[MessageFeedback, ...]:
+        async with self._session_factory() as session:
+            rows = await session.scalars(
+                select(MessageFeedbackModel)
+                .join(
+                    ConversationMember,
+                    ConversationMember.conversation_id == MessageFeedbackModel.conversation_id,
+                )
+                .join(
+                    ConversationModel,
+                    ConversationModel.id == MessageFeedbackModel.conversation_id,
+                )
+                .where(
+                    MessageFeedbackModel.conversation_id == conversation_id,
+                    MessageFeedbackModel.user_id == user_id,
+                    ConversationMember.user_id == user_id,
+                    ConversationModel.deleted_at.is_(None),
+                )
+                .order_by(MessageFeedbackModel.created_at, MessageFeedbackModel.id)
+            )
+            return tuple(self._feedback(row) for row in rows)
+
+    async def search_messages(
+        self,
+        *,
+        user_id: UUID,
+        query: str,
+        conversation_id: UUID | None,
+        limit: int,
+    ) -> tuple[MessageSearchResult, ...]:
+        full_text_match = func.to_tsvector("simple", MessageModel.content).op("@@")(
+            func.plainto_tsquery("simple", query)
+        )
+        statement = (
+            select(MessageModel, ConversationModel)
+            .join(ConversationModel, ConversationModel.id == MessageModel.conversation_id)
+            .join(
+                ConversationMember,
+                ConversationMember.conversation_id == MessageModel.conversation_id,
+            )
+            .where(
+                ConversationMember.user_id == user_id,
+                ConversationModel.deleted_at.is_(None),
+                or_(full_text_match, MessageModel.content.ilike(f"%{query}%")),
+            )
+            .order_by(MessageModel.created_at.desc(), MessageModel.id.desc())
+            .limit(limit)
+        )
+        if conversation_id is not None:
+            statement = statement.where(MessageModel.conversation_id == conversation_id)
+        async with self._session_factory() as session:
+            rows = (await session.execute(statement)).all()
+            return tuple(
+                MessageSearchResult(
+                    conversation=self._conversation(conversation),
+                    message=self._message(message),
+                )
+                for message, conversation in rows
+            )
+
     @staticmethod
     async def _locked_conversation(
         session: AsyncSession, conversation_id: UUID, user_id: UUID
@@ -922,12 +1886,47 @@ class SqlAlchemyConversationRepository:
             .where(
                 ConversationModel.id == conversation_id,
                 ConversationMember.user_id == user_id,
+                ConversationModel.deleted_at.is_(None),
             )
             .with_for_update()
         )
         if row is None:
             raise ConversationConflictError("当前用户无权访问该会话")
         return row
+
+    @staticmethod
+    async def _accessible_message(
+        session: AsyncSession, message_id: UUID, user_id: UUID
+    ) -> MessageModel:
+        row = await session.scalar(
+            select(MessageModel)
+            .join(
+                ConversationMember,
+                ConversationMember.conversation_id == MessageModel.conversation_id,
+            )
+            .join(ConversationModel, ConversationModel.id == MessageModel.conversation_id)
+            .where(
+                MessageModel.id == message_id,
+                ConversationMember.user_id == user_id,
+                ConversationModel.deleted_at.is_(None),
+            )
+        )
+        if row is None:
+            raise ConversationConflictError("要反馈的消息不存在")
+        return row
+
+    @staticmethod
+    async def _next_persisted_message_time(
+        session: AsyncSession, conversation_id: UUID
+    ) -> datetime:
+        """在数据库时钟精度不足时仍保证同一会话内新消息严格后置。"""
+        now = datetime.now(UTC)
+        latest = await session.scalar(
+            select(func.max(MessageModel.created_at)).where(
+                MessageModel.conversation_id == conversation_id
+            )
+        )
+        return now if latest is None else max(now, latest + timedelta(microseconds=1))
 
     @staticmethod
     async def _locked_conversation_by_id(
@@ -1001,6 +2000,11 @@ class SqlAlchemyConversationRepository:
             event_sequence=row.event_sequence,
             created_at=row.created_at,
             updated_at=row.updated_at,
+            pinned_at=row.pinned_at,
+            archived_at=row.archived_at,
+            deleted_at=row.deleted_at,
+            branched_from_conversation_id=row.branched_from_conversation_id,
+            branched_from_message_id=row.branched_from_message_id,
         )
 
     @staticmethod
@@ -1014,6 +2018,21 @@ class SqlAlchemyConversationRepository:
             content=row.content,
             status=MessageStatus(row.status),
             client_message_id=row.client_message_id,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+            edited_from_id=row.edited_from_id,
+        )
+
+    @staticmethod
+    def _feedback(row: MessageFeedbackModel) -> MessageFeedback:
+        return MessageFeedback(
+            id=row.id,
+            tenant_id=row.tenant_id,
+            conversation_id=row.conversation_id,
+            message_id=row.message_id,
+            user_id=row.user_id,
+            rating=MessageFeedbackRating(row.rating),
+            comment=row.comment,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -1055,4 +2074,6 @@ class SqlAlchemyConversationRepository:
         )
 
     message_payload = staticmethod(MemoryConversationRepository.message_payload)
+    conversation_payload = staticmethod(MemoryConversationRepository.conversation_payload)
+    feedback_payload = staticmethod(MemoryConversationRepository.feedback_payload)
     run_payload = staticmethod(MemoryConversationRepository.run_payload)

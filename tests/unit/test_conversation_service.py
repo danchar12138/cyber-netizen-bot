@@ -16,7 +16,13 @@ from cnb_cognition import (
     ModelStreamEvent,
     ModelUsage,
 )
-from cnb_domain import AgentRunStatus, DevelopmentIdentity, MessageStatus
+from cnb_domain import (
+    AgentRunStatus,
+    ConversationStatus,
+    DevelopmentIdentity,
+    MessageFeedbackRating,
+    MessageStatus,
+)
 from cnb_infrastructure import MemoryConfigurationRepository, MemoryConversationRepository
 
 
@@ -36,7 +42,7 @@ class StubModelProvider:
         return ModelCapabilities(True, False, False, False)
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
-        assert request.messages[-1].content == "你好"
+        assert request.messages[-1].content.startswith("你好")
         yield ModelStreamEvent(delta="你")
         yield ModelStreamEvent(delta="好呀")
         yield ModelStreamEvent(usage=ModelUsage(input_tokens=2, output_tokens=3))
@@ -160,3 +166,119 @@ async def test_conversation_cursor_pagination_has_no_overlap() -> None:
     assert first.next_cursor is not None
     assert len(second.items) == 1
     assert {item.id for item in first.items}.isdisjoint(item.id for item in second.items)
+
+
+async def test_conversation_can_be_searched_updated_archived_and_soft_deleted() -> None:
+    repository = MemoryConversationRepository()
+    service = _service(repository)
+    conversation = await service.create_conversation(title="周末读书计划")
+    await service.create_conversation(title="工作记录")
+
+    searched = await service.list_conversations(
+        limit=20, cursor=None, search="读书", status=ConversationStatus.ACTIVE
+    )
+    updated = await service.update_conversation(
+        conversation.id,
+        title="周末阅读计划",
+        status=ConversationStatus.ARCHIVED,
+        pinned=True,
+    )
+    archived = await service.list_conversations(
+        limit=20, cursor=None, status=ConversationStatus.ARCHIVED
+    )
+    deleted = await service.soft_delete_conversation(conversation.id)
+    remaining = await service.list_conversations(limit=20, cursor=None)
+
+    assert [item.id for item in searched.items] == [conversation.id]
+    assert updated.title == "周末阅读计划"
+    assert updated.status is ConversationStatus.ARCHIVED
+    assert updated.archived_at is not None
+    assert updated.pinned_at is not None
+    assert archived.items[0].id == conversation.id
+    assert deleted.deleted_at is not None
+    assert all(item.id != conversation.id for item in remaining.items)
+
+
+async def test_regeneration_is_idempotent_and_keeps_the_original_response() -> None:
+    repository = MemoryConversationRepository()
+    service = _service(repository)
+    conversation = await service.create_conversation(title="重新生成测试")
+    original = await service.send_message(
+        conversation.id,
+        client_message_id=uuid5(NAMESPACE_DNS, "test.regeneration-message"),
+        content="你好",
+    )
+    await service.execute_run(original)
+    request_id = uuid5(NAMESPACE_DNS, "test.regeneration-request")
+
+    regenerated = await service.regenerate_response(
+        original.response_message.id, client_request_id=request_id
+    )
+    replay = await service.regenerate_response(
+        original.response_message.id, client_request_id=request_id
+    )
+    await service.execute_run(regenerated)
+    messages = await service.list_messages(conversation.id, limit=20, cursor=None)
+
+    assert regenerated.created is True
+    assert replay.created is False
+    assert replay.run.id == regenerated.run.id
+    assert original.response_message.id != regenerated.response_message.id
+    assert [item.sender_type.value for item in messages.items] == ["user", "agent", "agent"]
+    assert messages.items[-2].content == "你好呀"
+    assert messages.items[-1].content == "你好呀"
+
+
+async def test_editing_user_message_creates_an_independent_branch() -> None:
+    repository = MemoryConversationRepository()
+    service = _service(repository)
+    conversation = await service.create_conversation(title="分支测试")
+    original = await service.send_message(
+        conversation.id,
+        client_message_id=uuid5(NAMESPACE_DNS, "test.branch-source"),
+        content="你好",
+    )
+    await service.execute_run(original)
+    branch = await service.edit_message_as_branch(
+        original.trigger_message.id,
+        client_message_id=uuid5(NAMESPACE_DNS, "test.branch-edit"),
+        content="你好",
+    )
+    await service.execute_run(branch)
+
+    original_messages = await service.list_messages(conversation.id, limit=20, cursor=None)
+    branch_messages = await service.list_messages(branch.conversation.id, limit=20, cursor=None)
+
+    assert branch.conversation.id != conversation.id
+    assert branch.conversation.branched_from_conversation_id == conversation.id
+    assert branch.trigger_message.edited_from_id == original.trigger_message.id
+    assert len(original_messages.items) == 2
+    assert len(branch_messages.items) == 2
+    assert branch_messages.items[-1].status is MessageStatus.COMPLETED
+
+
+async def test_feedback_and_full_text_search_stay_inside_accessible_conversations() -> None:
+    repository = MemoryConversationRepository()
+    service = _service(repository)
+    conversation = await service.create_conversation(title="反馈搜索测试")
+    pending = await service.send_message(
+        conversation.id,
+        client_message_id=uuid5(NAMESPACE_DNS, "test.feedback-message"),
+        content="你好",
+    )
+    await service.execute_run(pending)
+
+    feedback = await service.set_message_feedback(
+        pending.response_message.id,
+        rating=MessageFeedbackRating.POSITIVE,
+        comment=" 很自然 ",
+    )
+    listed = await service.list_message_feedback(conversation.id)
+    search_results = await service.search_messages(query="好呀", conversation_id=None, limit=20)
+    await service.delete_message_feedback(pending.response_message.id)
+
+    assert feedback.comment == "很自然"
+    assert listed == (feedback,)
+    assert search_results[0].conversation.id == conversation.id
+    assert search_results[0].message.id == pending.response_message.id
+    assert await service.list_message_feedback(conversation.id) == ()
