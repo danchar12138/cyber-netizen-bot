@@ -343,6 +343,51 @@ class MessageModel(Base):
     )
 
 
+class AttachmentModel(Base):
+    """S3/MinIO 对象对应的上传与校验元数据。"""
+
+    __tablename__ = "attachments"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    owner_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    conversation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    client_message_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    message_id: Mapped[UUID | None] = mapped_column(ForeignKey("messages.id", ondelete="SET NULL"))
+    original_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(160), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    object_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    validation_error: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    uploaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attached_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'ready', 'attached', 'rejected', 'deleted')",
+            name="ck_attachments_status",
+        ),
+        CheckConstraint("size_bytes > 0", name="ck_attachments_size_positive"),
+        CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="ck_attachments_sha256"),
+        Index("ix_attachments_conversation_created", "conversation_id", "created_at"),
+        Index("ix_attachments_expiry", "status", "expires_at"),
+        Index("ix_attachments_message", "message_id"),
+    )
+
+
 class AgentRunModel(Base):
     """记录版本快照和模型用量的 Agent Run。"""
 

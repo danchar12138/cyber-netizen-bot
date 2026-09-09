@@ -10,12 +10,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from cnb_api import __version__
 from cnb_api.errors import RequestIdMiddleware, install_error_handlers
-from cnb_api.routes import administration, configuration, conversation, health, system
+from cnb_api.routes import administration, attachment, configuration, conversation, health, system
 from cnb_application import (
     AdministrationRepository,
+    AttachmentRepository,
     ConfigurationRepository,
     ConversationRepository,
     ModelProviderResolver,
+    ObjectStorage,
     SecretStore,
     StaticModelProviderResolver,
 )
@@ -26,9 +28,13 @@ from cnb_infrastructure import (
     ConfiguredModelProviderResolver,
     DependencyProbe,
     MemoryAdministrationRepository,
+    MemoryAttachmentRepository,
+    MemoryObjectStorage,
     MemorySecretStore,
+    S3ObjectStorage,
     Settings,
     SqlAlchemyAdministrationRepository,
+    SqlAlchemyAttachmentRepository,
     SqlAlchemyConfigurationRepository,
     SqlAlchemyConversationRepository,
     SqlAlchemySecretStore,
@@ -44,6 +50,8 @@ def create_app(
     configuration_repository: ConfigurationRepository | None = None,
     conversation_repository: ConversationRepository | None = None,
     administration_repository: AdministrationRepository | None = None,
+    attachment_repository: AttachmentRepository | None = None,
+    object_storage: ObjectStorage | None = None,
     secret_store: SecretStore | None = None,
     cognitive_runtime: CognitiveRuntime | None = None,
     model_provider: ModelProvider | None = None,
@@ -89,6 +97,18 @@ def create_app(
     application.state.conversation_repository = (
         conversation_repository or SqlAlchemyConversationRepository(session_factory)
     )
+    if attachment_repository is not None:
+        application.state.attachment_repository = attachment_repository
+    elif conversation_repository is not None:
+        application.state.attachment_repository = MemoryAttachmentRepository()
+    else:
+        application.state.attachment_repository = SqlAlchemyAttachmentRepository(session_factory)
+    if object_storage is not None:
+        application.state.object_storage = object_storage
+    elif conversation_repository is not None:
+        application.state.object_storage = MemoryObjectStorage()
+    else:
+        application.state.object_storage = S3ObjectStorage(resolved_settings)
     if administration_repository is not None:
         application.state.administration_repository = administration_repository
     elif configuration_repository is not None or conversation_repository is not None:
@@ -140,6 +160,7 @@ def create_app(
     application.include_router(system.router, prefix="/api/v1")
     application.include_router(administration.router, prefix="/api/v1")
     application.include_router(configuration.router, prefix="/api/v1")
+    application.include_router(attachment.router, prefix="/api/v1")
     application.include_router(conversation.router, prefix="/api/v1")
     return application
 

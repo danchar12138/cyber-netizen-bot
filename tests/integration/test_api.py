@@ -1,8 +1,9 @@
 """无需外部基础设施的 API 契约冒烟测试。"""
 
 import asyncio
+from hashlib import sha256
 from typing import cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient, Response
@@ -26,8 +27,10 @@ from cnb_contracts import (
     SystemOverviewResponse,
 )
 from cnb_infrastructure import (
+    MemoryAttachmentRepository,
     MemoryConfigurationRepository,
     MemoryConversationRepository,
+    MemoryObjectStorage,
     Settings,
 )
 
@@ -506,6 +509,123 @@ async def test_internal_chat_management_branch_feedback_and_search_flow() -> Non
     assert delete_conversation_response.status_code == 200
     remaining = ConversationListResponse.model_validate(conversations_response.json()).items
     assert [item.id for item in remaining] == [branch.user_message.conversation_id]
+
+
+async def test_attachment_api_rejects_unsafe_types_and_unknown_resources() -> None:
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        identity = (await client.get("/api/v1/chat/identity")).json()
+        missing_conversation = await client.post(
+            "/api/v1/chat/attachments/reservations",
+            json={
+                "conversation_id": str(uuid4()),
+                "client_message_id": str(uuid4()),
+                "original_name": "说明.txt",
+                "content_type": "text/plain",
+                "size_bytes": 10,
+                "sha256": "0" * 64,
+            },
+        )
+        conversation_response = await client.post(
+            "/api/v1/chat/conversations", json={"title": "附件 API"}
+        )
+        conversation = ConversationResponse.model_validate(conversation_response.json())
+        unsafe = await client.post(
+            "/api/v1/chat/attachments/reservations",
+            json={
+                "conversation_id": str(conversation.id),
+                "client_message_id": str(uuid4()),
+                "original_name": "危险.exe",
+                "content_type": "application/x-msdownload",
+                "size_bytes": 10,
+                "sha256": "0" * 64,
+            },
+        )
+        missing_attachment = await client.post(f"/api/v1/chat/attachments/{uuid4()}/complete")
+        assert identity["tenant_id"]
+
+    assert missing_conversation.status_code == 404
+    assert unsafe.status_code == 409
+    assert missing_attachment.status_code == 404
+
+
+async def test_attachment_api_upload_complete_send_and_preview_flow() -> None:
+    attachment_repository = MemoryAttachmentRepository()
+    object_storage = MemoryObjectStorage()
+    conversation_repository = MemoryConversationRepository()
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=conversation_repository,
+        attachment_repository=attachment_repository,
+        object_storage=object_storage,
+    )
+    content = b"api attachment content"
+    digest = sha256(content).hexdigest()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        identity = (await client.get("/api/v1/chat/identity")).json()
+        conversation_response = await client.post(
+            "/api/v1/chat/conversations", json={"title": "附件上传闭环"}
+        )
+        conversation = ConversationResponse.model_validate(conversation_response.json())
+        client_message_id = uuid4()
+        reservation_response = await client.post(
+            "/api/v1/chat/attachments/reservations",
+            json={
+                "conversation_id": str(conversation.id),
+                "client_message_id": str(client_message_id),
+                "original_name": "资料.txt",
+                "content_type": "text/plain",
+                "size_bytes": len(content),
+                "sha256": digest,
+            },
+        )
+        reservation = reservation_response.json()
+        attachment_id = UUID(reservation["attachment"]["id"])
+        persisted = await attachment_repository.get_attachment_for_user(
+            attachment_id, UUID(identity["user_id"])
+        )
+        assert persisted is not None
+        object_storage.put_for_test(
+            object_key=persisted.object_key,
+            content=content,
+            content_type="text/plain",
+        )
+        complete_response = await client.post(f"/api/v1/chat/attachments/{attachment_id}/complete")
+        send_response = await client.post(
+            f"/api/v1/chat/conversations/{conversation.id}/messages",
+            json={
+                "client_message_id": str(client_message_id),
+                "content": "请查看附件",
+                "attachment_ids": [str(attachment_id)],
+            },
+        )
+        listed_response = await client.get(
+            f"/api/v1/chat/conversations/{conversation.id}/attachments"
+        )
+        preview_response = await client.get(f"/api/v1/chat/attachments/{attachment_id}/preview")
+
+    accepted = MessageAcceptedResponse.model_validate(send_response.json())
+    attached = await attachment_repository.get_attachment_for_user(
+        attachment_id, UUID(identity["user_id"])
+    )
+    assert reservation_response.status_code == 201
+    assert complete_response.status_code == 200
+    assert complete_response.json()["status"] == "ready"
+    assert send_response.status_code == 202
+    assert accepted.user_message.content == "请查看附件"
+    assert attached is not None
+    assert attached.status.value == "attached"
+    assert attached.message_id == accepted.user_message.id
+    assert listed_response.status_code == 200
+    assert listed_response.json()["items"][0]["id"] == str(attachment_id)
+    assert preview_response.status_code == 200
+    assert preview_response.json()["url"].startswith("memory://download/")
 
 
 async def test_api_validation_errors_use_versioned_envelope_and_request_id() -> None:

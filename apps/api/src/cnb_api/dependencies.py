@@ -11,12 +11,15 @@ from starlette.requests import HTTPConnection
 from cnb_application import (
     AdministrationRepository,
     AdministrationService,
+    AttachmentRepository,
+    AttachmentService,
     ConfigurationRegistry,
     ConfigurationRepository,
     ConfigurationService,
     ConversationRepository,
     ConversationService,
     ModelProviderResolver,
+    ObjectStorage,
     SecretManagementService,
     SecretStore,
     build_default_registry,
@@ -127,6 +130,37 @@ def get_conversation_repository(request: HTTPConnection) -> ConversationReposito
     """返回组合根为当前应用选择的对话仓储。"""
     repository: ConversationRepository = request.app.state.conversation_repository
     return repository
+
+
+def get_attachment_repository(request: HTTPConnection) -> AttachmentRepository:
+    """返回组合根选择的附件元数据仓储。"""
+    repository: AttachmentRepository = request.app.state.attachment_repository
+    return repository
+
+
+def get_object_storage(request: HTTPConnection) -> ObjectStorage:
+    """返回组合根选择的 S3 兼容对象存储。"""
+    storage: ObjectStorage = request.app.state.object_storage
+    return storage
+
+
+def get_attachment_service(
+    request: HTTPConnection,
+    repository: Annotated[AttachmentRepository, Depends(get_attachment_repository)],
+    object_storage: Annotated[ObjectStorage, Depends(get_object_storage)],
+    conversation_repository: Annotated[
+        ConversationRepository, Depends(get_conversation_repository)
+    ],
+    configuration_service: Annotated[ConfigurationService, Depends(get_configuration_service)],
+) -> AttachmentService:
+    """构建请求级附件生命周期服务。"""
+    return AttachmentService(
+        repository=repository,
+        object_storage=object_storage,
+        conversation_repository=conversation_repository,
+        configuration_service=configuration_service,
+        identity=request.app.state.development_identity,
+    )
 
 
 def get_conversation_service(

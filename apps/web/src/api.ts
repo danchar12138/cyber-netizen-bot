@@ -155,6 +155,37 @@ export interface MessageSearchResult {
   message: ChatMessage
 }
 
+export type AttachmentStatus = 'pending' | 'ready' | 'attached' | 'rejected' | 'deleted'
+
+export interface ChatAttachment {
+  id: string
+  conversation_id: string
+  client_message_id: string
+  message_id: string | null
+  original_name: string
+  content_type: string
+  size_bytes: number
+  sha256: string
+  status: AttachmentStatus
+  validation_error: string | null
+  created_at: string
+  expires_at: string
+  uploaded_at: string | null
+  attached_at: string | null
+}
+
+export interface AttachmentUploadGrant {
+  url: string
+  method: 'PUT'
+  headers: Record<string, string>
+  expires_at: string
+}
+
+export interface AttachmentReservation {
+  attachment: ChatAttachment
+  upload: AttachmentUploadGrant
+}
+
 export interface AgentRun {
   id: string
   conversation_id: string
@@ -486,7 +517,7 @@ export const getMessages = (conversationId: string) =>
 
 export const sendChatMessage = (
   conversationId: string,
-  command: { client_message_id: string; content: string },
+  command: { client_message_id: string; content: string; attachment_ids?: string[] },
 ) =>
   postJson<MessageAccepted>(`/api/v1/chat/conversations/${conversationId}/messages`, command)
 
@@ -526,6 +557,66 @@ export const searchChatMessages = (queryText: string, conversationId?: string) =
   if (conversationId) query.set('conversation_id', conversationId)
   return getJson<{ items: MessageSearchResult[] }>(`/api/v1/chat/messages/search?${query}`)
 }
+
+export const getAttachments = (conversationId: string) =>
+  getJson<{ items: ChatAttachment[] }>(
+    `/api/v1/chat/conversations/${conversationId}/attachments`,
+  )
+
+export async function calculateFileSha256(file: File): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  return [...new Uint8Array(digest)]
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+export async function reserveAttachment(
+  conversationId: string,
+  clientMessageId: string,
+  file: File,
+): Promise<AttachmentReservation> {
+  return postJson<AttachmentReservation>('/api/v1/chat/attachments/reservations', {
+    conversation_id: conversationId,
+    client_message_id: clientMessageId,
+    original_name: file.name,
+    content_type: file.type || 'application/octet-stream',
+    size_bytes: file.size,
+    sha256: await calculateFileSha256(file),
+  })
+}
+
+export function uploadReservedAttachment(
+  grant: AttachmentUploadGrant,
+  file: File,
+  onProgress: (percentage: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest()
+    request.open(grant.method, grant.url)
+    for (const [name, value] of Object.entries(grant.headers)) request.setRequestHeader(name, value)
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100))
+    }
+    request.onload = () => {
+      if (request.status >= 200 && request.status < 300) resolve()
+      else reject(new Error(`附件上传失败，状态码 ${request.status}`))
+    }
+    request.onerror = () => reject(new Error('附件上传失败，请检查对象存储连接'))
+    request.onabort = () => reject(new Error('附件上传已取消'))
+    request.send(file)
+  })
+}
+
+export const completeAttachment = (attachmentId: string) =>
+  postJson<ChatAttachment>(`/api/v1/chat/attachments/${attachmentId}/complete`)
+
+export const deleteAttachment = (attachmentId: string) =>
+  deleteJson<ChatAttachment>(`/api/v1/chat/attachments/${attachmentId}`)
+
+export const getAttachmentPreview = (attachmentId: string) =>
+  getJson<{ attachment: ChatAttachment; url: string; expires_in_seconds: number }>(
+    `/api/v1/chat/attachments/${attachmentId}/preview`,
+  )
 
 export function formatConfigValue(value: ConfigValue): string {
   if (value === null) return '未设置'

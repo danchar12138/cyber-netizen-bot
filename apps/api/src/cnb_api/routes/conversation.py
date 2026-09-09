@@ -10,9 +10,16 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, status
 from starlette.websockets import WebSocketDisconnect
 
-from cnb_api.dependencies import get_conversation_service, require_permission
+from cnb_api.dependencies import (
+    get_attachment_service,
+    get_conversation_service,
+    require_permission,
+)
 from cnb_application import (
     AgentRunNotFoundError,
+    AttachmentConflictError,
+    AttachmentService,
+    AttachmentValidationError,
     ConversationConflictError,
     ConversationNotFoundError,
     ConversationService,
@@ -306,17 +313,29 @@ async def send_message(
     command: MessageCreate,
     request: Request,
     service: Annotated[ConversationService, Depends(get_conversation_service)],
+    attachment_service: Annotated[AttachmentService, Depends(get_attachment_service)],
 ) -> MessageAcceptedResponse:
     """原子接收幂等消息并异步启动 Agent Run。"""
     try:
+        await attachment_service.prepare_message_attachments(
+            conversation_id=conversation_id,
+            client_message_id=command.client_message_id,
+            attachment_ids=command.attachment_ids,
+        )
         pending = await service.send_message(
             conversation_id,
             client_message_id=command.client_message_id,
             content=command.content,
         )
+        await attachment_service.attach_to_message(
+            attachment_ids=command.attachment_ids,
+            message=pending.trigger_message,
+        )
     except ConversationNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except ConversationConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except (AttachmentConflictError, AttachmentValidationError) as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     _schedule_run(request, service, pending)

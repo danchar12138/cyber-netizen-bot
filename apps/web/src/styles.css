@@ -235,6 +235,13 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .message-meta strong { color: #9cc4b4; font-size: 9px; font-weight: 650; }
 .message-meta span { color: #47675c; font-size: 7px; }
 .message-bubble p { color: #b4c9c0; font-size: 11px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-attachments, .draft-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.message-attachments button, .draft-attachment { display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px; color: #7ec79c; border: 1px solid #27503d; background: #10261d; border-radius: 5px; font-size: 8px; }
+.message-attachments button { cursor: pointer; }
+.draft-attachment { color: #a6c6b9; }
+.draft-attachment span { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.draft-attachment small { color: #638579; }
+.draft-attachment button { display: grid; place-items: center; margin-left: 2px; color: #d18c79; border: 0; background: transparent; cursor: pointer; }
 .message-actions { display: flex; gap: 3px; margin-top: 7px; opacity: 0; transition: opacity .15s ease; }
 .message-bubble:hover .message-actions, .message-bubble:focus-within .message-actions { opacity: 1; }
 .message-actions button { width: 26px; height: 24px; }

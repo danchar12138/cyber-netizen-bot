@@ -9,6 +9,7 @@ from cnb_domain.administration import (
     ManagedUser,
     ManagementOverview,
 )
+from cnb_domain.attachment import Attachment, AttachmentStatus
 from cnb_domain.configuration import (
     ConfigDefinition,
     ConfigDifference,
@@ -46,6 +47,8 @@ __all__ = [
     "AdminRole",
     "AgentRun",
     "AgentRunStatus",
+    "Attachment",
+    "AttachmentStatus",
     "AuditRecord",
     "ConfigDefinition",
     "ConfigDiffKind",

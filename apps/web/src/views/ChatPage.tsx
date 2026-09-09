@@ -1,17 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Archive, Bot, CircleStop, Copy, CornerDownLeft, ImagePlus, LoaderCircle,
-  Paperclip, Pencil, Pin, RotateCcw, Search, SendHorizontal, Sparkles,
-  ThumbsDown, ThumbsUp, Trash2, UserRound,
+  FileText, Paperclip, Pencil, Pin, RotateCcw, Search, SendHorizontal, Sparkles,
+  ThumbsDown, ThumbsUp, Trash2, UserRound, X,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
-  type ChatMessage, type ConversationEvent, type MessageAccepted,
-  cancelAgentRun, clearMessageFeedback, createConversation, deleteConversation,
-  editChatMessage, getAdminSession, getConversations, getDevelopmentIdentity,
-  getMessageFeedback, getMessages, regenerateChatMessage, searchChatMessages,
-  sendChatMessage, setMessageFeedback, updateConversation,
+  type ChatAttachment, type ChatMessage, type ConversationEvent, type MessageAccepted,
+  cancelAgentRun, clearMessageFeedback, completeAttachment, createConversation,
+  deleteAttachment, deleteConversation, editChatMessage, getAdminSession,
+  getAttachmentPreview, getAttachments, getConversations, getDevelopmentIdentity,
+  getMessageFeedback, getMessages, regenerateChatMessage, reserveAttachment,
+  searchChatMessages, sendChatMessage, setMessageFeedback, updateConversation,
+  uploadReservedAttachment,
 } from '../api'
 import { applyConversationEvent } from '../chatEvents'
 
@@ -20,15 +22,27 @@ const messageStatusLabels: Record<ChatMessage['status'], string> = {
   completed: '已完成', cancelled: '已取消', failed: '失败',
 }
 
+interface DraftAttachment {
+  localId: string
+  name: string
+  progress: number
+  status: 'preparing' | 'uploading' | 'ready' | 'failed'
+  attachmentId?: string
+  error?: string
+}
+
 export function ChatPage() {
   const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [draftMessageId, setDraftMessageId] = useState(() => crypto.randomUUID())
+  const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([])
   const [searchText, setSearchText] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [connection, setConnection] = useState<'连接中' | '已连接' | '正在重连'>('连接中')
   const lastSequence = useRef(0)
+  const fileInput = useRef<HTMLInputElement>(null)
 
   const identity = useQuery({ queryKey: ['chat-identity'], queryFn: getDevelopmentIdentity })
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
@@ -52,6 +66,11 @@ export function ChatPage() {
     queryFn: () => getMessageFeedback(selectedId!),
     enabled: selectedId !== null,
   })
+  const attachments = useQuery({
+    queryKey: ['attachments', selectedId],
+    queryFn: () => getAttachments(selectedId!),
+    enabled: selectedId !== null,
+  })
 
   useEffect(() => {
     if (!selectedId && conversations.data?.items[0]) {
@@ -60,6 +79,11 @@ export function ChatPage() {
   }, [conversations.data, selectedId])
 
   useEffect(() => setMessages(messageHistory.data?.items ?? []), [messageHistory.data])
+
+  useEffect(() => {
+    setDraftAttachments([])
+    setDraftMessageId(crypto.randomUUID())
+  }, [selectedId])
 
   useEffect(() => {
     if (!selectedId) return
@@ -145,10 +169,20 @@ export function ChatPage() {
     },
   })
   const sendMessage = useMutation({
-    mutationFn: (content: string) => sendChatMessage(selectedId!, {
-      client_message_id: crypto.randomUUID(), content,
+    mutationFn: ({ content, messageId, attachmentIds }: {
+      content: string
+      messageId: string
+      attachmentIds: string[]
+    }) => sendChatMessage(selectedId!, {
+      client_message_id: messageId, content, attachment_ids: attachmentIds,
     }),
-    onSuccess: (accepted) => { acceptRun(accepted); setDraft('') },
+    onSuccess: (accepted) => {
+      acceptRun(accepted)
+      setDraft('')
+      setDraftAttachments([])
+      setDraftMessageId(crypto.randomUUID())
+      void queryClient.invalidateQueries({ queryKey: ['attachments', selectedId] })
+    },
   })
   const regenerateMessage = useMutation({ mutationFn: regenerateChatMessage, onSuccess: acceptRun })
   const editMessage = useMutation({
@@ -190,7 +224,15 @@ export function ChatPage() {
 
   const submit = () => {
     const content = draft.trim()
-    if (content && selectedId && !activeRunId && !sendMessage.isPending) sendMessage.mutate(content)
+    const ready = draftAttachments.filter((item) => item.status === 'ready')
+    const busy = draftAttachments.some((item) => ['preparing', 'uploading'].includes(item.status))
+    if (content && selectedId && !activeRunId && !sendMessage.isPending && !busy) {
+      sendMessage.mutate({
+        content,
+        messageId: draftMessageId,
+        attachmentIds: ready.flatMap((item) => item.attachmentId ? [item.attachmentId] : []),
+      })
+    }
   }
   const renameConversation = (conversationId: string, currentTitle: string) => {
     const title = window.prompt('请输入新的会话标题', currentTitle)?.trim()
@@ -203,6 +245,48 @@ export function ChatPage() {
   const toggleFeedback = (messageId: string, rating: 'positive' | 'negative') => {
     if (feedbackByMessage.get(messageId) === rating) clearFeedbackMutation.mutate(messageId)
     else feedbackMutation.mutate({ messageId, rating })
+  }
+  const updateDraftAttachment = (localId: string, patch: Partial<DraftAttachment>) => {
+    setDraftAttachments((current) => current.map((item) =>
+      item.localId === localId ? { ...item, ...patch } : item,
+    ))
+  }
+  const uploadFiles = async (files: FileList | null) => {
+    if (!files || !selectedId) return
+    for (const file of [...files].slice(0, Math.max(0, 10 - draftAttachments.length))) {
+      const localId = crypto.randomUUID()
+      setDraftAttachments((current) => [...current, {
+        localId, name: file.name, progress: 0, status: 'preparing',
+      }])
+      try {
+        const reservation = await reserveAttachment(selectedId, draftMessageId, file)
+        updateDraftAttachment(localId, {
+          attachmentId: reservation.attachment.id, status: 'uploading', progress: 1,
+        })
+        await uploadReservedAttachment(
+          reservation.upload,
+          file,
+          (progress) => updateDraftAttachment(localId, { progress }),
+        )
+        await completeAttachment(reservation.attachment.id)
+        updateDraftAttachment(localId, { status: 'ready', progress: 100 })
+        await queryClient.invalidateQueries({ queryKey: ['attachments', selectedId] })
+      } catch (error) {
+        updateDraftAttachment(localId, {
+          status: 'failed',
+          error: error instanceof Error ? error.message : '附件上传失败',
+        })
+      }
+    }
+    if (fileInput.current) fileInput.current.value = ''
+  }
+  const removeDraftAttachment = async (item: DraftAttachment) => {
+    if (item.attachmentId) await deleteAttachment(item.attachmentId).catch(() => undefined)
+    setDraftAttachments((current) => current.filter((candidate) => candidate.localId !== item.localId))
+  }
+  const previewAttachment = async (attachment: ChatAttachment) => {
+    const preview = await getAttachmentPreview(attachment.id)
+    window.open(preview.url, '_blank', 'noopener,noreferrer')
   }
 
   return (
@@ -273,6 +357,7 @@ export function ChatPage() {
             )}
             {messages.map((message) => {
               const selectedFeedback = feedbackByMessage.get(message.id)
+              const messageAttachments = attachments.data?.items.filter((item) => item.message_id === message.id) ?? []
               return (
                 <article className={`chat-message ${message.sender_type}`} key={message.id}>
                   <div className="message-avatar">{message.sender_type === 'agent' ? <Bot size={15} /> : <UserRound size={15} />}</div>
@@ -282,6 +367,15 @@ export function ChatPage() {
                       <span>{message.edited_from_id ? '分支消息 · ' : ''}{messageStatusLabels[message.status]}</span>
                     </div>
                     <p>{message.content || (message.status === 'processing' ? '正在思考…' : '…')}</p>
+                    {messageAttachments.length > 0 && (
+                      <div className="message-attachments">
+                        {messageAttachments.map((attachment) => (
+                          <button key={attachment.id} onClick={() => void previewAttachment(attachment)}>
+                            <FileText size={13} /> {attachment.original_name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <div className="message-actions">
                       <button aria-label="复制消息" onClick={() => void navigator.clipboard.writeText(message.content)}><Copy size={13} /></button>
                       <button aria-label="引用消息" onClick={() => setDraft(`> ${message.content.replaceAll('\n', '\n> ')}\n\n`)}><CornerDownLeft size={13} /></button>
@@ -300,12 +394,28 @@ export function ChatPage() {
             })}
           </div>
           <div className="composer-shell">
+            {draftAttachments.length > 0 && (
+              <div className="draft-attachments" aria-label="待发送附件">
+                {draftAttachments.map((item) => (
+                  <div className="draft-attachment" key={item.localId}>
+                    <FileText size={14} />
+                    <span>{item.name}</span>
+                    <small>{item.status === 'ready' ? '已就绪' : item.status === 'failed' ? item.error : `${item.progress}%`}</small>
+                    <button aria-label={`移除 ${item.name}`} onClick={() => void removeDraftAttachment(item)}><X size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
             <textarea value={draft} onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit() } }}
               disabled={!canUseConversation || !selectedId}
               placeholder={selectedId ? '输入消息，Enter 发送，Shift + Enter 换行' : '请先创建会话'} />
             <div className="composer-actions">
-              <div><button disabled aria-label="添加附件"><Paperclip size={17} /></button><button disabled aria-label="添加图片"><ImagePlus size={17} /></button></div>
+              <div>
+                <input ref={fileInput} type="file" hidden multiple onChange={(event) => void uploadFiles(event.target.files)} />
+                <button aria-label="添加附件" disabled={!canUseConversation || !selectedId} onClick={() => fileInput.current?.click()}><Paperclip size={17} /></button>
+                <button disabled aria-label="添加图片"><ImagePlus size={17} /></button>
+              </div>
               {activeRunId ? (
                 <button className="stop-button" aria-label="停止生成" onClick={() => cancelRun.mutate(activeRunId)} disabled={!canUseConversation || cancelRun.isPending}><CircleStop size={17} /></button>
               ) : (

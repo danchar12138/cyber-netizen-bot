@@ -4,6 +4,10 @@ from cnb_infrastructure.administration_repository import (
     MemoryAdministrationRepository,
     SqlAlchemyAdministrationRepository,
 )
+from cnb_infrastructure.attachment_repository import (
+    MemoryAttachmentRepository,
+    SqlAlchemyAttachmentRepository,
+)
 from cnb_infrastructure.configuration_repository import (
     MemoryConfigurationRepository,
     SqlAlchemyConfigurationRepository,
@@ -18,6 +22,7 @@ from cnb_infrastructure.model_provider import (
     DevelopmentModelProvider,
     OpenAIResponsesProvider,
 )
+from cnb_infrastructure.object_storage import MemoryObjectStorage, S3ObjectStorage
 from cnb_infrastructure.secret_store import (
     AesGcmEnvelopeCipher,
     MemorySecretStore,
@@ -31,12 +36,16 @@ __all__ = [
     "DependencyProbe",
     "DevelopmentModelProvider",
     "MemoryAdministrationRepository",
+    "MemoryAttachmentRepository",
     "MemoryConfigurationRepository",
     "MemoryConversationRepository",
+    "MemoryObjectStorage",
     "MemorySecretStore",
     "OpenAIResponsesProvider",
+    "S3ObjectStorage",
     "Settings",
     "SqlAlchemyAdministrationRepository",
+    "SqlAlchemyAttachmentRepository",
     "SqlAlchemyConfigurationRepository",
     "SqlAlchemyConversationRepository",
     "SqlAlchemySecretStore",

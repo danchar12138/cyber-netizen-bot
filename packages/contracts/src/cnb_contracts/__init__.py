@@ -12,6 +12,14 @@ from cnb_contracts.administration import (
     ManagedUserListResponse,
     ManagedUserResponse,
 )
+from cnb_contracts.attachment import (
+    AttachmentListResponse,
+    AttachmentPreviewResponse,
+    AttachmentReservationResponse,
+    AttachmentReserve,
+    AttachmentResponse,
+    AttachmentUploadGrant,
+)
 from cnb_contracts.configuration import (
     ConfigDefinitionResponse,
     ConfigDifferenceResponse,
@@ -62,6 +70,12 @@ __all__ = [
     "ApiError",
     "ApiErrorDetail",
     "ApiErrorResponse",
+    "AttachmentListResponse",
+    "AttachmentPreviewResponse",
+    "AttachmentReservationResponse",
+    "AttachmentReserve",
+    "AttachmentResponse",
+    "AttachmentUploadGrant",
     "AuditRecordListResponse",
     "AuditRecordResponse",
     "BulkStatusUpdateCommand",

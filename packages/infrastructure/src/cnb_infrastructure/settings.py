@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     s3_access_key: SecretStr = SecretStr("cyber-netizen")
     s3_secret_key: SecretStr = SecretStr("change-this-development-secret")
     s3_bucket: str = "cyber-netizen"
+    s3_region: str = "us-east-1"
     config_master_key: SecretStr = SecretStr("development-only-placeholder")
     cors_origins: tuple[str, ...] = ("http://localhost:5173",)
     readiness_deep_checks: bool = False

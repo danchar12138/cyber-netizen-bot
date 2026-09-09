@@ -92,6 +92,7 @@ class MessageCreate(BaseModel):
 
     client_message_id: UUID
     content: str = Field(min_length=1, max_length=20_000)
+    attachment_ids: tuple[UUID, ...] = Field(default=(), max_length=10)
 
     @field_validator("content")
     @classmethod
