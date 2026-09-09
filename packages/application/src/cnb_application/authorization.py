@@ -17,6 +17,11 @@ _ROLE_PERMISSIONS: dict[AdminRole, frozenset[AdminPermission]] = {
             AdminPermission.CONVERSATION_READ,
             AdminPermission.CONVERSATION_USE,
             AdminPermission.ACCESS_CONTROL_READ,
+            AdminPermission.AGENT_READ,
+            AdminPermission.AGENT_WRITE,
+            AdminPermission.USER_READ,
+            AdminPermission.USER_WRITE,
+            AdminPermission.AUDIT_READ,
         }
     ),
     AdminRole.VIEWER: frozenset(
@@ -25,6 +30,9 @@ _ROLE_PERMISSIONS: dict[AdminRole, frozenset[AdminPermission]] = {
             AdminPermission.CONFIGURATION_READ,
             AdminPermission.CONVERSATION_READ,
             AdminPermission.ACCESS_CONTROL_READ,
+            AdminPermission.AGENT_READ,
+            AdminPermission.USER_READ,
+            AdminPermission.AUDIT_READ,
         }
     ),
 }

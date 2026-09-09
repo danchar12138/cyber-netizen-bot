@@ -12,6 +12,7 @@ from cnb_api import __version__
 from cnb_api.errors import RequestIdMiddleware, install_error_handlers
 from cnb_api.routes import administration, configuration, conversation, health, system
 from cnb_application import (
+    AdministrationRepository,
     ConfigurationRepository,
     ConversationRepository,
     ModelProviderResolver,
@@ -24,8 +25,10 @@ from cnb_infrastructure import (
     AesGcmEnvelopeCipher,
     ConfiguredModelProviderResolver,
     DependencyProbe,
+    MemoryAdministrationRepository,
     MemorySecretStore,
     Settings,
+    SqlAlchemyAdministrationRepository,
     SqlAlchemyConfigurationRepository,
     SqlAlchemyConversationRepository,
     SqlAlchemySecretStore,
@@ -40,6 +43,7 @@ def create_app(
     *,
     configuration_repository: ConfigurationRepository | None = None,
     conversation_repository: ConversationRepository | None = None,
+    administration_repository: AdministrationRepository | None = None,
     secret_store: SecretStore | None = None,
     cognitive_runtime: CognitiveRuntime | None = None,
     model_provider: ModelProvider | None = None,
@@ -70,6 +74,14 @@ def create_app(
         lifespan=lifespan,
     )
     application.state.settings = resolved_settings
+    development_identity = DevelopmentIdentity(
+        tenant_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.tenant"),
+        user_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.user"),
+        agent_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.agent"),
+        user_name="本地开发者",
+        agent_name="赛博网友",
+    )
+    application.state.development_identity = development_identity
     session_factory = create_session_factory(resolved_settings)
     application.state.configuration_repository = (
         configuration_repository or SqlAlchemyConfigurationRepository(session_factory)
@@ -77,6 +89,16 @@ def create_app(
     application.state.conversation_repository = (
         conversation_repository or SqlAlchemyConversationRepository(session_factory)
     )
+    if administration_repository is not None:
+        application.state.administration_repository = administration_repository
+    elif configuration_repository is not None or conversation_repository is not None:
+        application.state.administration_repository = MemoryAdministrationRepository(
+            development_identity
+        )
+    else:
+        application.state.administration_repository = SqlAlchemyAdministrationRepository(
+            session_factory
+        )
     if secret_store is not None:
         application.state.secret_store = secret_store
     elif configuration_repository is not None:
@@ -96,13 +118,6 @@ def create_app(
         application.state.model_provider_resolver = ConfiguredModelProviderResolver(
             application.state.secret_store
         )
-    application.state.development_identity = DevelopmentIdentity(
-        tenant_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.tenant"),
-        user_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.user"),
-        agent_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.agent"),
-        user_name="本地开发者",
-        agent_name="赛博网友",
-    )
     application.state.agent_run_tasks = agent_run_tasks
     install_error_handlers(application)
     application.add_middleware(RequestIdMiddleware)

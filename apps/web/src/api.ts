@@ -23,6 +23,11 @@ export type AdminPermission =
   | 'conversation:read'
   | 'conversation:use'
   | 'access_control:read'
+  | 'agent:read'
+  | 'agent:write'
+  | 'user:read'
+  | 'user:write'
+  | 'audit:read'
 
 export interface AdminSession {
   tenant_id: string
@@ -162,9 +167,35 @@ export interface ConversationEvent {
   payload: Record<string, unknown>
 }
 
-interface CursorPage<T> {
+export interface CursorPage<T> {
   items: T[]
   next_cursor: string | null
+}
+
+export interface ManagedAgent {
+  id: string
+  tenant_id: string
+  name: string
+  status: 'active' | 'disabled'
+  created_at: string
+}
+
+export interface ManagedUser {
+  id: string
+  tenant_id: string
+  display_name: string
+  status: 'active' | 'disabled'
+  created_at: string
+}
+
+export interface AuditRecord {
+  id: number
+  actor_id: string | null
+  action: string
+  resource_type: string
+  resource_id: string | null
+  detail: Record<string, ConfigValue>
+  created_at: string
 }
 
 interface ConfigVersionList {
@@ -274,6 +305,44 @@ export const getAdminSession = () =>
 
 export const getAdminRoles = () =>
   getJson<{ roles: AdminRoleDefinition[] }>('/api/v1/administration/roles')
+
+function administrationListPath(resource: string, search: string, status?: string) {
+  const query = new URLSearchParams({ limit: '100' })
+  if (search.trim()) query.set('search', search.trim())
+  if (status) query.set('entity_status', status)
+  return `/api/v1/administration/${resource}?${query}`
+}
+
+export const getManagedAgents = (search = '', status?: string) =>
+  getJson<CursorPage<ManagedAgent>>(administrationListPath('agents', search, status))
+
+export const updateManagedAgentStatus = (
+  ids: string[],
+  status: 'active' | 'disabled',
+) => postJson<CursorPage<ManagedAgent>>('/api/v1/administration/agents/status', {
+  ids,
+  status,
+  confirmed: true,
+})
+
+export const getManagedUsers = (search = '', status?: string) =>
+  getJson<CursorPage<ManagedUser>>(administrationListPath('users', search, status))
+
+export const updateManagedUserStatus = (
+  ids: string[],
+  status: 'active' | 'disabled',
+) => postJson<CursorPage<ManagedUser>>('/api/v1/administration/users/status', {
+  ids,
+  status,
+  confirmed: true,
+})
+
+export const getAuditRecords = (search = '', action = '') => {
+  const query = new URLSearchParams({ limit: '100' })
+  if (search.trim()) query.set('search', search.trim())
+  if (action.trim()) query.set('action', action.trim())
+  return getJson<CursorPage<AuditRecord>>(`/api/v1/administration/audit?${query}`)
+}
 
 export const getConfigRegistry = () =>
   getJson<ConfigRegistry>('/api/v1/configuration/definitions')

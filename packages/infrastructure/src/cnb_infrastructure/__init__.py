@@ -1,5 +1,9 @@
 """基础设施层实现。"""
 
+from cnb_infrastructure.administration_repository import (
+    MemoryAdministrationRepository,
+    SqlAlchemyAdministrationRepository,
+)
 from cnb_infrastructure.configuration_repository import (
     MemoryConfigurationRepository,
     SqlAlchemyConfigurationRepository,
@@ -26,11 +30,13 @@ __all__ = [
     "ConfiguredModelProviderResolver",
     "DependencyProbe",
     "DevelopmentModelProvider",
+    "MemoryAdministrationRepository",
     "MemoryConfigurationRepository",
     "MemoryConversationRepository",
     "MemorySecretStore",
     "OpenAIResponsesProvider",
     "Settings",
+    "SqlAlchemyAdministrationRepository",
     "SqlAlchemyConfigurationRepository",
     "SqlAlchemyConversationRepository",
     "SqlAlchemySecretStore",

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { Activity, ArrowUpRight, Bot, ListTodo, Settings2 } from 'lucide-react'
 
 import { getSystemOverview } from '../api'
@@ -30,7 +31,7 @@ export function DashboardPage() {
           <h1>早上好，心智系统正在等待唤醒。</h1>
           <p>在一个控制面中管理 Agent、模型、记忆、渠道与运行策略。</p>
         </div>
-        <button className="primary-button">创建第一个 Agent <ArrowUpRight size={16} /></button>
+        <Link to="/agents" className="primary-button">管理 Agent <ArrowUpRight size={16} /></Link>
       </section>
 
       {overview.isError && (
@@ -74,11 +75,11 @@ export function DashboardPage() {
 
         <article className="panel roadmap-card">
           <div className="panel-heading">
-            <div><p className="eyebrow">开发进度</p><h2>P1 最小对话闭环</h2></div>
+            <div><p className="eyebrow">开发进度</p><h2>P2 管理后台</h2></div>
             <span className="phase-tag">进行中</span>
           </div>
           <div className="progress-track"><span /></div>
-          <p className="progress-copy">配置发布闭环已完成，内部对话现已接通持久化消息、Agent Run 与可恢复流式事件。</p>
+          <p className="progress-copy">配置与密钥闭环、服务端权限、资源批量管理和审计查询已接通。</p>
           <ul className="phase-list">
             <li className="done">uv workspace 与包边界</li>
             <li className="done">FastAPI 管理接口</li>
@@ -86,7 +87,9 @@ export function DashboardPage() {
             <li className="done">数据库与服务深度健康检查</li>
             <li className="done">配置草稿、发布与回滚</li>
             <li className="done">内部对话与断线事件恢复</li>
-            <li>生产模型凭证与后台配置</li>
+            <li className="done">生产模型凭证与后台配置</li>
+            <li className="done">角色权限与资源审计</li>
+            <li>完整会话管理与附件</li>
           </ul>
         </article>
       </section>

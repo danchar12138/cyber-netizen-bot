@@ -13,6 +13,11 @@ const permissionLabels: Record<string, string> = {
   'conversation:read': '查看对话',
   'conversation:use': '操作对话',
   'access_control:read': '查看权限',
+  'agent:read': '查看 Agent',
+  'agent:write': '管理 Agent 状态',
+  'user:read': '查看用户',
+  'user:write': '管理用户状态',
+  'audit:read': '查看审计',
 }
 
 const columns: Array<AdminTableColumn<AdminRoleDefinition>> = [

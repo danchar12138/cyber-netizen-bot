@@ -47,9 +47,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .page-heading h1 { max-width: 740px; margin: 0; color: #ecf8f2; font-size: clamp(26px, 3.2vw, 43px); line-height: 1.15; letter-spacing: -.04em; font-weight: 650; }
 .page-heading.compact h1 { font-size: 32px; }
 .page-heading > div > p:last-child { max-width: 690px; margin: 12px 0 0; color: #77958b; font-size: 13px; line-height: 1.6; }
-.primary-button, .secondary-button { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 15px; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer; }
+.primary-button, .secondary-button, .danger-button { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 15px; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer; }
 .primary-button { color: #0a2117; border: 1px solid #8ff0b6; background: #86eaae; box-shadow: 0 8px 30px #4ade8030; }
+.primary-button { text-decoration: none; }
 .secondary-button { color: #9bb8ae; border: 1px solid #29453c; background: #10211d; }
+.danger-button { color: #e3a08d; border: 1px solid #653a2e; background: #291713; }
 button:disabled { cursor: not-allowed; opacity: .43; }
 .heading-actions { display: flex; gap: 9px; }
 .notice { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; padding: 12px 14px; border-radius: 9px; font-size: 11px; }
@@ -156,6 +158,8 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .admin-table { width: 100%; border-collapse: collapse; color: #759187; font-size: 10px; text-align: left; }
 .admin-table th { padding: 11px 15px; color: #55766b; background: #091713; font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
 .admin-table td { padding: 14px 15px; border-top: 1px solid #173029; line-height: 1.55; vertical-align: top; }
+.admin-table .selection-cell { width: 42px; padding-inline: 15px 0; }
+.selection-cell input { accent-color: #64d793; }
 .admin-table tbody tr:hover { background: #10211c; }
 .table-primary strong, .table-primary code { display: block; }
 .table-primary strong { color: #b9d0c7; font-size: 11px; }
@@ -163,6 +167,11 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .permission-tags { display: flex; flex-wrap: wrap; gap: 5px; max-width: 560px; }
 .permission-tags span { padding: 3px 6px; color: #70ae91; border: 1px solid #234837; background: #0e241b; border-radius: 4px; font-size: 8px; }
 .admin-table-empty { padding: 45px; color: #537268; text-align: center; font-size: 10px; }
+.entity-status { display: inline-flex; padding: 3px 7px; border: 1px solid #3a4f47; border-radius: 999px; font-size: 8px; }
+.entity-status.active { color: #77dca0; border-color: #2b6748; background: #113020; }
+.entity-status.disabled { color: #a99477; border-color: #574936; background: #211c14; }
+.block-code { display: block; margin-top: 3px; color: #4b7164; font-size: 8px; }
+.audit-detail { display: block; max-width: 360px; overflow: hidden; color: #668b7d; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .toggle { display: flex; align-items: center; gap: 7px; width: 100%; padding: 6px 8px; color: #78958b; border: 1px solid #29483e; background: #0d1c18; border-radius: 6px; font-size: 9px; cursor: pointer; }
 .toggle span { width: 20px; height: 11px; position: relative; background: #31473f; border-radius: 99px; }
 .toggle span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 7px; height: 7px; background: #78958b; border-radius: 50%; transition: .16s ease; }

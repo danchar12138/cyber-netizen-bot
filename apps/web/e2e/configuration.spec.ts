@@ -179,7 +179,7 @@ test('可以预览并发布配置差异以及安全写入密钥', async ({ page 
   await page.getByPlaceholder('本次修改说明（可选）').fill('切换正式模型')
   await page.getByRole('button', { name: '保存新草稿' }).click()
   await expect(page.getByText(/草稿 v1 已保存/)).toBeVisible()
-  await expect(page.getByText('发布差异')).toBeVisible()
+  await expect(page.getByText('发布差异', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '校验并发布' }).click()
   await expect(page.getByText('已发布')).toBeVisible()
 

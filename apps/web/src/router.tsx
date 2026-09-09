@@ -7,9 +7,11 @@ import {
 
 import { AdminShell } from './shell/AdminShell'
 import { AccessControlPage } from './views/AccessControlPage'
+import { AuditLogPage } from './views/AuditLogPage'
 import { ChatPage } from './views/ChatPage'
 import { ConfigurationPage } from './views/ConfigurationPage'
 import { DashboardPage } from './views/DashboardPage'
+import { EntityManagementPage } from './views/EntityManagementPage'
 import { SectionRoutePage } from './views/SectionRoutePage'
 
 const rootRoute = createRootRoute({
@@ -44,6 +46,24 @@ const accessControlRoute = createRoute({
   component: AccessControlPage,
 })
 
+const agentsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/agents',
+  component: () => <EntityManagementPage kind="agents" />,
+})
+
+const usersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/users',
+  component: () => <EntityManagementPage kind="users" />,
+})
+
+const auditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/audit',
+  component: AuditLogPage,
+})
+
 const sectionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/$section',
@@ -55,6 +75,9 @@ const routeTree = rootRoute.addChildren([
   configurationRoute,
   chatRoute,
   accessControlRoute,
+  agentsRoute,
+  usersRoute,
+  auditRoute,
   sectionRoute,
 ])
 

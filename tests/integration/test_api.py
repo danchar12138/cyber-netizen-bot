@@ -96,6 +96,48 @@ async def test_rbac_rejects_viewer_changes_and_operator_secret_access() -> None:
     assert operator_secrets.status_code == 403
 
 
+async def test_agent_user_management_bulk_confirmation_and_audit_flow() -> None:
+    async with AsyncClient(transport=_transport(), base_url="http://test") as client:
+        identity = (await client.get("/api/v1/chat/identity")).json()
+        agents_response = await client.get("/api/v1/administration/agents")
+        users_response = await client.get("/api/v1/administration/users")
+        missing_confirmation = await client.post(
+            "/api/v1/administration/agents/status",
+            json={
+                "ids": [identity["agent_id"]],
+                "status": "disabled",
+                "confirmed": False,
+            },
+        )
+        update_response = await client.post(
+            "/api/v1/administration/agents/status",
+            json={
+                "ids": [identity["agent_id"]],
+                "status": "disabled",
+                "confirmed": True,
+            },
+        )
+        audit_response = await client.get(
+            "/api/v1/administration/audit", params={"search": "agent"}
+        )
+        viewer_update = await client.post(
+            "/api/v1/administration/users/status",
+            json={
+                "ids": [identity["user_id"]],
+                "status": "disabled",
+                "confirmed": True,
+            },
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+
+    assert agents_response.json()["items"][0]["id"] == identity["agent_id"]
+    assert users_response.json()["items"][0]["id"] == identity["user_id"]
+    assert missing_confirmation.status_code == 422
+    assert update_response.json()["items"][0]["status"] == "disabled"
+    assert audit_response.json()["items"][0]["action"] == "agent.status_updated"
+    assert viewer_update.status_code == 403
+
+
 async def test_ready_health_discloses_disabled_deep_checks() -> None:
     async with AsyncClient(transport=_transport(), base_url="http://test") as client:
         response = await client.get("/health/ready")

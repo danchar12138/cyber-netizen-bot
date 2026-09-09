@@ -9,6 +9,8 @@ from fastapi import Depends, HTTPException, status
 from starlette.requests import HTTPConnection
 
 from cnb_application import (
+    AdministrationRepository,
+    AdministrationService,
     ConfigurationRegistry,
     ConfigurationRepository,
     ConfigurationService,
@@ -29,6 +31,19 @@ from cnb_domain import AdminPermission, AdminPrincipal, AdminRole
 def get_configuration_registry() -> ConfigurationRegistry:
     """返回不可变的内置配置注册表。"""
     return build_default_registry()
+
+
+def get_administration_repository(request: HTTPConnection) -> AdministrationRepository:
+    """返回组合根选择的管理资源仓储。"""
+    repository: AdministrationRepository = request.app.state.administration_repository
+    return repository
+
+
+def get_administration_service(
+    repository: Annotated[AdministrationRepository, Depends(get_administration_repository)],
+) -> AdministrationService:
+    """构建请求级管理资源应用服务。"""
+    return AdministrationService(repository)
 
 
 def get_configuration_repository(request: HTTPConnection) -> ConfigurationRepository:

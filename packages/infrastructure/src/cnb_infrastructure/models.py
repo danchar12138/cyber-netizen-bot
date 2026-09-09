@@ -147,6 +147,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     actor_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     action: Mapped[str] = mapped_column(String(120), nullable=False)
     resource_type: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -156,7 +157,10 @@ class AuditLog(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
-    __table_args__ = (Index("ix_audit_logs_resource", "resource_type", "resource_id"),)
+    __table_args__ = (
+        Index("ix_audit_logs_resource", "resource_type", "resource_id"),
+        Index("ix_audit_logs_tenant_created", "tenant_id", "created_at"),
+    )
 
 
 class Tenant(Base):

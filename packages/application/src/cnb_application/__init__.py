@@ -1,5 +1,15 @@
 """应用服务与用例。"""
 
+from cnb_application.administration_service import (
+    AdministrationNotFoundError,
+    AdministrationRepository,
+    AdministrationService,
+    AdministrationValidationError,
+    AuditCursor,
+    ManagementPage,
+    decode_audit_cursor,
+    encode_audit_cursor,
+)
 from cnb_application.authorization import (
     PermissionDeniedError,
     permissions_for_role,
@@ -41,7 +51,12 @@ from cnb_application.pagination import (
 )
 
 __all__ = [
+    "AdministrationNotFoundError",
+    "AdministrationRepository",
+    "AdministrationService",
+    "AdministrationValidationError",
     "AgentRunNotFoundError",
+    "AuditCursor",
     "ConfigurationConflictError",
     "ConfigurationDiffPreview",
     "ConfigurationNotFoundError",
@@ -57,6 +72,7 @@ __all__ = [
     "EffectiveConfigurationSnapshot",
     "EntityCursor",
     "InvalidCursorError",
+    "ManagementPage",
     "ModelProviderConfigurationError",
     "ModelProviderResolver",
     "PermissionDeniedError",
@@ -66,7 +82,9 @@ __all__ = [
     "SecretStore",
     "StaticModelProviderResolver",
     "build_default_registry",
+    "decode_audit_cursor",
     "decode_cursor",
+    "encode_audit_cursor",
     "encode_cursor",
     "permissions_for_role",
     "require_admin_permission",

@@ -1,6 +1,14 @@
 """赛博网友机器人的纯领域类型。"""
 
-from cnb_domain.administration import AdminPermission, AdminPrincipal, AdminRole
+from cnb_domain.administration import (
+    AdminPermission,
+    AdminPrincipal,
+    AdminRole,
+    AuditRecord,
+    ManagedAgent,
+    ManagedUser,
+    ManagementOverview,
+)
 from cnb_domain.configuration import (
     ConfigDefinition,
     ConfigDifference,
@@ -35,6 +43,7 @@ __all__ = [
     "AdminRole",
     "AgentRun",
     "AgentRunStatus",
+    "AuditRecord",
     "ConfigDefinition",
     "ConfigDiffKind",
     "ConfigDifference",
@@ -50,6 +59,9 @@ __all__ = [
     "EffectiveConfigSource",
     "EntityStatus",
     "JsonValue",
+    "ManagedAgent",
+    "ManagedUser",
+    "ManagementOverview",
     "Message",
     "MessageSenderType",
     "MessageStatus",
