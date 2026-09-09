@@ -107,7 +107,9 @@ async def test_configuration_definitions_never_contain_secret_values() -> None:
     payload = ConfigRegistryResponse.model_validate(response.json())
     assert payload.schema_version == "1"
     assert payload.definitions
-    assert all(not definition.secret for definition in payload.definitions)
+    secret_definitions = [definition for definition in payload.definitions if definition.secret]
+    assert secret_definitions
+    assert all(definition.default is None for definition in secret_definitions)
 
 
 async def test_system_overview_matches_registry_count() -> None:
@@ -161,6 +163,70 @@ async def test_configuration_draft_publish_and_rollback_flow() -> None:
     versions = ConfigVersionListResponse.model_validate(versions_response.json())
     assert [item.version for item in versions.versions] == [2, 1]
     assert versions.versions[1].status == "superseded"
+
+
+async def test_configuration_diff_effective_sources_and_secret_lifecycle() -> None:
+    repository = MemoryConfigurationRepository()
+    async with AsyncClient(transport=_transport(repository), base_url="http://test") as client:
+        identity = (await client.get("/api/v1/chat/identity")).json()
+        draft_response = await client.post(
+            "/api/v1/configuration/drafts",
+            json={
+                "note": "作用域与密钥测试",
+                "values": [
+                    {
+                        "key": "model.chat.max_output_tokens",
+                        "scope_type": "system",
+                        "scope_id": None,
+                        "value": 512,
+                    },
+                    {
+                        "key": "model.chat.max_output_tokens",
+                        "scope_type": "agent",
+                        "scope_id": identity["agent_id"],
+                        "value": 768,
+                    },
+                ],
+            },
+        )
+        draft = ConfigVersionResponse.model_validate(draft_response.json())
+        diff_response = await client.get(f"/api/v1/configuration/versions/{draft.id}/diff")
+        await client.post(f"/api/v1/configuration/versions/{draft.id}/publish")
+        effective_response = await client.get(
+            "/api/v1/configuration/effective",
+            params={
+                "tenant_id": identity["tenant_id"],
+                "agent_id": identity["agent_id"],
+                "user_id": identity["user_id"],
+            },
+        )
+        secret_response = await client.post(
+            "/api/v1/configuration/secrets",
+            json={
+                "key": "model.openai.api_key",
+                "scope_type": "agent",
+                "scope_id": identity["agent_id"],
+                "plaintext": "仅供契约测试的虚假凭证",
+            },
+        )
+        secrets_response = await client.get("/api/v1/configuration/secrets")
+        secret_id = secret_response.json()["id"]
+        test_response = await client.post(f"/api/v1/configuration/secrets/{secret_id}/test")
+        clear_response = await client.delete(f"/api/v1/configuration/secrets/{secret_id}")
+
+    assert diff_response.status_code == 200
+    assert len(diff_response.json()["changes"]) == 2
+    assert effective_response.status_code == 200
+    effective = {item["key"]: item for item in effective_response.json()["values"]}
+    assert effective["model.chat.max_output_tokens"]["value"] == 768
+    assert effective["model.chat.max_output_tokens"]["source"]["scope_type"] == "agent"
+    assert secret_response.status_code == 200
+    assert secret_response.json()["masked_hint"] == "••••虚假凭证"
+    assert "plaintext" not in secret_response.text
+    assert "仅供契约测试的虚假凭证" not in secret_response.text
+    assert secrets_response.json()["secrets"][0]["configured"] is True
+    assert test_response.json()["integrity_status"] == "valid"
+    assert clear_response.status_code == 204
 
 
 async def test_configuration_validation_error_is_friendly() -> None:

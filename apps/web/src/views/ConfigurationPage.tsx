@@ -1,35 +1,71 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  CheckCircle2,
   CircleDashed,
+  Eye,
   History,
+  KeyRound,
   RotateCcw,
   Save,
   Search,
+  ShieldCheck,
+  Trash2,
   UploadCloud,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import {
   type ConfigDefinition,
+  type ConfigScope,
   type ConfigValue,
   type ConfigVersion,
+  clearSecret,
   createConfigDraft,
   formatConfigValue,
   formatConfigVersionStatus,
+  getConfigDiff,
   getConfigRegistry,
   getConfigVersions,
+  getDevelopmentIdentity,
+  getEffectiveConfiguration,
+  getSecrets,
   publishConfigVersion,
   rollbackConfigVersion,
+  rotateSecret,
+  setSecret,
+  testSecret,
 } from '../api'
 
-function defaultValues(
+const scopeLabels: Record<ConfigScope, string> = {
+  system: '系统',
+  tenant: '租户',
+  agent: 'Agent',
+  channel: '渠道',
+  user: '用户',
+}
+
+const diffLabels = { added: '新增', changed: '修改', removed: '移除' } as const
+
+function scopeIdFor(
+  scope: ConfigScope,
+  identity: Awaited<ReturnType<typeof getDevelopmentIdentity>> | undefined,
+  customScopeId: string,
+) {
+  if (scope === 'system') return null
+  if (scope === 'tenant') return identity?.tenant_id ?? null
+  if (scope === 'agent') return identity?.agent_id ?? null
+  if (scope === 'user') return identity?.user_id ?? null
+  return customScopeId.trim() || null
+}
+
+function valuesForScope(
   definitions: ConfigDefinition[],
   published: ConfigVersion | undefined,
+  scope: ConfigScope,
+  scopeId: string | null,
 ): Record<string, ConfigValue> {
   const values = Object.fromEntries(definitions.map((item) => [item.key, item.default]))
   for (const item of published?.values ?? []) {
-    if (item.scope_type === 'system') values[item.key] = item.value
+    if (item.scope_type === scope && item.scope_id === scopeId) values[item.key] = item.value
   }
   return values
 }
@@ -57,6 +93,18 @@ function ConfigInput({
     )
   }
 
+  if (definition.options.length > 0) {
+    return (
+      <select
+        className="config-input"
+        value={typeof value === 'string' ? value : ''}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {definition.options.map((option) => <option key={option}>{option}</option>)}
+      </select>
+    )
+  }
+
   if (definition.value_kind === 'integer' || definition.value_kind === 'number') {
     return (
       <input
@@ -74,50 +122,89 @@ function ConfigInput({
     )
   }
 
+  if (definition.value_kind === 'string_list') {
+    return (
+      <input
+        className="config-input"
+        value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').join(', ') : ''}
+        onChange={(event) =>
+          onChange(event.target.value.split(',').map((item) => item.trim()).filter(Boolean))
+        }
+        placeholder="使用逗号分隔"
+      />
+    )
+  }
+
   return (
     <input
       className="config-input"
-      type={definition.secret ? 'password' : 'text'}
       value={typeof value === 'string' ? value : ''}
       onChange={(event) => onChange(event.target.value)}
-      disabled={definition.secret}
-      placeholder={definition.secret ? '请在密钥管理中设置' : undefined}
     />
   )
 }
 
 export function ConfigurationPage() {
   const queryClient = useQueryClient()
+  const [tab, setTab] = useState<'runtime' | 'secrets'>('runtime')
+  const [scope, setScope] = useState<ConfigScope>('system')
+  const [customScopeId, setCustomScopeId] = useState('')
   const [search, setSearch] = useState('')
   const [note, setNote] = useState('')
   const [values, setValues] = useState<Record<string, ConfigValue>>({})
   const [currentDraft, setCurrentDraft] = useState<ConfigVersion | null>(null)
+  const [secretValues, setSecretValues] = useState<Record<string, string>>({})
   const registry = useQuery({ queryKey: ['config-registry'], queryFn: getConfigRegistry })
   const history = useQuery({ queryKey: ['config-versions'], queryFn: getConfigVersions })
+  const identity = useQuery({ queryKey: ['development-identity'], queryFn: getDevelopmentIdentity })
+  const secrets = useQuery({ queryKey: ['config-secrets'], queryFn: getSecrets })
   const published = history.data?.versions.find((item) => item.status === 'published')
+  const scopeId = scopeIdFor(scope, identity.data, customScopeId)
+  const effective = useQuery({
+    queryKey: ['effective-configuration', identity.data, customScopeId],
+    queryFn: () => getEffectiveConfiguration({
+      tenantId: identity.data!.tenant_id,
+      agentId: identity.data!.agent_id,
+      channelId: customScopeId.trim() || undefined,
+      userId: identity.data!.user_id,
+    }),
+    enabled: Boolean(identity.data),
+  })
+  const diff = useQuery({
+    queryKey: ['config-diff', currentDraft?.id],
+    queryFn: () => getConfigDiff(currentDraft!.id),
+    enabled: Boolean(currentDraft),
+  })
 
   useEffect(() => {
     if (!registry.data) return
-    setValues(defaultValues(registry.data.definitions, published))
-  }, [registry.data, published])
+    setValues(valuesForScope(registry.data.definitions, published, scope, scopeId))
+    setCurrentDraft(null)
+  }, [registry.data, published, scope, scopeId])
 
   const refreshHistory = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['config-versions'] })
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['config-versions'] }),
+      queryClient.invalidateQueries({ queryKey: ['effective-configuration'] }),
+    ])
   }
 
   const createDraft = useMutation({
-    mutationFn: () =>
-      createConfigDraft({
-        note: note.trim() || null,
-        values: (registry.data?.definitions ?? [])
-          .filter((item) => !item.secret && item.scopes.includes('system'))
-          .map((item) => ({
-            key: item.key,
-            scope_type: 'system' as const,
-            scope_id: null,
-            value: values[item.key] ?? item.default,
-          })),
-      }),
+    mutationFn: () => {
+      if (scope !== 'system' && !scopeId) throw new Error(`${scopeLabels[scope]}作用域需要有效 UUID`)
+      const untouched = (published?.values ?? []).filter(
+        (item) => !(item.scope_type === scope && item.scope_id === scopeId),
+      )
+      const edited = (registry.data?.definitions ?? [])
+        .filter((item) => !item.secret && item.scopes.includes(scope))
+        .map((item) => ({
+          key: item.key,
+          scope_type: scope,
+          scope_id: scopeId,
+          value: values[item.key] ?? item.default,
+        }))
+      return createConfigDraft({ note: note.trim() || null, values: [...untouched, ...edited] })
+    },
     onSuccess: async (draft) => {
       setCurrentDraft(draft)
       await refreshHistory()
@@ -138,137 +225,189 @@ export function ConfigurationPage() {
     onSuccess: refreshHistory,
   })
 
+  const writeSecret = useMutation({
+    mutationFn: async (definition: ConfigDefinition) => {
+      if (scope !== 'system' && !scopeId) throw new Error(`${scopeLabels[scope]}作用域需要有效 UUID`)
+      const plaintext = secretValues[definition.key] ?? ''
+      const existing = secrets.data?.secrets.find(
+        (item) => item.key === definition.key && item.scope_type === scope && item.scope_id === scopeId,
+      )
+      return existing
+        ? rotateSecret(existing.id, plaintext)
+        : setSecret({ key: definition.key, scope_type: scope, scope_id: scopeId, plaintext })
+    },
+    onSuccess: async (_, definition) => {
+      setSecretValues((current) => ({ ...current, [definition.key]: '' }))
+      await queryClient.invalidateQueries({ queryKey: ['config-secrets'] })
+    },
+  })
+
+  const verifySecret = useMutation({
+    mutationFn: testSecret,
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['config-secrets'] }),
+  })
+  const removeSecret = useMutation({
+    mutationFn: clearSecret,
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['config-secrets'] }),
+  })
+
   const definitions = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()
-    if (!query) return registry.data?.definitions ?? []
-    return (registry.data?.definitions ?? []).filter((item) =>
-      [item.key, item.label, item.description, item.section].some((candidate) =>
-        candidate.toLocaleLowerCase().includes(query),
-      ),
-    )
-  }, [registry.data, search])
+    return (registry.data?.definitions ?? []).filter((item) => {
+      const matchesTab = tab === 'secrets' ? item.secret : !item.secret
+      const matchesScope = item.scopes.includes(scope)
+      const matchesSearch = !query || [item.key, item.label, item.description, item.section].some(
+        (candidate) => candidate.toLocaleLowerCase().includes(query),
+      )
+      return matchesTab && matchesScope && matchesSearch
+    })
+  }, [registry.data, scope, search, tab])
 
+  const effectiveByKey = Object.fromEntries(
+    (effective.data?.values ?? []).map((item) => [item.key, item]),
+  )
   const operationError = createDraft.error ?? publishDraft.error ?? rollbackVersion.error
+    ?? writeSecret.error ?? verifySecret.error ?? removeSecret.error
 
   return (
     <div className="page">
       <section className="page-heading compact">
         <div>
-          <p className="eyebrow">配置注册表</p>
+          <p className="eyebrow">配置注册表与安全凭证</p>
           <h1>配置中心</h1>
-          <p>从安全默认值创建不可变草稿，经校验后发布；回滚也会保留为一个新的版本。</p>
+          <p>统一管理全作用域运行参数、发布差异、最终生效来源和加密密钥。</p>
         </div>
-        <div className="heading-actions">
-          <button
-            className="secondary-button"
-            disabled={createDraft.isPending}
-            onClick={() => createDraft.mutate()}
-          >
-            <Save size={15} /> 保存新草稿
-          </button>
-          <button
-            className="primary-button"
-            disabled={!currentDraft || publishDraft.isPending}
-            onClick={() => currentDraft && publishDraft.mutate(currentDraft.id)}
-          >
-            <UploadCloud size={15} /> 发布草稿
-          </button>
-        </div>
+        {tab === 'runtime' && (
+          <div className="heading-actions">
+            <button className="secondary-button" disabled={createDraft.isPending} onClick={() => createDraft.mutate()}>
+              <Save size={15} /> 保存新草稿
+            </button>
+            <button
+              className="primary-button"
+              disabled={!currentDraft || publishDraft.isPending}
+              onClick={() => currentDraft && publishDraft.mutate(currentDraft.id)}
+            >
+              <UploadCloud size={15} /> 校验并发布
+            </button>
+          </div>
+        )}
       </section>
 
       <div className="notice info">
-        <CheckCircle2 size={17} />
+        <ShieldCheck size={17} />
         <div>
-          <strong>Schema 驱动与版本管理已接通</strong>
-          <span>密钥不会进入普通版本值，也不会通过接口回显。</span>
+          <strong>普通配置版本与密钥材料已完全分离</strong>
+          <span>密钥只显示掩码；差异、日志、配置快照和浏览器响应均不包含明文。</span>
         </div>
       </div>
       {currentDraft && (
-        <div className="notice warning">草稿 v{currentDraft.version} 已保存，确认后即可发布。</div>
+        <div className="notice warning">
+          草稿 v{currentDraft.version} 已保存，相对 v{diff.data?.base_version ?? '—'} 有 {diff.data?.changes.length ?? '…'} 项变更。
+        </div>
       )}
       {operationError && <div className="notice error">{operationError.message}</div>}
+
+      <section className="config-context panel">
+        <div className="config-tabs" role="tablist" aria-label="配置类型">
+          <button className={tab === 'runtime' ? 'active' : ''} onClick={() => setTab('runtime')}><Eye size={14} /> 运行配置</button>
+          <button className={tab === 'secrets' ? 'active' : ''} onClick={() => setTab('secrets')}><KeyRound size={14} /> 密钥管理</button>
+        </div>
+        <label>编辑作用域
+          <select value={scope} onChange={(event) => setScope(event.target.value as ConfigScope)}>
+            {Object.entries(scopeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+          </select>
+        </label>
+        {scope === 'channel' ? (
+          <label>渠道 UUID
+            <input value={customScopeId} onChange={(event) => setCustomScopeId(event.target.value)} placeholder="输入渠道实例 UUID" />
+          </label>
+        ) : <span className="scope-identity">{scopeId ?? '全局，无需作用域 ID'}</span>}
+      </section>
 
       <section className="configuration-layout">
         <aside className="config-sections panel">
           <div className="history-heading"><History size={14} /> 配置版本</div>
-          {history.isLoading && <span className="subtle">正在读取…</span>}
           {(history.data?.versions ?? []).map((version) => (
             <div className="version-row" key={version.id}>
-              <div>
-                <strong>v{version.version}</strong>
-                <span className={`version-status ${version.status}`}>
-                  {formatConfigVersionStatus(version.status)}
-                </span>
-              </div>
+              <div><strong>v{version.version}</strong><span className={`version-status ${version.status}`}>{formatConfigVersionStatus(version.status)}</span></div>
               <small>{version.note || '无版本说明'}</small>
               {version.status !== 'draft' && (
-                <button
-                  type="button"
-                  onClick={() => rollbackVersion.mutate(version.id)}
-                  disabled={rollbackVersion.isPending}
-                >
+                <button type="button" onClick={() => rollbackVersion.mutate(version.id)} disabled={rollbackVersion.isPending}>
                   <RotateCcw size={12} /> 回滚到此版本
                 </button>
               )}
             </div>
           ))}
-          {!history.isLoading && !history.data?.versions.length && (
-            <p className="empty-copy">还没有配置版本，保存第一份草稿吧。</p>
+          {!history.isLoading && !history.data?.versions.length && <p className="empty-copy">还没有配置版本。</p>}
+          {currentDraft && diff.data && (
+            <div className="diff-preview">
+              <strong>发布差异</strong>
+              {diff.data.changes.map((item) => (
+                <span key={`${item.key}-${item.scope_type}-${item.scope_id}`}>
+                  <b>{diffLabels[item.kind]}</b> {item.key}<small>{scopeLabels[item.scope_type]} · {formatConfigValue(item.before)} → {formatConfigValue(item.after)}</small>
+                </span>
+              ))}
+              {diff.data.changes.length === 0 && <small>没有值变化</small>}
+            </div>
           )}
         </aside>
 
         <section className="panel config-panel">
           <div className="config-toolbar">
-            <label className="search-box">
-              <Search size={16} />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="搜索配置键或说明"
-              />
-            </label>
-            <input
-              className="version-note"
-              value={note}
-              maxLength={1000}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="本次修改说明（可选）"
-            />
+            <label className="search-box"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索配置键或说明" /></label>
+            {tab === 'runtime' && <input className="version-note" value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} placeholder="本次修改说明（可选）" />}
             <span className="subtle">Schema v{registry.data?.schema_version ?? '—'}</span>
           </div>
 
-          {registry.isLoading && (
-            <div className="empty-state"><CircleDashed className="spin" /> 正在读取配置注册表</div>
-          )}
+          {registry.isLoading && <div className="empty-state"><CircleDashed className="spin" /> 正在读取配置注册表</div>}
           {registry.isError && <div className="empty-state error">无法连接配置 API，请先启动后端服务。</div>}
-          {!registry.isLoading && !registry.isError && definitions.length === 0 && (
-            <div className="empty-state">没有匹配的配置项。</div>
-          )}
+          {!registry.isLoading && !registry.isError && definitions.length === 0 && <div className="empty-state">当前作用域没有匹配的配置项。</div>}
           <div className="definition-list">
-            {definitions.map((definition) => (
-              <article className="definition-row" key={definition.key}>
-                <div className="definition-main">
-                  <div className="definition-title">
-                    <strong>{definition.label}</strong>
-                    <code>{definition.key}</code>
+            {definitions.map((definition) => {
+              const configuredSecret = secrets.data?.secrets.find(
+                (item) => item.key === definition.key && item.scope_type === scope && item.scope_id === scopeId,
+              )
+              const effectiveValue = effectiveByKey[definition.key]
+              return (
+                <article className="definition-row" key={definition.key}>
+                  <div className="definition-main">
+                    <div className="definition-title"><strong>{definition.label}</strong><code>{definition.key}</code></div>
+                    <p>{definition.description}</p>
+                    <div className="tag-row">
+                      <span>{definition.value_kind}</span><span>{scopeLabels[scope]}作用域</span>
+                      <span>{definition.hot_reload ? '支持热更新' : '需要重启'}</span>
+                    </div>
                   </div>
-                  <p>{definition.description}</p>
-                  <div className="tag-row">
-                    <span>{definition.value_kind}</span>
-                    {definition.scopes.map((scope) => <span key={scope}>{scope}</span>)}
-                    <span>{definition.hot_reload ? '支持热更新' : '需要重启'}</span>
+                  <div className="definition-value editor">
+                    {definition.secret ? (
+                      <>
+                        <small>{configuredSecret ? `${configuredSecret.masked_hint} · ${configuredSecret.integrity_status}` : '尚未配置'}</small>
+                        <input
+                          className="config-input"
+                          type="password"
+                          autoComplete="new-password"
+                          value={secretValues[definition.key] ?? ''}
+                          onChange={(event) => setSecretValues((current) => ({ ...current, [definition.key]: event.target.value }))}
+                          placeholder={configuredSecret ? '输入新值以轮换' : '输入密钥'}
+                        />
+                        <div className="secret-actions">
+                          <button disabled={!secretValues[definition.key] || writeSecret.isPending} onClick={() => writeSecret.mutate(definition)}>{configuredSecret ? '轮换' : '写入'}</button>
+                          {configuredSecret && <button disabled={verifySecret.isPending} onClick={() => verifySecret.mutate(configuredSecret.id)}>完整性测试</button>}
+                          {configuredSecret && <button className="danger" disabled={removeSecret.isPending} onClick={() => removeSecret.mutate(configuredSecret.id)}><Trash2 size={11} /> 清除</button>}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <small>
+                          最终生效：{formatConfigValue(effectiveValue?.value ?? definition.default)} · 来源 {effectiveValue?.source.scope_type ? scopeLabels[effectiveValue.source.scope_type] : '内置默认'} v{effectiveValue?.source.version ?? 0}
+                        </small>
+                        <ConfigInput definition={definition} value={values[definition.key] ?? definition.default} onChange={(value) => setValues((current) => ({ ...current, [definition.key]: value }))} />
+                      </>
+                    )}
                   </div>
-                </div>
-                <div className="definition-value editor">
-                  <small>系统作用域 · 默认 {formatConfigValue(definition.default)}</small>
-                  <ConfigInput
-                    definition={definition}
-                    value={values[definition.key] ?? definition.default}
-                    onChange={(value) => setValues((current) => ({ ...current, [definition.key]: value }))}
-                  />
-                </div>
-              </article>
-            ))}
+                </article>
+              )
+            })}
           </div>
         </section>
       </section>

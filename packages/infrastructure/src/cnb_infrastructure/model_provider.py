@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncIterator
+from uuid import UUID
 
 from openai import AsyncOpenAI
 from openai.types.responses import (
@@ -11,6 +12,7 @@ from openai.types.responses import (
     ResponseTextDeltaEvent,
 )
 
+from cnb_application import ModelProviderConfigurationError, SecretStore
 from cnb_cognition import (
     ModelCapabilities,
     ModelProvider,
@@ -66,6 +68,7 @@ class OpenAIResponsesProvider:
         client: AsyncOpenAI | None = None,
     ) -> None:
         self._model = model
+        self._owns_client = client is None
         self._client = client or AsyncOpenAI(api_key=api_key, timeout=timeout_seconds)
 
     @property
@@ -86,18 +89,19 @@ class OpenAIResponsesProvider:
         )
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
-        stream = await self._client.responses.create(
-            model=self._model,
-            instructions=request.instructions,
-            input=[
-                {"role": message.role.value, "content": message.content}
-                for message in request.messages
-            ],
-            max_output_tokens=request.max_output_tokens,
-            store=False,
-            stream=True,
-        )
+        stream = None
         try:
+            stream = await self._client.responses.create(
+                model=self._model,
+                instructions=request.instructions,
+                input=[
+                    {"role": message.role.value, "content": message.content}
+                    for message in request.messages
+                ],
+                max_output_tokens=request.max_output_tokens,
+                store=False,
+                stream=True,
+            )
             async for event in stream:
                 if isinstance(event, ResponseTextDeltaEvent):
                     yield ModelStreamEvent(delta=event.delta)
@@ -113,7 +117,45 @@ class OpenAIResponsesProvider:
                 elif isinstance(event, ResponseIncompleteEvent):
                     raise RuntimeError("OpenAI 模型响应未完整完成")
         finally:
-            await stream.close()
+            if stream is not None:
+                await stream.close()
+            if self._owns_client:
+                await self._client.close()
+
+
+class ConfiguredModelProviderResolver:
+    """根据最终配置和作用域密钥动态选择模型 Provider。"""
+
+    def __init__(self, secret_store: SecretStore) -> None:
+        self._secret_store = secret_store
+        self._development_provider = DevelopmentModelProvider()
+
+    async def resolve(
+        self,
+        *,
+        provider: str,
+        model: str,
+        tenant_id: UUID,
+        agent_id: UUID | None = None,
+        channel_id: UUID | None = None,
+        user_id: UUID | None = None,
+    ) -> ModelProvider:
+        if provider == "development":
+            return self._development_provider
+        if provider != "openai":
+            raise ModelProviderConfigurationError(f"不支持的模型 Provider：{provider}")
+        api_key = await self._secret_store.resolve_secret(
+            "model.openai.api_key",
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+            user_id=user_id,
+        )
+        if api_key is None:
+            raise ModelProviderConfigurationError(
+                "当前作用域尚未配置 OpenAI API 密钥，请先在配置中心写入凭证"
+            )
+        return OpenAIResponsesProvider(api_key=api_key, model=model)
 
 
 def assert_model_provider(_: ModelProvider) -> None:

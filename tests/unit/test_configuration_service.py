@@ -10,7 +10,7 @@ from cnb_application import (
     ConfigurationValidationError,
     build_default_registry,
 )
-from cnb_domain import ConfigEntry, ConfigScope
+from cnb_domain import ConfigDiffKind, ConfigEntry, ConfigScope, ConfigVersionStatus
 from cnb_infrastructure import MemoryConfigurationRepository
 
 
@@ -185,6 +185,81 @@ async def test_effective_configuration_respects_scope_precedence_and_version() -
 
     assert effective.version == published.version
     assert effective.values["model.chat.max_output_tokens"] == 900
+    assert effective.sources["model.chat.max_output_tokens"].scope_type is ConfigScope.AGENT
+    assert effective.sources["model.chat.max_output_tokens"].scope_id == agent_id
+    assert effective.sources["model.chat.max_output_tokens"].version == published.version
     assert other_agent.values["model.chat.max_output_tokens"] == 768
+    assert other_agent.sources["model.chat.max_output_tokens"].scope_type is ConfigScope.TENANT
     assert builtin.version == 0
     assert builtin.values["model.chat.max_output_tokens"] == 1024
+    assert builtin.sources["model.chat.max_output_tokens"].scope_type is None
+    assert builtin.sources["model.chat.max_output_tokens"].version == 0
+
+
+async def test_diff_preview_reports_added_changed_and_removed_values() -> None:
+    repository = MemoryConfigurationRepository()
+    configuration = ConfigurationService(build_default_registry(), repository)
+    base_draft = await configuration.create_draft(
+        note="差异基线",
+        values=(
+            ConfigEntry(
+                key="memory.recall.limit",
+                scope_type=ConfigScope.SYSTEM,
+                value=12,
+            ),
+            ConfigEntry(
+                key="proactive.enabled",
+                scope_type=ConfigScope.SYSTEM,
+                value=False,
+            ),
+        ),
+    )
+    base = await configuration.publish(base_draft.id)
+    target = await configuration.create_draft(
+        note="差异目标",
+        values=(
+            ConfigEntry(
+                key="memory.recall.limit",
+                scope_type=ConfigScope.SYSTEM,
+                value=20,
+            ),
+            ConfigEntry(
+                key="cognition.reflection.enabled",
+                scope_type=ConfigScope.SYSTEM,
+                value=False,
+            ),
+        ),
+    )
+
+    preview = await configuration.preview_diff(target.id, base_version_id=base.id)
+
+    assert preview.base_version == 1
+    assert preview.target_version == 2
+    assert {(item.key, item.kind) for item in preview.changes} == {
+        ("cognition.reflection.enabled", ConfigDiffKind.ADDED),
+        ("memory.recall.limit", ConfigDiffKind.CHANGED),
+        ("proactive.enabled", ConfigDiffKind.REMOVED),
+    }
+
+
+async def test_publish_revalidates_stored_draft_against_current_registry() -> None:
+    repository = MemoryConfigurationRepository()
+    draft = await repository.create_draft(
+        note="绕过旧注册表保存的草稿",
+        values=(
+            ConfigEntry(
+                key="removed.setting",
+                scope_type=ConfigScope.SYSTEM,
+                value=True,
+            ),
+        ),
+        actor_id=None,
+    )
+    configuration = ConfigurationService(build_default_registry(), repository)
+
+    with pytest.raises(ConfigurationValidationError, match="未知配置键"):
+        await configuration.publish(draft.id)
+
+    unchanged = await repository.get_version(draft.id)
+    assert unchanged is not None
+    assert unchanged.status is ConfigVersionStatus.DRAFT

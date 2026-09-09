@@ -10,20 +10,30 @@ from cnb_infrastructure.conversation_repository import (
 )
 from cnb_infrastructure.health import DependencyProbe, probe_dependencies
 from cnb_infrastructure.model_provider import (
+    ConfiguredModelProviderResolver,
     DevelopmentModelProvider,
     OpenAIResponsesProvider,
+)
+from cnb_infrastructure.secret_store import (
+    AesGcmEnvelopeCipher,
+    MemorySecretStore,
+    SqlAlchemySecretStore,
 )
 from cnb_infrastructure.settings import Settings, get_settings
 
 __all__ = [
+    "AesGcmEnvelopeCipher",
+    "ConfiguredModelProviderResolver",
     "DependencyProbe",
     "DevelopmentModelProvider",
     "MemoryConfigurationRepository",
     "MemoryConversationRepository",
+    "MemorySecretStore",
     "OpenAIResponsesProvider",
     "Settings",
     "SqlAlchemyConfigurationRepository",
     "SqlAlchemyConversationRepository",
+    "SqlAlchemySecretStore",
     "get_settings",
     "probe_dependencies",
 ]

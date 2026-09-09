@@ -90,6 +90,8 @@ def build_default_registry() -> ConfigurationRegistry:
     """创建持久化覆盖值生效前使用的安全内置基线。"""
     system_and_tenant = (ConfigScope.SYSTEM, ConfigScope.TENANT)
     per_agent = (*system_and_tenant, ConfigScope.AGENT)
+    per_channel = (*per_agent, ConfigScope.CHANNEL)
+    all_scopes = (*per_channel, ConfigScope.USER)
 
     return ConfigurationRegistry(
         (
@@ -100,7 +102,7 @@ def build_default_registry() -> ConfigurationRegistry:
                 description="Agent 在没有用户级时区时使用的 IANA 时区。",
                 value_kind=ConfigValueKind.STRING,
                 default="Asia/Shanghai",
-                scopes=system_and_tenant,
+                scopes=(*system_and_tenant, ConfigScope.USER),
             ),
             ConfigDefinition(
                 key="cognition.context.max_tokens",
@@ -140,9 +142,38 @@ def build_default_registry() -> ConfigurationRegistry:
                 description="内部对话单次模型响应允许生成的最大 Token 数量。",
                 value_kind=ConfigValueKind.INTEGER,
                 default=1024,
-                scopes=per_agent,
+                scopes=all_scopes,
                 minimum=64,
                 maximum=32768,
+            ),
+            ConfigDefinition(
+                key="model.chat.provider",
+                section="model",
+                label="对话模型 Provider",
+                description="对话运行使用的模型 Provider；开发模式无需外部凭证。",
+                value_kind=ConfigValueKind.STRING,
+                default="development",
+                scopes=per_channel,
+                options=("development", "openai"),
+            ),
+            ConfigDefinition(
+                key="model.openai.api_key",
+                section="model",
+                label="OpenAI API 密钥",
+                description="调用 OpenAI Responses API 的访问密钥，仅可写入、轮换和检查。",
+                value_kind=ConfigValueKind.SECRET,
+                default=None,
+                scopes=per_agent,
+                secret=True,
+            ),
+            ConfigDefinition(
+                key="model.openai.model",
+                section="model",
+                label="OpenAI 对话模型",
+                description="通过 OpenAI Responses API 调用的模型名称。",
+                value_kind=ConfigValueKind.STRING,
+                default="gpt-5-mini",
+                scopes=per_channel,
             ),
             ConfigDefinition(
                 key="memory.recall.semantic_weight",

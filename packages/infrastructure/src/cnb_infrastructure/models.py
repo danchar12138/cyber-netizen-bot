@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -55,11 +56,45 @@ class SecretReference(Base):
     __tablename__ = "secret_references"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    key: Mapped[str] = mapped_column(String(255), nullable=False)
+    scope_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    scope_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     locator: Mapped[str] = mapped_column(Text, nullable=False)
-    masked_hint: Mapped[str | None] = mapped_column(String(128))
-    updated_at: Mapped[datetime] = mapped_column(
+    encrypted_value: Mapped[bytes | None] = mapped_column(LargeBinary)
+    nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
+    key_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    masked_hint: Mapped[str] = mapped_column(String(128), nullable=False)
+    integrity_status: Mapped[str] = mapped_column(String(24), nullable=False, default="untested")
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "scope_type IN ('system', 'tenant', 'agent', 'channel', 'user')",
+            name="ck_secret_references_scope_type",
+        ),
+        CheckConstraint(
+            "integrity_status IN ('untested', 'valid', 'invalid')",
+            name="ck_secret_references_integrity_status",
+        ),
+        CheckConstraint(
+            "(encrypted_value IS NULL) = (nonce IS NULL)",
+            name="ck_secret_references_envelope",
+        ),
+        UniqueConstraint(
+            "key",
+            "scope_type",
+            "scope_id",
+            name="uq_secret_references_scope_key",
+            postgresql_nulls_not_distinct=True,
+        ),
+        Index("ix_secret_references_key", "key"),
     )
 
 

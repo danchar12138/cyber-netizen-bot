@@ -38,6 +38,22 @@ class ConfigVersionStatus(StrEnum):
     SUPERSEDED = "superseded"
 
 
+class ConfigDiffKind(StrEnum):
+    """两个配置快照之间的安全变更类型。"""
+
+    ADDED = "added"
+    CHANGED = "changed"
+    REMOVED = "removed"
+
+
+class SecretIntegrityStatus(StrEnum):
+    """密钥材料最近一次完整性检查的状态。"""
+
+    UNTESTED = "untested"
+    VALID = "valid"
+    INVALID = "invalid"
+
+
 @dataclass(frozen=True, slots=True)
 class ConfigDefinition:
     """单个运行配置键的定义和安全默认值。"""
@@ -89,3 +105,40 @@ class ConfigVersion:
     created_at: datetime
     published_at: datetime | None
     values: tuple[ConfigEntry, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigDifference:
+    """配置版本差异中的单个非密钥变更。"""
+
+    key: str
+    scope_type: ConfigScope
+    scope_id: UUID | None
+    kind: ConfigDiffKind
+    before: JsonValue
+    after: JsonValue
+
+
+@dataclass(frozen=True, slots=True)
+class EffectiveConfigSource:
+    """最终生效值的具体来源；空作用域表示内置安全默认值。"""
+
+    scope_type: ConfigScope | None
+    scope_id: UUID | None
+    version: int
+
+
+@dataclass(frozen=True, slots=True)
+class SecretMetadata:
+    """可安全返回给管理端的密钥元数据，不含可逆材料。"""
+
+    id: UUID
+    key: str
+    scope_type: ConfigScope
+    scope_id: UUID | None
+    provider: str
+    masked_hint: str
+    integrity_status: SecretIntegrityStatus
+    created_at: datetime
+    updated_at: datetime
+    last_tested_at: datetime | None

@@ -3,7 +3,12 @@
 from collections.abc import AsyncIterator
 from uuid import NAMESPACE_DNS, uuid5
 
-from cnb_application import ConfigurationService, ConversationService, build_default_registry
+from cnb_application import (
+    ConfigurationService,
+    ConversationService,
+    StaticModelProviderResolver,
+    build_default_registry,
+)
 from cnb_cognition import (
     MinimalCognitiveRuntime,
     ModelCapabilities,
@@ -51,7 +56,7 @@ def _service(repository: MemoryConversationRepository) -> ConversationService:
     return ConversationService(
         repository=repository,
         runtime=MinimalCognitiveRuntime(),
-        model_provider=StubModelProvider(),
+        model_provider_resolver=StaticModelProviderResolver(StubModelProvider()),
         configuration_service=ConfigurationService(
             build_default_registry(), MemoryConfigurationRepository()
         ),

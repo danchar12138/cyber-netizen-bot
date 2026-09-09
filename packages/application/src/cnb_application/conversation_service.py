@@ -1,7 +1,7 @@
 """持久化最小对话闭环的应用服务与仓储端口。"""
 
 import asyncio
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
@@ -40,6 +40,10 @@ class AgentRunNotFoundError(LookupError):
 
 class ConversationConflictError(RuntimeError):
     """会话或运行状态不允许当前操作时抛出。"""
+
+
+class ModelProviderConfigurationError(RuntimeError):
+    """生效模型配置或所需凭证不完整时抛出。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +126,41 @@ class ConversationRepository(Protocol):
     ) -> tuple[ConversationEvent, ...]: ...
 
 
+class ModelProviderResolver(Protocol):
+    """根据配置和运行作用域解析一个厂商无关模型 Provider。"""
+
+    async def resolve(
+        self,
+        *,
+        provider: str,
+        model: str,
+        tenant_id: UUID,
+        agent_id: UUID | None = None,
+        channel_id: UUID | None = None,
+        user_id: UUID | None = None,
+    ) -> ModelProvider: ...
+
+
+class StaticModelProviderResolver:
+    """将既有单一 Provider 适配到动态解析端口，便于测试和嵌入。"""
+
+    def __init__(self, model_provider: ModelProvider) -> None:
+        self._model_provider = model_provider
+
+    async def resolve(
+        self,
+        *,
+        provider: str,
+        model: str,
+        tenant_id: UUID,
+        agent_id: UUID | None = None,
+        channel_id: UUID | None = None,
+        user_id: UUID | None = None,
+    ) -> ModelProvider:
+        del provider, model, tenant_id, agent_id, channel_id, user_id
+        return self._model_provider
+
+
 class ConversationService:
     """编排身份、持久化、认知决策和模型流式响应。"""
 
@@ -130,13 +169,13 @@ class ConversationService:
         *,
         repository: ConversationRepository,
         runtime: CognitiveRuntime,
-        model_provider: ModelProvider,
+        model_provider_resolver: ModelProviderResolver,
         configuration_service: ConfigurationService,
         identity: DevelopmentIdentity,
     ) -> None:
         self._repository = repository
         self._runtime = runtime
-        self._model_provider = model_provider
+        self._model_provider_resolver = model_provider_resolver
         self._configuration_service = configuration_service
         self._identity = identity
 
@@ -200,6 +239,7 @@ class ConversationService:
             agent_id=self._identity.agent_id,
             user_id=self._identity.user_id,
         )
+        provider_name, model_name = self._model_selection(configuration.values)
         return await self._repository.begin_agent_run(
             identity=self._identity,
             conversation_id=conversation_id,
@@ -208,7 +248,7 @@ class ConversationService:
             configuration_version=configuration.version,
             persona_version=1,
             prompt_version=1,
-            model_profile=f"{self._model_provider.name}/{self._model_provider.model}",
+            model_profile=f"{provider_name}/{model_name}",
         )
 
     async def execute_run(self, pending: PendingAgentRun) -> None:
@@ -259,12 +299,20 @@ class ConversationService:
             max_output_tokens = configuration.values["model.chat.max_output_tokens"]
             if not isinstance(system_prompt, str) or not isinstance(max_output_tokens, int):
                 raise ConversationConflictError("生效配置中的模型参数类型无效")
+            provider_name, model_name = self._model_selection(configuration.values)
+            model_provider = await self._model_provider_resolver.resolve(
+                provider=provider_name,
+                model=model_name,
+                tenant_id=self._identity.tenant_id,
+                agent_id=self._identity.agent_id,
+                user_id=self._identity.user_id,
+            )
             request = ModelRequest(
                 messages=self._model_messages(context_messages, pending.response_message.id),
                 instructions=system_prompt,
                 max_output_tokens=max_output_tokens,
             )
-            async for event in self._model_provider.stream(request):
+            async for event in model_provider.stream(request):
                 if event.delta:
                     await self._repository.append_run_delta(pending.run.id, event.delta)
                 if event.usage is not None:
@@ -324,3 +372,17 @@ class ConversationService:
             )
             mapped.append(ModelMessage(role=role, content=message.content))
         return tuple(mapped)
+
+    @staticmethod
+    def _model_selection(values: Mapping[str, object]) -> tuple[str, str]:
+        provider = values.get("model.chat.provider")
+        if not isinstance(provider, str):
+            raise ModelProviderConfigurationError("生效配置中的模型 Provider 无效")
+        if provider == "development":
+            return provider, "friendly-echo-v1"
+        if provider == "openai":
+            model = values.get("model.openai.model")
+            if not isinstance(model, str) or not model.strip():
+                raise ModelProviderConfigurationError("OpenAI 模型名称不能为空")
+            return provider, model
+        raise ModelProviderConfigurationError(f"不支持的模型 Provider：{provider}")

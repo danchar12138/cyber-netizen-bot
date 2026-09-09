@@ -11,15 +11,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from cnb_api import __version__
 from cnb_api.errors import RequestIdMiddleware, install_error_handlers
 from cnb_api.routes import configuration, conversation, health, system
-from cnb_application import ConfigurationRepository, ConversationRepository
+from cnb_application import (
+    ConfigurationRepository,
+    ConversationRepository,
+    ModelProviderResolver,
+    SecretStore,
+    StaticModelProviderResolver,
+)
 from cnb_cognition import CognitiveRuntime, MinimalCognitiveRuntime, ModelProvider
 from cnb_domain import DevelopmentIdentity
 from cnb_infrastructure import (
+    AesGcmEnvelopeCipher,
+    ConfiguredModelProviderResolver,
     DependencyProbe,
-    DevelopmentModelProvider,
+    MemorySecretStore,
     Settings,
     SqlAlchemyConfigurationRepository,
     SqlAlchemyConversationRepository,
+    SqlAlchemySecretStore,
     get_settings,
     probe_dependencies,
 )
@@ -31,8 +40,10 @@ def create_app(
     *,
     configuration_repository: ConfigurationRepository | None = None,
     conversation_repository: ConversationRepository | None = None,
+    secret_store: SecretStore | None = None,
     cognitive_runtime: CognitiveRuntime | None = None,
     model_provider: ModelProvider | None = None,
+    model_provider_resolver: ModelProviderResolver | None = None,
     dependency_probe: DependencyProbe | None = None,
 ) -> FastAPI:
     """创建可用于生产或测试的独立应用实例。"""
@@ -66,8 +77,25 @@ def create_app(
     application.state.conversation_repository = (
         conversation_repository or SqlAlchemyConversationRepository(session_factory)
     )
+    if secret_store is not None:
+        application.state.secret_store = secret_store
+    elif configuration_repository is not None:
+        application.state.secret_store = MemorySecretStore()
+    else:
+        cipher = AesGcmEnvelopeCipher.from_encoded_key(
+            resolved_settings.config_master_key.get_secret_value(),
+            allow_development_placeholder=resolved_settings.environment in {"development", "test"},
+        )
+        application.state.secret_store = SqlAlchemySecretStore(session_factory, cipher)
     application.state.cognitive_runtime = cognitive_runtime or MinimalCognitiveRuntime()
-    application.state.model_provider = model_provider or DevelopmentModelProvider()
+    if model_provider_resolver is not None:
+        application.state.model_provider_resolver = model_provider_resolver
+    elif model_provider is not None:
+        application.state.model_provider_resolver = StaticModelProviderResolver(model_provider)
+    else:
+        application.state.model_provider_resolver = ConfiguredModelProviderResolver(
+            application.state.secret_store
+        )
     application.state.development_identity = DevelopmentIdentity(
         tenant_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.tenant"),
         user_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.user"),

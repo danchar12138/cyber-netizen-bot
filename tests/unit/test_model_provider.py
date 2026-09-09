@@ -2,12 +2,19 @@
 
 from collections.abc import AsyncIterator
 from typing import cast
+from uuid import uuid4
 
 from openai import AsyncOpenAI
 from openai.types.responses import ResponseStreamEvent, ResponseTextDeltaEvent
 
 from cnb_cognition import ModelMessage, ModelRequest, ModelRole
-from cnb_infrastructure import DevelopmentModelProvider, OpenAIResponsesProvider
+from cnb_domain import ConfigScope
+from cnb_infrastructure import (
+    ConfiguredModelProviderResolver,
+    DevelopmentModelProvider,
+    MemorySecretStore,
+    OpenAIResponsesProvider,
+)
 
 
 async def test_development_provider_streams_without_external_credentials() -> None:
@@ -90,3 +97,31 @@ async def test_openai_provider_uses_responses_stream_without_remote_storage() ->
     assert responses.arguments["stream"] is True
     assert responses.arguments["store"] is False
     assert stream.closed is True
+
+
+async def test_configured_provider_resolver_selects_local_and_openai_providers() -> None:
+    secret_store = MemorySecretStore()
+    tenant_id = uuid4()
+    await secret_store.set_secret(
+        key="model.openai.api_key",
+        scope_type=ConfigScope.SYSTEM,
+        scope_id=None,
+        plaintext="仅供 Provider 解析测试的虚假凭证",
+        actor_id=None,
+    )
+    resolver = ConfiguredModelProviderResolver(secret_store)
+
+    local = await resolver.resolve(
+        provider="development",
+        model="friendly-echo-v1",
+        tenant_id=tenant_id,
+    )
+    openai_provider = await resolver.resolve(
+        provider="openai",
+        model="gpt-5-mini",
+        tenant_id=tenant_id,
+    )
+
+    assert local.name == "development"
+    assert openai_provider.name == "openai"
+    assert openai_provider.model == "gpt-5-mini"

@@ -90,6 +90,15 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .phase-list li::before { content: "○"; margin-right: 8px; color: #3b5a4f; }
 .phase-list li.done { color: #91b8a9; }
 .phase-list li.done::before { content: "●"; color: #55d68d; }
+.config-context { display: flex; align-items: center; gap: 18px; margin-bottom: 13px; padding: 11px 13px; }
+.config-tabs { display: flex; gap: 4px; padding: 3px; border: 1px solid #1f3d34; background: #091713; border-radius: 8px; }
+.config-tabs button { display: flex; align-items: center; gap: 6px; padding: 7px 10px; color: #638278; border: 0; background: transparent; border-radius: 6px; font-size: 9px; cursor: pointer; }
+.config-tabs button.active { color: #a6e7bf; background: #173429; }
+.config-context label { display: flex; align-items: center; gap: 8px; color: #638278; font-size: 9px; }
+.config-context select, .config-context input { min-width: 120px; padding: 7px 8px; color: #b7cdc4; border: 1px solid #285043; outline: 0; background: #0b1c17; border-radius: 6px; font-size: 9px; }
+.config-context label:has(input) { flex: 1; }
+.config-context input { width: min(400px, 100%); }
+.scope-identity { overflow: hidden; color: #4f7165; font-family: ui-monospace, monospace; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .configuration-layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); align-items: start; gap: 13px; }
 .config-sections { padding: 11px; }
 .config-sections .nav-label { margin-top: 8px; }
@@ -102,6 +111,11 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .version-status { padding: 2px 5px; color: #709085; border: 1px solid #28443b; border-radius: 4px; font-size: 7px; }
 .version-status.published { color: #78dfa1; border-color: #2c6549; background: #123121; }
 .version-status.draft { color: #d9b971; border-color: #614e27; background: #291f0e; }
+.diff-preview { display: grid; gap: 6px; margin-top: 14px; padding: 10px; border-top: 1px solid #1b382f; }
+.diff-preview > strong { margin-bottom: 2px; color: #9bb8ae; font-size: 9px; }
+.diff-preview > span { overflow: hidden; color: #6f9084; font-family: ui-monospace, monospace; font-size: 7px; text-overflow: ellipsis; }
+.diff-preview b { color: #70d99a; font-family: inherit; }
+.diff-preview small { display: block; margin-top: 2px; color: #46675b; }
 .empty-copy { color: #4e6d62; font-size: 9px; line-height: 1.6; }
 .config-section { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; color: #65847a; border: 0; background: transparent; border-radius: 7px; text-align: left; font-size: 10px; cursor: pointer; }
 .config-section:hover, .config-section.active { color: #a8d7c5; background: #142c24; }
@@ -129,6 +143,9 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .definition-value.editor { min-width: 190px; padding: 9px; }
 .config-input { width: 100%; padding: 7px 8px; color: #bcd1c8; border: 1px solid #285043; outline: 0; background: #0d201a; border-radius: 6px; font-size: 10px; }
 .config-input:focus { border-color: #58c98a; box-shadow: 0 0 0 2px #58c98a18; }
+.secret-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.secret-actions button { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px; color: #75c999; border: 1px solid #295440; background: #10291f; border-radius: 5px; font-size: 7px; cursor: pointer; }
+.secret-actions button.danger { color: #db927d; border-color: #63372c; background: #291713; }
 .toggle { display: flex; align-items: center; gap: 7px; width: 100%; padding: 6px 8px; color: #78958b; border: 1px solid #29483e; background: #0d1c18; border-radius: 6px; font-size: 9px; cursor: pointer; }
 .toggle span { width: 20px; height: 11px; position: relative; background: #31473f; border-radius: 99px; }
 .toggle span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 7px; height: 7px; background: #78958b; border-radius: 50%; transition: .16s ease; }
@@ -207,6 +224,9 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .page-heading { align-items: flex-start; flex-direction: column; }
   .metric-grid, .dashboard-grid { grid-template-columns: 1fr; }
   .definition-row { grid-template-columns: 1fr; gap: 12px; }
+  .config-context { align-items: stretch; flex-direction: column; }
+  .config-tabs button { flex: 1; justify-content: center; }
+  .config-context label { justify-content: space-between; }
   .chat-workspace { grid-template-columns: 1fr; min-height: 590px; }
   .conversation-list { display: none; }
 }

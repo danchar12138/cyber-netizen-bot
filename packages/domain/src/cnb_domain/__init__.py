@@ -2,12 +2,17 @@
 
 from cnb_domain.configuration import (
     ConfigDefinition,
+    ConfigDifference,
+    ConfigDiffKind,
     ConfigEntry,
     ConfigScope,
     ConfigValueKind,
     ConfigVersion,
     ConfigVersionStatus,
+    EffectiveConfigSource,
     JsonValue,
+    SecretIntegrityStatus,
+    SecretMetadata,
 )
 from cnb_domain.conversation import (
     AgentRun,
@@ -27,6 +32,8 @@ __all__ = [
     "AgentRun",
     "AgentRunStatus",
     "ConfigDefinition",
+    "ConfigDiffKind",
+    "ConfigDifference",
     "ConfigEntry",
     "ConfigScope",
     "ConfigValueKind",
@@ -36,10 +43,13 @@ __all__ = [
     "ConversationEvent",
     "ConversationStatus",
     "DevelopmentIdentity",
+    "EffectiveConfigSource",
     "EntityStatus",
     "JsonValue",
     "Message",
     "MessageSenderType",
     "MessageStatus",
     "PendingAgentRun",
+    "SecretIntegrityStatus",
+    "SecretMetadata",
 ]

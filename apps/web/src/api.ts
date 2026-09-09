@@ -18,6 +18,8 @@ export type ConfigValue = string | number | boolean | null | ConfigValue[] | {
   [key: string]: ConfigValue
 }
 
+export type ConfigScope = 'system' | 'tenant' | 'agent' | 'channel' | 'user'
+
 export interface ConfigDefinition {
   key: string
   section: string
@@ -25,7 +27,7 @@ export interface ConfigDefinition {
   description: string
   value_kind: 'string' | 'integer' | 'number' | 'boolean' | 'string_list' | 'secret'
   default: ConfigValue
-  scopes: string[]
+  scopes: ConfigScope[]
   secret: boolean
   hot_reload: boolean
   minimum?: number | null
@@ -42,7 +44,7 @@ export type ConfigVersionStatus = 'draft' | 'published' | 'superseded'
 
 export interface ConfigVersionValue {
   key: string
-  scope_type: string
+  scope_type: ConfigScope
   scope_id: string | null
   value: ConfigValue
 }
@@ -147,10 +149,58 @@ interface ConfigDraftCommand {
   note: string | null
   values: Array<{
     key: string
-    scope_type: 'system'
-    scope_id: null
+    scope_type: ConfigScope
+    scope_id: string | null
     value: ConfigValue
   }>
+}
+
+export interface ConfigDifference {
+  key: string
+  scope_type: ConfigScope
+  scope_id: string | null
+  kind: 'added' | 'changed' | 'removed'
+  before: ConfigValue
+  after: ConfigValue
+}
+
+export interface ConfigDiff {
+  base_version: number
+  target_version: number
+  changes: ConfigDifference[]
+}
+
+export interface EffectiveConfigValue {
+  key: string
+  value: ConfigValue
+  source: {
+    scope_type: ConfigScope | null
+    scope_id: string | null
+    version: number
+  }
+}
+
+interface EffectiveConfiguration {
+  version: number
+  values: EffectiveConfigValue[]
+}
+
+export interface SecretMetadata {
+  id: string
+  key: string
+  scope_type: ConfigScope
+  scope_id: string | null
+  provider: string
+  configured: boolean
+  masked_hint: string
+  integrity_status: 'untested' | 'valid' | 'invalid'
+  created_at: string
+  updated_at: string
+  last_tested_at: string | null
+}
+
+interface SecretList {
+  secrets: SecretMetadata[]
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -181,6 +231,16 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   return response.json() as Promise<T>
 }
 
+async function deleteRequest(path: string): Promise<void> {
+  const response = await fetch(path, { method: 'DELETE', headers: { Accept: 'application/json' } })
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: { message?: string }
+    } | null
+    throw new Error(payload?.error?.message ?? `请求失败，状态码 ${response.status}`)
+  }
+}
+
 export const getSystemOverview = () => getJson<SystemOverview>('/api/v1/system/overview')
 
 export const getConfigRegistry = () =>
@@ -197,6 +257,40 @@ export const publishConfigVersion = (versionId: string) =>
 
 export const rollbackConfigVersion = (versionId: string) =>
   postJson<ConfigVersion>(`/api/v1/configuration/versions/${versionId}/rollback`)
+
+export const getConfigDiff = (versionId: string) =>
+  getJson<ConfigDiff>(`/api/v1/configuration/versions/${versionId}/diff`)
+
+export const getEffectiveConfiguration = (targets: {
+  tenantId: string
+  agentId?: string
+  channelId?: string
+  userId?: string
+}) => {
+  const query = new URLSearchParams({ tenant_id: targets.tenantId })
+  if (targets.agentId) query.set('agent_id', targets.agentId)
+  if (targets.channelId) query.set('channel_id', targets.channelId)
+  if (targets.userId) query.set('user_id', targets.userId)
+  return getJson<EffectiveConfiguration>(`/api/v1/configuration/effective?${query}`)
+}
+
+export const getSecrets = () => getJson<SecretList>('/api/v1/configuration/secrets')
+
+export const setSecret = (command: {
+  key: string
+  scope_type: ConfigScope
+  scope_id: string | null
+  plaintext: string
+}) => postJson<SecretMetadata>('/api/v1/configuration/secrets', command)
+
+export const rotateSecret = (secretId: string, plaintext: string) =>
+  postJson<SecretMetadata>(`/api/v1/configuration/secrets/${secretId}/rotate`, { plaintext })
+
+export const testSecret = (secretId: string) =>
+  postJson<SecretMetadata>(`/api/v1/configuration/secrets/${secretId}/test`)
+
+export const clearSecret = (secretId: string) =>
+  deleteRequest(`/api/v1/configuration/secrets/${secretId}`)
 
 export const getDevelopmentIdentity = () =>
   getJson<DevelopmentIdentity>('/api/v1/chat/identity')

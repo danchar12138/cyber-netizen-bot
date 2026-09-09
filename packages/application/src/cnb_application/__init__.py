@@ -7,10 +7,15 @@ from cnb_application.configuration_registry import (
 )
 from cnb_application.configuration_service import (
     ConfigurationConflictError,
+    ConfigurationDiffPreview,
     ConfigurationNotFoundError,
     ConfigurationRepository,
     ConfigurationService,
     EffectiveConfigurationSnapshot,
+    SecretManagementService,
+    SecretNotFoundError,
+    SecretOperationError,
+    SecretStore,
 )
 from cnb_application.conversation_service import (
     AgentRunNotFoundError,
@@ -19,6 +24,9 @@ from cnb_application.conversation_service import (
     ConversationRepository,
     ConversationService,
     CursorPage,
+    ModelProviderConfigurationError,
+    ModelProviderResolver,
+    StaticModelProviderResolver,
 )
 from cnb_application.pagination import (
     EntityCursor,
@@ -30,6 +38,7 @@ from cnb_application.pagination import (
 __all__ = [
     "AgentRunNotFoundError",
     "ConfigurationConflictError",
+    "ConfigurationDiffPreview",
     "ConfigurationNotFoundError",
     "ConfigurationRegistry",
     "ConfigurationRepository",
@@ -43,6 +52,13 @@ __all__ = [
     "EffectiveConfigurationSnapshot",
     "EntityCursor",
     "InvalidCursorError",
+    "ModelProviderConfigurationError",
+    "ModelProviderResolver",
+    "SecretManagementService",
+    "SecretNotFoundError",
+    "SecretOperationError",
+    "SecretStore",
+    "StaticModelProviderResolver",
     "build_default_registry",
     "decode_cursor",
     "encode_cursor",
