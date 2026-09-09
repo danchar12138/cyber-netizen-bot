@@ -127,6 +127,8 @@ def _run_response(item: AgentRun) -> AgentRunResponse:
         configuration_version=item.configuration_version,
         persona_version=item.persona_version,
         prompt_version=item.prompt_version,
+        policy_version=item.policy_version,
+        model_route_version=item.model_route_version,
         model_profile=item.model_profile,
         input_tokens=item.input_tokens,
         output_tokens=item.output_tokens,

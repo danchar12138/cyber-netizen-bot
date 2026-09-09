@@ -3,15 +3,22 @@
 import asyncio
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import UUID
 
+from cnb_application.cognition_service import CognitionService
 from cnb_application.configuration_service import ConfigurationService
 from cnb_application.pagination import EntityCursor, decode_cursor, encode_cursor
 from cnb_cognition import (
+    AgentDecision,
     AgentEvent,
+    CognitiveAction,
     CognitiveContext,
     CognitiveRuntime,
+    ContextFragment,
+    ContextFragmentKind,
+    ContextRole,
     ModelMessage,
     ModelProvider,
     ModelRequest,
@@ -24,6 +31,7 @@ from cnb_domain import (
     ConversationEvent,
     ConversationStatus,
     DevelopmentIdentity,
+    InvocationStatus,
     Message,
     MessageFeedback,
     MessageFeedbackRating,
@@ -119,6 +127,8 @@ class ConversationRepository(Protocol):
         configuration_version: int,
         persona_version: int,
         prompt_version: int,
+        policy_version: int,
+        model_route_version: int,
         model_profile: str,
     ) -> PendingAgentRun: ...
 
@@ -131,6 +141,8 @@ class ConversationRepository(Protocol):
         configuration_version: int,
         persona_version: int,
         prompt_version: int,
+        policy_version: int,
+        model_route_version: int,
         model_profile: str,
     ) -> PendingAgentRun: ...
 
@@ -144,6 +156,8 @@ class ConversationRepository(Protocol):
         configuration_version: int,
         persona_version: int,
         prompt_version: int,
+        policy_version: int,
+        model_route_version: int,
         model_profile: str,
     ) -> PendingAgentRun: ...
 
@@ -155,7 +169,13 @@ class ConversationRepository(Protocol):
 
     async def append_run_delta(self, run_id: UUID, delta: str) -> Message: ...
 
-    async def complete_run(self, run_id: UUID, usage: ModelUsage | None) -> AgentRun: ...
+    async def complete_run(
+        self,
+        run_id: UUID,
+        usage: ModelUsage | None,
+        *,
+        suppress_response: bool = False,
+    ) -> AgentRun: ...
 
     async def fail_run(self, run_id: UUID, error_code: str) -> AgentRun: ...
 
@@ -230,6 +250,38 @@ class StaticModelProviderResolver:
         return self._model_provider
 
 
+@dataclass(slots=True)
+class _CircuitState:
+    failures: int = 0
+    opened_at: datetime | None = None
+
+
+class ModelReliabilityGuard:
+    """进程内模型熔断状态；业务事实和重试记录仍写入 PostgreSQL。"""
+
+    def __init__(self) -> None:
+        self._states: dict[str, _CircuitState] = {}
+
+    def available(self, profile: str, *, cooldown_seconds: int, now: datetime) -> bool:
+        state = self._states.get(profile)
+        if state is None or state.opened_at is None:
+            return True
+        if now - state.opened_at >= timedelta(seconds=cooldown_seconds):
+            state.opened_at = None
+            state.failures = 0
+            return True
+        return False
+
+    def succeeded(self, profile: str) -> None:
+        self._states.pop(profile, None)
+
+    def failed(self, profile: str, *, threshold: int, now: datetime) -> None:
+        state = self._states.setdefault(profile, _CircuitState())
+        state.failures += 1
+        if state.failures >= threshold:
+            state.opened_at = now
+
+
 class ConversationService:
     """编排身份、持久化、认知决策和模型流式响应。"""
 
@@ -240,13 +292,17 @@ class ConversationService:
         runtime: CognitiveRuntime,
         model_provider_resolver: ModelProviderResolver,
         configuration_service: ConfigurationService,
+        cognition_service: CognitionService,
         identity: DevelopmentIdentity,
+        reliability_guard: ModelReliabilityGuard | None = None,
     ) -> None:
         self._repository = repository
         self._runtime = runtime
         self._model_provider_resolver = model_provider_resolver
         self._configuration_service = configuration_service
+        self._cognition_service = cognition_service
         self._identity = identity
+        self._reliability_guard = reliability_guard or ModelReliabilityGuard()
 
     @property
     def identity(self) -> DevelopmentIdentity:
@@ -335,15 +391,24 @@ class ConversationService:
         content: str,
     ) -> PendingAgentRun:
         await self.get_conversation(conversation_id)
-        configuration_version, model_profile = await self._model_snapshot()
+        (
+            configuration_version,
+            model_profile,
+            persona_version,
+            prompt_version,
+            policy_version,
+            model_route_version,
+        ) = await self._run_snapshot()
         return await self._repository.begin_agent_run(
             identity=self._identity,
             conversation_id=conversation_id,
             client_message_id=client_message_id,
             content=content.strip(),
             configuration_version=configuration_version,
-            persona_version=1,
-            prompt_version=1,
+            persona_version=persona_version,
+            prompt_version=prompt_version,
+            policy_version=policy_version,
+            model_route_version=model_route_version,
             model_profile=model_profile,
         )
 
@@ -351,14 +416,23 @@ class ConversationService:
         self, response_message_id: UUID, *, client_request_id: UUID
     ) -> PendingAgentRun:
         """保留旧回复和旧 Run，基于同一触发消息创建一次新运行。"""
-        configuration_version, model_profile = await self._model_snapshot()
+        (
+            configuration_version,
+            model_profile,
+            persona_version,
+            prompt_version,
+            policy_version,
+            model_route_version,
+        ) = await self._run_snapshot()
         return await self._repository.begin_regeneration(
             identity=self._identity,
             response_message_id=response_message_id,
             client_request_id=client_request_id,
             configuration_version=configuration_version,
-            persona_version=1,
-            prompt_version=1,
+            persona_version=persona_version,
+            prompt_version=prompt_version,
+            policy_version=policy_version,
+            model_route_version=model_route_version,
             model_profile=model_profile,
         )
 
@@ -370,23 +444,31 @@ class ConversationService:
         content: str,
     ) -> PendingAgentRun:
         """复制目标消息之前的可见历史，并以编辑内容启动新会话分支。"""
-        configuration_version, model_profile = await self._model_snapshot()
+        (
+            configuration_version,
+            model_profile,
+            persona_version,
+            prompt_version,
+            policy_version,
+            model_route_version,
+        ) = await self._run_snapshot()
         return await self._repository.begin_edited_branch(
             identity=self._identity,
             source_message_id=source_message_id,
             client_message_id=client_message_id,
             content=content.strip(),
             configuration_version=configuration_version,
-            persona_version=1,
-            prompt_version=1,
+            persona_version=persona_version,
+            prompt_version=prompt_version,
+            policy_version=policy_version,
+            model_route_version=model_route_version,
             model_profile=model_profile,
         )
 
     async def execute_run(self, pending: PendingAgentRun) -> None:
-        """执行已落盘的 Run，并把每个文本增量持久化为有序事件。"""
+        """执行多阶段认知、策略门与有恢复边界的模型表达。"""
         if not pending.created:
             return
-        usage: ModelUsage | None = None
         try:
             await self._repository.mark_run_started(pending.run.id)
             context_messages = await self._repository.list_context_messages(
@@ -405,14 +487,45 @@ class ConversationService:
             if trigger_index is None:
                 raise ConversationConflictError("Agent Run 的触发消息不在会话上下文中")
             context_messages = context_messages[: trigger_index + 1]
+            configuration = await self._configuration_service.resolve_effective(
+                tenant_id=self._identity.tenant_id,
+                agent_id=self._identity.agent_id,
+                user_id=self._identity.user_id,
+                version=pending.run.configuration_version,
+            )
+            bundle = await self._cognition_service.resolve_runtime_bundle(
+                tenant_id=self._identity.tenant_id,
+                agent_id=self._identity.agent_id,
+                persona_version=pending.run.persona_version,
+                prompt_version=pending.run.prompt_version,
+                policy_version=pending.run.policy_version,
+                model_route_version=pending.run.model_route_version,
+            )
+            prior_affect = await self._cognition_service.load_affect(
+                tenant_id=self._identity.tenant_id,
+                agent_id=self._identity.agent_id,
+                conversation_id=pending.conversation.id,
+            )
+            context_budget = self._integer_setting(
+                configuration.values, "cognition.context.max_tokens"
+            )
+            affect_half_life = self._integer_setting(
+                configuration.values, "cognition.affect.half_life_seconds"
+            )
             context = CognitiveContext(
                 run_id=pending.run.id,
                 configuration_version=pending.run.configuration_version,
                 persona_version=pending.run.persona_version,
                 prompt_version=pending.run.prompt_version,
-                context_fragments=tuple(
-                    item.content for item in context_messages if item.content.strip()
+                context_fragments=self._context_fragments(
+                    context_messages,
+                    trigger_message_id=pending.trigger_message.id,
                 ),
+                persona=bundle.persona,
+                prior_affect=prior_affect,
+                policy=bundle.policy,
+                context_token_budget=context_budget,
+                affect_half_life_seconds=affect_half_life,
             )
             decision = await self._runtime.run(
                 AgentEvent(
@@ -427,44 +540,205 @@ class ConversationService:
                 ),
                 context,
             )
-            if decision.action != "reply":
-                await self._repository.complete_run(pending.run.id, usage=None)
+            await self._cognition_service.record_decision(
+                run_id=pending.run.id,
+                tenant_id=pending.run.tenant_id,
+                agent_id=pending.run.agent_id,
+                conversation_id=pending.run.conversation_id,
+                persona_version=bundle.persona.version,
+                decision=decision,
+            )
+            if decision.action not in {CognitiveAction.REPLY, CognitiveAction.ASK}:
+                await self._repository.complete_run(
+                    pending.run.id,
+                    usage=None,
+                    suppress_response=True,
+                )
                 return
 
-            configuration = await self._configuration_service.resolve_effective(
-                tenant_id=self._identity.tenant_id,
-                agent_id=self._identity.agent_id,
-                user_id=self._identity.user_id,
-                version=pending.run.configuration_version,
-            )
             system_prompt = configuration.values["persona.system_prompt"]
             max_output_tokens = configuration.values["model.chat.max_output_tokens"]
             if not isinstance(system_prompt, str) or not isinstance(max_output_tokens, int):
                 raise ConversationConflictError("生效配置中的模型参数类型无效")
-            provider_name, model_name = self._model_selection(configuration.values)
-            model_provider = await self._model_provider_resolver.resolve(
-                provider=provider_name,
-                model=model_name,
-                tenant_id=self._identity.tenant_id,
-                agent_id=self._identity.agent_id,
-                user_id=self._identity.user_id,
+            provider_name, model_name = (
+                bundle.model_route.profiles[0]
+                if bundle.model_route
+                else self._model_selection(configuration.values)
             )
+            total_token_budget = self._integer_setting(
+                configuration.values, "model.chat.total_token_budget"
+            )
+            estimated_input = decision.context.estimated_tokens if decision.context else 0
+            available_output = total_token_budget - estimated_input
+            if available_output < 64:
+                raise ConversationConflictError("上下文已耗尽单次模型 Token 预算")
             request = ModelRequest(
-                messages=self._model_messages(context_messages, pending.response_message.id),
-                instructions=system_prompt,
-                max_output_tokens=max_output_tokens,
+                messages=self._decision_messages(
+                    decision,
+                    fallback_messages=context_messages,
+                    response_message_id=pending.response_message.id,
+                ),
+                instructions="\n".join(
+                    part for part in (system_prompt, bundle.prompt, decision.instructions) if part
+                ),
+                max_output_tokens=min(max_output_tokens, available_output),
             )
-            async for event in model_provider.stream(request):
-                if event.delta:
-                    await self._repository.append_run_delta(pending.run.id, event.delta)
-                if event.usage is not None:
-                    usage = event.usage
+            usage = await self._stream_with_resilience(
+                pending=pending,
+                request=request,
+                configuration=configuration.values,
+                primary=(provider_name, model_name),
+                route_profiles=(bundle.model_route.profiles if bundle.model_route else None),
+                route_timeout=(bundle.model_route.timeout_seconds if bundle.model_route else None),
+                route_max_attempts=(
+                    bundle.model_route.max_attempts if bundle.model_route else None
+                ),
+            )
             await self._repository.complete_run(pending.run.id, usage)
         except asyncio.CancelledError:
             await self._repository.cancel_run(pending.run.id, user_id=self._identity.user_id)
             raise
         except Exception as error:
             await self._repository.fail_run(pending.run.id, type(error).__name__)
+
+    async def _stream_with_resilience(
+        self,
+        *,
+        pending: PendingAgentRun,
+        request: ModelRequest,
+        configuration: Mapping[str, object],
+        primary: tuple[str, str],
+        route_profiles: tuple[tuple[str, str], ...] | None,
+        route_timeout: int | None,
+        route_max_attempts: int | None,
+    ) -> ModelUsage | None:
+        """仅在尚未产生流式输出时重试，并记录每次尝试的安全元数据。"""
+        timeout_seconds = route_timeout or self._integer_setting(
+            configuration, "model.chat.timeout_seconds"
+        )
+        max_attempts = route_max_attempts or self._integer_setting(
+            configuration, "model.chat.max_attempts"
+        )
+        failure_threshold = self._integer_setting(
+            configuration, "model.chat.circuit_breaker_failures"
+        )
+        cooldown_seconds = self._integer_setting(
+            configuration, "model.chat.circuit_breaker_cooldown_seconds"
+        )
+        if route_profiles is not None:
+            profiles = route_profiles
+        else:
+            fallback = self._fallback_selection(configuration)
+            profiles = (primary,) if fallback == primary else (primary, fallback)
+        last_error: Exception | None = None
+        global_attempt = 0
+
+        attempt_profiles = tuple(
+            profiles[min(index, len(profiles) - 1)] for index in range(max_attempts)
+        )
+        for provider_name, model_name in attempt_profiles:
+            profile = f"{provider_name}/{model_name}"
+            global_attempt += 1
+            started_at = datetime.now(UTC)
+            if not self._reliability_guard.available(
+                profile,
+                cooldown_seconds=cooldown_seconds,
+                now=started_at,
+            ):
+                last_error = ModelProviderConfigurationError(f"模型路由已熔断：{profile}")
+                await self._record_invocation(
+                    pending,
+                    provider_name,
+                    model_name,
+                    global_attempt,
+                    InvocationStatus.FAILED,
+                    started_at,
+                    error_code="CircuitOpen",
+                )
+                continue
+
+            emitted = False
+            usage: ModelUsage | None = None
+            try:
+                provider = await self._model_provider_resolver.resolve(
+                    provider=provider_name,
+                    model=model_name,
+                    tenant_id=self._identity.tenant_id,
+                    agent_id=self._identity.agent_id,
+                    user_id=self._identity.user_id,
+                )
+                async with asyncio.timeout(timeout_seconds):
+                    async for event in provider.stream(request):
+                        if event.delta:
+                            emitted = True
+                            await self._repository.append_run_delta(pending.run.id, event.delta)
+                        if event.usage is not None:
+                            usage = event.usage
+                self._reliability_guard.succeeded(profile)
+                await self._record_invocation(
+                    pending,
+                    provider.name,
+                    provider.model,
+                    global_attempt,
+                    InvocationStatus.COMPLETED,
+                    started_at,
+                    usage=usage,
+                )
+                return usage
+            except TimeoutError as error:
+                last_error = error
+                invocation_status = InvocationStatus.TIMED_OUT
+            except Exception as error:
+                last_error = error
+                invocation_status = InvocationStatus.FAILED
+
+            self._reliability_guard.failed(
+                profile,
+                threshold=failure_threshold,
+                now=datetime.now(UTC),
+            )
+            await self._record_invocation(
+                pending,
+                provider_name,
+                model_name,
+                global_attempt,
+                invocation_status,
+                started_at,
+                error_code=type(last_error).__name__,
+            )
+            if emitted:
+                raise last_error
+
+        if last_error is not None:
+            raise last_error
+        raise ModelProviderConfigurationError("没有可用的模型路由")
+
+    async def _record_invocation(
+        self,
+        pending: PendingAgentRun,
+        provider: str,
+        model: str,
+        attempt: int,
+        status: InvocationStatus,
+        started_at: datetime,
+        *,
+        usage: ModelUsage | None = None,
+        error_code: str | None = None,
+    ) -> None:
+        await self._cognition_service.record_model_invocation(
+            CognitionService.new_invocation(
+                run_id=pending.run.id,
+                tenant_id=pending.run.tenant_id,
+                purpose="chat.realizer",
+                provider=provider,
+                model=model,
+                attempt=attempt,
+                status=status,
+                started_at=started_at,
+                usage=(usage.input_tokens, usage.output_tokens) if usage else None,
+                error_code=error_code,
+            )
+        )
 
     async def cancel_run(self, run_id: UUID) -> AgentRun:
         return await self._repository.cancel_run(run_id, user_id=self._identity.user_id)
@@ -561,6 +835,79 @@ class ConversationService:
         return tuple(mapped)
 
     @staticmethod
+    def _context_fragments(
+        messages: Sequence[Message], *, trigger_message_id: UUID
+    ) -> tuple[ContextFragment, ...]:
+        """把消息转换为带来源和近因优先级的可裁剪上下文。"""
+        fragments: list[ContextFragment] = []
+        total = len(messages)
+        for index, message in enumerate(messages):
+            if not message.content.strip() or message.sender_type is MessageSenderType.SYSTEM:
+                continue
+            if (
+                message.sender_type is MessageSenderType.AGENT
+                and message.status is not MessageStatus.COMPLETED
+            ):
+                continue
+            role = (
+                ContextRole.USER
+                if message.sender_type is MessageSenderType.USER
+                else ContextRole.ASSISTANT
+            )
+            fragments.append(
+                ContextFragment(
+                    fragment_id=f"message-{message.id}",
+                    kind=ContextFragmentKind.RECENT_MESSAGE,
+                    role=role,
+                    content=message.content,
+                    priority=min(99, 55 + index * 44 // max(1, total - 1)),
+                    required=message.id == trigger_message_id,
+                    ordinal=index,
+                    source_id=str(message.id),
+                )
+            )
+        return tuple(fragments)
+
+    @staticmethod
+    def _decision_messages(
+        decision: AgentDecision,
+        *,
+        fallback_messages: Sequence[Message],
+        response_message_id: UUID,
+    ) -> tuple[ModelMessage, ...]:
+        context = decision.context
+        if context is None:
+            return ConversationService._model_messages(fallback_messages, response_message_id)
+        mapped: list[ModelMessage] = []
+        for fragment in context.fragments:
+            if fragment.role is ContextRole.SYSTEM:
+                continue
+            role = ModelRole.USER if fragment.role is ContextRole.USER else ModelRole.ASSISTANT
+            mapped.append(ModelMessage(role=role, content=fragment.content))
+        return tuple(mapped)
+
+    @staticmethod
+    def _integer_setting(values: Mapping[str, object], key: str) -> int:
+        value = values.get(key)
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ConversationConflictError(f"生效配置中的整数参数无效：{key}")
+        return value
+
+    @classmethod
+    def _fallback_selection(cls, values: Mapping[str, object]) -> tuple[str, str]:
+        provider = values.get("model.chat.fallback_provider")
+        if not isinstance(provider, str):
+            raise ModelProviderConfigurationError("生效配置中的降级 Provider 无效")
+        if provider == "development":
+            return provider, "friendly-echo-v1"
+        if provider == "openai":
+            model = values.get("model.openai.model")
+            if not isinstance(model, str) or not model.strip():
+                raise ModelProviderConfigurationError("OpenAI 降级模型名称不能为空")
+            return provider, model
+        raise ModelProviderConfigurationError(f"不支持的降级 Provider：{provider}")
+
+    @staticmethod
     def _model_selection(values: Mapping[str, object]) -> tuple[str, str]:
         provider = values.get("model.chat.provider")
         if not isinstance(provider, str):
@@ -574,11 +921,26 @@ class ConversationService:
             return provider, model
         raise ModelProviderConfigurationError(f"不支持的模型 Provider：{provider}")
 
-    async def _model_snapshot(self) -> tuple[int, str]:
+    async def _run_snapshot(self) -> tuple[int, str, int, int, int, int]:
         configuration = await self._configuration_service.resolve_effective(
             tenant_id=self._identity.tenant_id,
             agent_id=self._identity.agent_id,
             user_id=self._identity.user_id,
         )
-        provider_name, model_name = self._model_selection(configuration.values)
-        return configuration.version, f"{provider_name}/{model_name}"
+        bundle = await self._cognition_service.resolve_runtime_bundle(
+            tenant_id=self._identity.tenant_id,
+            agent_id=self._identity.agent_id,
+        )
+        provider_name, model_name = (
+            bundle.model_route.profiles[0]
+            if bundle.model_route
+            else self._model_selection(configuration.values)
+        )
+        return (
+            configuration.version,
+            f"{provider_name}/{model_name}",
+            bundle.persona.version,
+            bundle.prompt_version,
+            bundle.policy.version,
+            bundle.model_route.version if bundle.model_route else 0,
+        )

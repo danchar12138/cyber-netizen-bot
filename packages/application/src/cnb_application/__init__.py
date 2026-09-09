@@ -27,6 +27,14 @@ from cnb_application.authorization import (
     permissions_for_role,
     require_admin_permission,
 )
+from cnb_application.cognition_service import (
+    CognitionRepository,
+    CognitionResourceNotFoundError,
+    CognitionService,
+    CognitionValidationError,
+    ModelRoutePlan,
+    RuntimeCognitionBundle,
+)
 from cnb_application.configuration_registry import (
     ConfigurationRegistry,
     ConfigurationValidationError,
@@ -53,6 +61,7 @@ from cnb_application.conversation_service import (
     CursorPage,
     ModelProviderConfigurationError,
     ModelProviderResolver,
+    ModelReliabilityGuard,
     StaticModelProviderResolver,
 )
 from cnb_application.pagination import (
@@ -75,6 +84,10 @@ __all__ = [
     "AttachmentService",
     "AttachmentValidationError",
     "AuditCursor",
+    "CognitionRepository",
+    "CognitionResourceNotFoundError",
+    "CognitionService",
+    "CognitionValidationError",
     "ConfigurationConflictError",
     "ConfigurationDiffPreview",
     "ConfigurationNotFoundError",
@@ -93,9 +106,12 @@ __all__ = [
     "ManagementPage",
     "ModelProviderConfigurationError",
     "ModelProviderResolver",
+    "ModelReliabilityGuard",
+    "ModelRoutePlan",
     "ObjectNotFoundError",
     "ObjectStorage",
     "PermissionDeniedError",
+    "RuntimeCognitionBundle",
     "SecretManagementService",
     "SecretNotFoundError",
     "SecretOperationError",

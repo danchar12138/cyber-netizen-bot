@@ -4,26 +4,39 @@ from collections.abc import AsyncIterator
 from uuid import NAMESPACE_DNS, uuid5
 
 from cnb_application import (
+    CognitionService,
     ConfigurationService,
     ConversationService,
+    ModelProviderResolver,
+    ModelReliabilityGuard,
     StaticModelProviderResolver,
     build_default_registry,
 )
 from cnb_cognition import (
     MinimalCognitiveRuntime,
     ModelCapabilities,
+    ModelProvider,
     ModelRequest,
     ModelStreamEvent,
     ModelUsage,
 )
 from cnb_domain import (
     AgentRunStatus,
+    CognitionResourceKind,
+    ConfigEntry,
+    ConfigScope,
     ConversationStatus,
     DevelopmentIdentity,
+    InvocationStatus,
+    JsonValue,
     MessageFeedbackRating,
     MessageStatus,
 )
-from cnb_infrastructure import MemoryConfigurationRepository, MemoryConversationRepository
+from cnb_infrastructure import (
+    MemoryCognitionRepository,
+    MemoryConfigurationRepository,
+    MemoryConversationRepository,
+)
 
 
 class StubModelProvider:
@@ -48,6 +61,62 @@ class StubModelProvider:
         yield ModelStreamEvent(usage=ModelUsage(input_tokens=2, output_tokens=3))
 
 
+class ScriptedModelProvider:
+    """按脚本成功、超时或在流式增量前后失败。"""
+
+    def __init__(self, name: str, model: str, outcome: str) -> None:
+        self._name = name
+        self._model = model
+        self._outcome = outcome
+        self.stream_calls = 0
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        return ModelCapabilities(True, False, False, False)
+
+    async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
+        del request
+        self.stream_calls += 1
+        if self._outcome == "fail_before_output":
+            raise RuntimeError("模型在输出前失败")
+        if self._outcome == "timeout":
+            raise TimeoutError("模型调用超时")
+        yield ModelStreamEvent(delta=f"{self._name} 回复")
+        if self._outcome == "fail_after_output":
+            raise RuntimeError("模型在输出后失败")
+        yield ModelStreamEvent(usage=ModelUsage(input_tokens=4, output_tokens=2))
+
+
+class RoutingModelProviderResolver:
+    """按发布路由返回脚本 Provider，并记录解析顺序。"""
+
+    def __init__(self, providers: tuple[ScriptedModelProvider, ...]) -> None:
+        self._providers = {(item.name, item.model): item for item in providers}
+        self.calls: list[tuple[str, str]] = []
+
+    async def resolve(
+        self,
+        *,
+        provider: str,
+        model: str,
+        tenant_id: object,
+        agent_id: object | None = None,
+        channel_id: object | None = None,
+        user_id: object | None = None,
+    ) -> ModelProvider:
+        del tenant_id, agent_id, channel_id, user_id
+        self.calls.append((provider, model))
+        return self._providers[(provider, model)]
+
+
 def _identity() -> DevelopmentIdentity:
     return DevelopmentIdentity(
         tenant_id=uuid5(NAMESPACE_DNS, "test.tenant"),
@@ -58,15 +127,84 @@ def _identity() -> DevelopmentIdentity:
     )
 
 
-def _service(repository: MemoryConversationRepository) -> ConversationService:
+def _service(
+    repository: MemoryConversationRepository,
+    *,
+    resolver: ModelProviderResolver | None = None,
+    cognition_repository: MemoryCognitionRepository | None = None,
+    configuration_service: ConfigurationService | None = None,
+    reliability_guard: ModelReliabilityGuard | None = None,
+) -> ConversationService:
+    identity = _identity()
     return ConversationService(
         repository=repository,
         runtime=MinimalCognitiveRuntime(),
-        model_provider_resolver=StaticModelProviderResolver(StubModelProvider()),
-        configuration_service=ConfigurationService(
-            build_default_registry(), MemoryConfigurationRepository()
+        model_provider_resolver=(resolver or StaticModelProviderResolver(StubModelProvider())),
+        configuration_service=(
+            configuration_service
+            or ConfigurationService(build_default_registry(), MemoryConfigurationRepository())
         ),
-        identity=_identity(),
+        cognition_service=CognitionService(
+            cognition_repository or MemoryCognitionRepository(), agent_id=identity.agent_id
+        ),
+        identity=identity,
+        reliability_guard=reliability_guard,
+    )
+
+
+async def _publish_model_route(
+    service: CognitionService,
+    *,
+    profiles: tuple[tuple[str, str, str], ...],
+    max_attempts: int,
+) -> None:
+    identity = _identity()
+    references: list[JsonValue] = []
+    for key, provider, model in profiles:
+        profile_payload: dict[str, JsonValue] = {
+            "provider": provider,
+            "model": model,
+            "purposes": ["chat.realizer"],
+        }
+        draft = await service.create_draft(
+            tenant_id=identity.tenant_id,
+            agent_id=identity.agent_id,
+            kind=CognitionResourceKind.MODEL_PROFILE,
+            key=key,
+            name=f"{key} 模型档案",
+            payload=profile_payload,
+            note=None,
+            actor_id=identity.user_id,
+        )
+        await service.publish(
+            resource_id=draft.id,
+            tenant_id=identity.tenant_id,
+            agent_id=identity.agent_id,
+            actor_id=identity.user_id,
+        )
+        references.append({"key": key, "version": draft.version})
+    route_payload: dict[str, JsonValue] = {
+        "purpose": "chat.realizer",
+        "primary_profile": references[0],
+        "fallback_profiles": references[1:],
+        "timeout_seconds": 1,
+        "max_attempts": max_attempts,
+    }
+    route = await service.create_draft(
+        tenant_id=identity.tenant_id,
+        agent_id=identity.agent_id,
+        kind=CognitionResourceKind.MODEL_ROUTE,
+        key="chat.realizer",
+        name="对话模型路由",
+        payload=route_payload,
+        note=None,
+        actor_id=identity.user_id,
+    )
+    await service.publish(
+        resource_id=route.id,
+        tenant_id=identity.tenant_id,
+        agent_id=identity.agent_id,
+        actor_id=identity.user_id,
     )
 
 
@@ -282,3 +420,178 @@ async def test_feedback_and_full_text_search_stay_inside_accessible_conversation
     assert search_results[0].conversation.id == conversation.id
     assert search_results[0].message.id == pending.response_message.id
     assert await service.list_message_feedback(conversation.id) == ()
+
+
+async def test_model_failure_before_output_falls_back_and_records_each_attempt() -> None:
+    conversation_repository = MemoryConversationRepository()
+    cognition_repository = MemoryCognitionRepository()
+    cognition = CognitionService(cognition_repository, agent_id=_identity().agent_id)
+    await _publish_model_route(
+        cognition,
+        profiles=(
+            ("primary", "primary-provider", "primary-model"),
+            ("fallback", "fallback-provider", "fallback-model"),
+        ),
+        max_attempts=2,
+    )
+    primary = ScriptedModelProvider("primary-provider", "primary-model", "fail_before_output")
+    fallback = ScriptedModelProvider("fallback-provider", "fallback-model", "success")
+    resolver = RoutingModelProviderResolver((primary, fallback))
+    service = _service(
+        conversation_repository,
+        resolver=resolver,
+        cognition_repository=cognition_repository,
+    )
+    conversation = await service.create_conversation(title="模型降级测试")
+    pending = await service.send_message(
+        conversation.id,
+        client_message_id=uuid5(NAMESPACE_DNS, "test.model-fallback"),
+        content="你好",
+    )
+
+    await service.execute_run(pending)
+
+    messages = await service.list_messages(conversation.id, limit=20, cursor=None)
+    trace = await cognition.get_run_trace(run_id=pending.run.id, tenant_id=_identity().tenant_id)
+    assert messages.items[-1].content == "fallback-provider 回复"
+    assert messages.items[-1].status is MessageStatus.COMPLETED
+    assert resolver.calls == [
+        ("primary-provider", "primary-model"),
+        ("fallback-provider", "fallback-model"),
+    ]
+    assert [item.status for item in trace.model_invocations] == [
+        InvocationStatus.FAILED,
+        InvocationStatus.COMPLETED,
+    ]
+
+
+async def test_model_failure_after_delta_is_not_retried() -> None:
+    conversation_repository = MemoryConversationRepository()
+    cognition_repository = MemoryCognitionRepository()
+    cognition = CognitionService(cognition_repository, agent_id=_identity().agent_id)
+    await _publish_model_route(
+        cognition,
+        profiles=(
+            ("primary", "primary-provider", "primary-model"),
+            ("fallback", "fallback-provider", "fallback-model"),
+        ),
+        max_attempts=2,
+    )
+    primary = ScriptedModelProvider("primary-provider", "primary-model", "fail_after_output")
+    fallback = ScriptedModelProvider("fallback-provider", "fallback-model", "success")
+    resolver = RoutingModelProviderResolver((primary, fallback))
+    service = _service(
+        conversation_repository,
+        resolver=resolver,
+        cognition_repository=cognition_repository,
+    )
+    conversation = await service.create_conversation(title="流式失败测试")
+    pending = await service.send_message(
+        conversation.id,
+        client_message_id=uuid5(NAMESPACE_DNS, "test.model-stream-failure"),
+        content="你好",
+    )
+
+    await service.execute_run(pending)
+
+    messages = await service.list_messages(conversation.id, limit=20, cursor=None)
+    trace = await cognition.get_run_trace(run_id=pending.run.id, tenant_id=_identity().tenant_id)
+    assert messages.items[-1].status is MessageStatus.FAILED
+    assert resolver.calls == [("primary-provider", "primary-model")]
+    assert fallback.stream_calls == 0
+    assert [item.status for item in trace.model_invocations] == [InvocationStatus.FAILED]
+
+
+async def test_model_timeout_is_recorded_and_route_attempt_limit_is_global() -> None:
+    conversation_repository = MemoryConversationRepository()
+    cognition_repository = MemoryCognitionRepository()
+    cognition = CognitionService(cognition_repository, agent_id=_identity().agent_id)
+    await _publish_model_route(
+        cognition,
+        profiles=(
+            ("primary", "primary-provider", "primary-model"),
+            ("fallback", "fallback-provider", "fallback-model"),
+            ("unused", "unused-provider", "unused-model"),
+        ),
+        max_attempts=2,
+    )
+    primary = ScriptedModelProvider("primary-provider", "primary-model", "timeout")
+    fallback = ScriptedModelProvider("fallback-provider", "fallback-model", "fail_before_output")
+    unused = ScriptedModelProvider("unused-provider", "unused-model", "success")
+    resolver = RoutingModelProviderResolver((primary, fallback, unused))
+    service = _service(
+        conversation_repository,
+        resolver=resolver,
+        cognition_repository=cognition_repository,
+    )
+    conversation = await service.create_conversation(title="超时与总尝试预算测试")
+    pending = await service.send_message(
+        conversation.id,
+        client_message_id=uuid5(NAMESPACE_DNS, "test.model-timeout"),
+        content="你好",
+    )
+
+    await service.execute_run(pending)
+
+    trace = await cognition.get_run_trace(run_id=pending.run.id, tenant_id=_identity().tenant_id)
+    assert resolver.calls == [
+        ("primary-provider", "primary-model"),
+        ("fallback-provider", "fallback-model"),
+    ]
+    assert unused.stream_calls == 0
+    assert [item.status for item in trace.model_invocations] == [
+        InvocationStatus.TIMED_OUT,
+        InvocationStatus.FAILED,
+    ]
+
+
+async def test_open_circuit_skips_provider_until_cooldown() -> None:
+    conversation_repository = MemoryConversationRepository()
+    cognition_repository = MemoryCognitionRepository()
+    cognition = CognitionService(cognition_repository, agent_id=_identity().agent_id)
+    await _publish_model_route(
+        cognition,
+        profiles=(("primary", "primary-provider", "primary-model"),),
+        max_attempts=1,
+    )
+    configuration = ConfigurationService(build_default_registry(), MemoryConfigurationRepository())
+    draft = await configuration.create_draft(
+        note="测试一次失败立即熔断",
+        values=(
+            ConfigEntry(
+                key="model.chat.circuit_breaker_failures",
+                scope_type=ConfigScope.SYSTEM,
+                value=1,
+            ),
+        ),
+    )
+    await configuration.publish(draft.id)
+    primary = ScriptedModelProvider("primary-provider", "primary-model", "fail_before_output")
+    resolver = RoutingModelProviderResolver((primary,))
+    service = _service(
+        conversation_repository,
+        resolver=resolver,
+        cognition_repository=cognition_repository,
+        configuration_service=configuration,
+    )
+    conversation = await service.create_conversation(title="熔断测试")
+    first = await service.send_message(
+        conversation.id,
+        client_message_id=uuid5(NAMESPACE_DNS, "test.circuit-first"),
+        content="你好",
+    )
+    await service.execute_run(first)
+    second = await service.send_message(
+        conversation.id,
+        client_message_id=uuid5(NAMESPACE_DNS, "test.circuit-second"),
+        content="你好",
+    )
+
+    await service.execute_run(second)
+
+    second_trace = await cognition.get_run_trace(
+        run_id=second.run.id, tenant_id=_identity().tenant_id
+    )
+    assert primary.stream_calls == 1
+    assert resolver.calls == [("primary-provider", "primary-model")]
+    assert second_trace.model_invocations[0].error_code == "CircuitOpen"

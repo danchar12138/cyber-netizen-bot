@@ -90,7 +90,7 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
         <div>
           <p className="eyebrow">资源管理</p>
           <h1>{isAgent ? 'Agent 管理' : '用户与身份'}</h1>
-          <p>{isAgent ? '查看当前租户 Agent，并安全执行批量启停。人格与版本编辑将在 P3 接入。' : '查看当前租户用户，并通过有确认和审计的批量操作管理状态。'}</p>
+          <p>{isAgent ? '查看当前租户 Agent，并安全执行批量启停；人格版本通过独立入口治理。' : '查看当前租户用户，并通过有确认和审计的批量操作管理状态。'}</p>
         </div>
         <div className="heading-actions">
           <button className="secondary-button" disabled={!canWrite || selected.size === 0 || updateStatus.isPending} onClick={() => runBulk('active')}><Power size={14} /> 批量启用</button>

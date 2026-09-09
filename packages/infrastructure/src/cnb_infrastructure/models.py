@@ -323,7 +323,8 @@ class MessageModel(Base):
             "sender_type IN ('user', 'agent', 'system')", name="ck_messages_sender_type"
         ),
         CheckConstraint(
-            "status IN ('received', 'processing', 'streaming', 'completed', 'cancelled', 'failed')",
+            "status IN ('received', 'processing', 'streaming', 'completed', "
+            "'suppressed', 'cancelled', 'failed')",
             name="ck_messages_status",
         ),
         Index(
@@ -413,6 +414,8 @@ class AgentRunModel(Base):
     configuration_version: Mapped[int] = mapped_column(Integer, nullable=False)
     persona_version: Mapped[int] = mapped_column(Integer, nullable=False)
     prompt_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    policy_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    model_route_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     model_profile: Mapped[str] = mapped_column(String(160), nullable=False)
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
@@ -430,6 +433,215 @@ class AgentRunModel(Base):
         ),
         Index("ix_agent_runs_conversation_created", "conversation_id", "created_at"),
         Index("ix_agent_runs_trigger", "trigger_message_id"),
+    )
+
+
+class CognitionResourceVersionModel(Base):
+    """人格、Prompt、模型、工具与策略的统一不可变版本存储。"""
+
+    __tablename__ = "cognition_resource_versions"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    key: Mapped[str] = mapped_column(String(120), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('persona', 'prompt', 'model_profile', 'model_route', 'tool', 'policy')",
+            name="ck_cognition_resource_versions_kind",
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'published', 'superseded')",
+            name="ck_cognition_resource_versions_status",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "agent_id",
+            "kind",
+            "key",
+            "version",
+            name="uq_cognition_resource_versions_number",
+        ),
+        Index(
+            "ix_cognition_resource_versions_lookup",
+            "tenant_id",
+            "agent_id",
+            "kind",
+            "key",
+            "status",
+        ),
+        Index(
+            "uq_cognition_resource_versions_published",
+            "tenant_id",
+            "agent_id",
+            "kind",
+            "key",
+            unique=True,
+            postgresql_where=text("status = 'published'"),
+        ),
+    )
+
+
+class PersonaStateSnapshotModel(Base):
+    """Agent Run 结束决策阶段时的可衰减人格状态。"""
+
+    __tablename__ = "persona_state_snapshots"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    conversation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    persona_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    valence: Mapped[float] = mapped_column(nullable=False)
+    arousal: Mapped[float] = mapped_column(nullable=False)
+    social_energy: Mapped[float] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("valence BETWEEN -1 AND 1", name="ck_persona_state_valence"),
+        CheckConstraint("arousal BETWEEN 0 AND 1", name="ck_persona_state_arousal"),
+        CheckConstraint("social_energy BETWEEN 0 AND 1", name="ck_persona_state_social_energy"),
+        Index(
+            "ix_persona_state_conversation_created",
+            "tenant_id",
+            "agent_id",
+            "conversation_id",
+            "created_at",
+        ),
+    )
+
+
+class RunStepModel(Base):
+    """Agent Run 的安全认知阶段摘要。"""
+
+    __tablename__ = "run_steps"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    stage: Mapped[str] = mapped_column(String(40), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    detail: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("sequence > 0", name="ck_run_steps_sequence"),
+        UniqueConstraint("run_id", "sequence", name="uq_run_steps_sequence"),
+        Index("ix_run_steps_tenant_run", "tenant_id", "run_id"),
+    )
+
+
+class ActionCandidateModel(Base):
+    """一次运行中经过策略门评估的行动候选。"""
+
+    __tablename__ = "action_candidates"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    reason_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    parameters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    tool_name: Mapped[str | None] = mapped_column(String(120))
+    risk_level: Mapped[str] = mapped_column(String(16), nullable=False)
+    selected: Mapped[bool] = mapped_column(nullable=False, default=False)
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("sequence > 0", name="ck_action_candidates_sequence"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_action_candidates_confidence"),
+        CheckConstraint(
+            "action IN ('reply', 'ask', 'wait', 'no_reply', 'tool')",
+            name="ck_action_candidates_action",
+        ),
+        CheckConstraint(
+            "risk_level IN ('none', 'low', 'medium', 'high')",
+            name="ck_action_candidates_risk",
+        ),
+        UniqueConstraint("run_id", "sequence", name="uq_action_candidates_sequence"),
+        Index("ix_action_candidates_tenant_run", "tenant_id", "run_id"),
+    )
+
+
+class ModelInvocationModel(Base):
+    """模型用途路由的单次尝试，不保存请求或响应正文。"""
+
+    __tablename__ = "model_invocations"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    purpose: Mapped[str] = mapped_column(String(80), nullable=False)
+    provider: Mapped[str] = mapped_column(String(80), nullable=False)
+    model: Mapped[str] = mapped_column(String(160), nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    error_code: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint("attempt > 0", name="ck_model_invocations_attempt"),
+        CheckConstraint(
+            "status IN ('running', 'completed', 'failed', 'timed_out')",
+            name="ck_model_invocations_status",
+        ),
+        UniqueConstraint("run_id", "purpose", "attempt", name="uq_model_invocations_attempt"),
+        Index("ix_model_invocations_tenant_run", "tenant_id", "run_id"),
     )
 
 

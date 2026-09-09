@@ -229,6 +229,8 @@ class MemoryConversationRepository:
         configuration_version: int,
         persona_version: int,
         prompt_version: int,
+        policy_version: int,
+        model_route_version: int,
         model_profile: str,
     ) -> PendingAgentRun:
         async with self._lock:
@@ -275,6 +277,8 @@ class MemoryConversationRepository:
                 configuration_version=configuration_version,
                 persona_version=persona_version,
                 prompt_version=prompt_version,
+                policy_version=policy_version,
+                model_route_version=model_route_version,
                 model_profile=model_profile,
                 input_tokens=None,
                 output_tokens=None,
@@ -321,6 +325,8 @@ class MemoryConversationRepository:
         configuration_version: int,
         persona_version: int,
         prompt_version: int,
+        policy_version: int,
+        model_route_version: int,
         model_profile: str,
     ) -> PendingAgentRun:
         async with self._lock:
@@ -370,6 +376,8 @@ class MemoryConversationRepository:
                 configuration_version=configuration_version,
                 persona_version=persona_version,
                 prompt_version=prompt_version,
+                policy_version=policy_version,
+                model_route_version=model_route_version,
                 model_profile=model_profile,
                 input_tokens=None,
                 output_tokens=None,
@@ -409,6 +417,8 @@ class MemoryConversationRepository:
         configuration_version: int,
         persona_version: int,
         prompt_version: int,
+        policy_version: int,
+        model_route_version: int,
         model_profile: str,
     ) -> PendingAgentRun:
         async with self._lock:
@@ -501,6 +511,8 @@ class MemoryConversationRepository:
                 configuration_version=configuration_version,
                 persona_version=persona_version,
                 prompt_version=prompt_version,
+                policy_version=policy_version,
+                model_route_version=model_route_version,
                 model_profile=model_profile,
                 input_tokens=None,
                 output_tokens=None,
@@ -586,7 +598,13 @@ class MemoryConversationRepository:
             )
             return updated
 
-    async def complete_run(self, run_id: UUID, usage: ModelUsage | None) -> AgentRun:
+    async def complete_run(
+        self,
+        run_id: UUID,
+        usage: ModelUsage | None,
+        *,
+        suppress_response: bool = False,
+    ) -> AgentRun:
         async with self._lock:
             run = self._require_running_run(run_id)
             now = datetime.now(UTC)
@@ -599,14 +617,14 @@ class MemoryConversationRepository:
             )
             response = replace(
                 self._messages[run.response_message_id],
-                status=MessageStatus.COMPLETED,
+                status=(MessageStatus.SUPPRESSED if suppress_response else MessageStatus.COMPLETED),
                 updated_at=now,
             )
             self._runs[run.id] = completed
             self._messages[response.id] = response
             self._emit(
                 run.conversation_id,
-                "message.completed",
+                "message.suppressed" if suppress_response else "message.completed",
                 self.message_payload(response),
                 run_id=run.id,
                 message_id=response.id,
@@ -912,6 +930,11 @@ class MemoryConversationRepository:
             "conversation_id": str(run.conversation_id),
             "response_message_id": str(run.response_message_id),
             "status": run.status.value,
+            "configuration_version": run.configuration_version,
+            "persona_version": run.persona_version,
+            "prompt_version": run.prompt_version,
+            "policy_version": run.policy_version,
+            "model_route_version": run.model_route_version,
             "model_profile": run.model_profile,
             "input_tokens": run.input_tokens,
             "output_tokens": run.output_tokens,
@@ -1145,6 +1168,8 @@ class SqlAlchemyConversationRepository:
         configuration_version: int,
         persona_version: int,
         prompt_version: int,
+        policy_version: int,
+        model_route_version: int,
         model_profile: str,
     ) -> PendingAgentRun:
         async with self._session_factory() as session, session.begin():
@@ -1216,6 +1241,8 @@ class SqlAlchemyConversationRepository:
                 configuration_version=configuration_version,
                 persona_version=persona_version,
                 prompt_version=prompt_version,
+                policy_version=policy_version,
+                model_route_version=model_route_version,
                 model_profile=model_profile,
             )
             session.add(run)
@@ -1263,6 +1290,8 @@ class SqlAlchemyConversationRepository:
         configuration_version: int,
         persona_version: int,
         prompt_version: int,
+        policy_version: int,
+        model_route_version: int,
         model_profile: str,
     ) -> PendingAgentRun:
         async with self._session_factory() as session, session.begin():
@@ -1346,6 +1375,8 @@ class SqlAlchemyConversationRepository:
                 configuration_version=configuration_version,
                 persona_version=persona_version,
                 prompt_version=prompt_version,
+                policy_version=policy_version,
+                model_route_version=model_route_version,
                 model_profile=model_profile,
             )
             session.add(run)
@@ -1386,6 +1417,8 @@ class SqlAlchemyConversationRepository:
         configuration_version: int,
         persona_version: int,
         prompt_version: int,
+        policy_version: int,
+        model_route_version: int,
         model_profile: str,
     ) -> PendingAgentRun:
         async with self._session_factory() as session, session.begin():
@@ -1553,6 +1586,8 @@ class SqlAlchemyConversationRepository:
                 configuration_version=configuration_version,
                 persona_version=persona_version,
                 prompt_version=prompt_version,
+                policy_version=policy_version,
+                model_route_version=model_route_version,
                 model_profile=model_profile,
             )
             session.add(run)
@@ -1635,7 +1670,13 @@ class SqlAlchemyConversationRepository:
             await session.flush()
             return self._message(response)
 
-    async def complete_run(self, run_id: UUID, usage: ModelUsage | None) -> AgentRun:
+    async def complete_run(
+        self,
+        run_id: UUID,
+        usage: ModelUsage | None,
+        *,
+        suppress_response: bool = False,
+    ) -> AgentRun:
         async with self._session_factory() as session, session.begin():
             run = await self._locked_running_run(session, run_id)
             conversation = await self._locked_conversation_by_id(session, run.conversation_id)
@@ -1645,12 +1686,16 @@ class SqlAlchemyConversationRepository:
             run.input_tokens = usage.input_tokens if usage else None
             run.output_tokens = usage.output_tokens if usage else None
             run.completed_at = now
-            response.status = MessageStatus.COMPLETED.value
+            response.status = (
+                MessageStatus.SUPPRESSED.value
+                if suppress_response
+                else MessageStatus.COMPLETED.value
+            )
             response.updated_at = now
             await self._emit(
                 session,
                 conversation,
-                "message.completed",
+                "message.suppressed" if suppress_response else "message.completed",
                 self.message_payload(self._message(response)),
                 run_id=run.id,
                 message_id=response.id,
@@ -2050,6 +2095,8 @@ class SqlAlchemyConversationRepository:
             configuration_version=row.configuration_version,
             persona_version=row.persona_version,
             prompt_version=row.prompt_version,
+            policy_version=row.policy_version,
+            model_route_version=row.model_route_version,
             model_profile=row.model_profile,
             input_tokens=row.input_tokens,
             output_tokens=row.output_tokens,

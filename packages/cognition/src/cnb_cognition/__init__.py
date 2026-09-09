@@ -1,5 +1,13 @@
-"""与框架无关的认知运行时契约。"""
+"""与框架无关的认知运行时、人格、策略与模型契约。"""
 
+from cnb_cognition.context import (
+    ContextAssembler,
+    ContextAssembly,
+    ContextFragment,
+    ContextFragmentKind,
+    ContextRole,
+    estimate_tokens,
+)
 from cnb_cognition.model import (
     ModelCapabilities,
     ModelMessage,
@@ -9,19 +17,55 @@ from cnb_cognition.model import (
     ModelStreamEvent,
     ModelUsage,
 )
+from cnb_cognition.persona import (
+    AffectState,
+    PersonaConstitution,
+    PersonaProfile,
+    PersonaStyle,
+    PersonaTraits,
+)
+from cnb_cognition.policy import (
+    ActionCandidate,
+    CognitiveAction,
+    DeterministicPolicyGate,
+    PolicyEvaluation,
+    PolicyRuleSet,
+    Tool,
+    ToolPolicyContext,
+    ToolResult,
+    ToolRiskLevel,
+    ToolSpecification,
+)
 from cnb_cognition.runtime import (
     AgentDecision,
     AgentEvent,
+    AnthropomorphicCognitiveRuntime,
     CognitiveContext,
     CognitiveRuntime,
+    CognitiveStage,
+    CognitiveStep,
     MinimalCognitiveRuntime,
+    Perception,
+    SocialMindState,
 )
 
 __all__ = [
+    "ActionCandidate",
+    "AffectState",
     "AgentDecision",
     "AgentEvent",
+    "AnthropomorphicCognitiveRuntime",
+    "CognitiveAction",
     "CognitiveContext",
     "CognitiveRuntime",
+    "CognitiveStage",
+    "CognitiveStep",
+    "ContextAssembler",
+    "ContextAssembly",
+    "ContextFragment",
+    "ContextFragmentKind",
+    "ContextRole",
+    "DeterministicPolicyGate",
     "MinimalCognitiveRuntime",
     "ModelCapabilities",
     "ModelMessage",
@@ -30,4 +74,18 @@ __all__ = [
     "ModelRole",
     "ModelStreamEvent",
     "ModelUsage",
+    "Perception",
+    "PersonaConstitution",
+    "PersonaProfile",
+    "PersonaStyle",
+    "PersonaTraits",
+    "PolicyEvaluation",
+    "PolicyRuleSet",
+    "SocialMindState",
+    "Tool",
+    "ToolPolicyContext",
+    "ToolResult",
+    "ToolRiskLevel",
+    "ToolSpecification",
+    "estimate_tokens",
 ]

@@ -15,12 +15,16 @@ from cnb_contracts import (
     AdminSessionResponse,
     ApiErrorResponse,
     BootstrapSettingsResponse,
+    CognitionResourceListResponse,
+    CognitionResourceResponse,
+    CognitiveRunTraceResponse,
     ComponentHealth,
     ConfigRegistryResponse,
     ConfigVersionListResponse,
     ConfigVersionResponse,
     ConversationListResponse,
     ConversationResponse,
+    EvaluationSuiteResponse,
     HealthResponse,
     MessageAcceptedResponse,
     MessageFeedbackResponse,
@@ -29,6 +33,7 @@ from cnb_contracts import (
     SystemOverviewResponse,
     TaskStatusResponse,
 )
+from cnb_domain import JsonValue
 from cnb_infrastructure import (
     MemoryAttachmentRepository,
     MemoryConfigurationRepository,
@@ -79,6 +84,74 @@ async def test_admin_session_and_role_matrix_expose_server_permissions() -> None
     assert "configuration:read" in session.permissions
     assert "configuration:write" not in session.permissions
     assert [item.role for item in roles.roles] == ["admin", "operator", "viewer"]
+
+
+async def test_cognition_resource_publish_rollback_and_evaluation_api() -> None:
+    persona_payload: dict[str, JsonValue] = {
+        "identity": "自然、诚实的赛博网友",
+        "purpose": "长期而尊重边界地交流",
+        "principles": ["不捏造事实"],
+        "boundaries": ["不泄露隐私"],
+        "traits": {
+            "warmth": 0.8,
+            "curiosity": 0.7,
+            "humor": 0.4,
+            "directness": 0.6,
+            "initiative": 0.5,
+        },
+        "style": {
+            "address_style": "自然称呼对方",
+            "sentence_length": "短句为主",
+            "emoji_frequency": "少量",
+            "preferred_phrases": [],
+            "avoided_phrases": [],
+        },
+    }
+    async with AsyncClient(transport=_transport(), base_url="http://test") as client:
+        tested = await client.post(
+            "/api/v1/cognition/resources/test",
+            json={"kind": "persona", "payload": persona_payload},
+        )
+        draft_response = await client.post(
+            "/api/v1/cognition/resources",
+            json={
+                "kind": "persona",
+                "key": "default",
+                "name": "API 人格",
+                "payload": persona_payload,
+                "note": "集成测试",
+            },
+        )
+        draft = CognitionResourceResponse.model_validate(draft_response.json())
+        published_response = await client.post(f"/api/v1/cognition/resources/{draft.id}/publish")
+        rollback_response = await client.post(f"/api/v1/cognition/resources/{draft.id}/rollback")
+        listed_response = await client.get(
+            "/api/v1/cognition/resources", params={"kind": "persona"}
+        )
+        evaluation_response = await client.post("/api/v1/cognition/evaluations/run")
+        viewer_write = await client.post(
+            "/api/v1/cognition/resources",
+            json={
+                "kind": "persona",
+                "key": "denied",
+                "name": "无权草稿",
+                "payload": persona_payload,
+            },
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+
+    published = CognitionResourceResponse.model_validate(published_response.json())
+    rolled_back = CognitionResourceResponse.model_validate(rollback_response.json())
+    listed = CognitionResourceListResponse.model_validate(listed_response.json())
+    evaluation = EvaluationSuiteResponse.model_validate(evaluation_response.json())
+    assert tested.json()["valid"] is True
+    assert draft_response.status_code == 201
+    assert published.status == "published"
+    assert rolled_back.status == "published"
+    assert rolled_back.version == 2
+    assert len(listed.items) == 2
+    assert evaluation.passed == evaluation.total == 5
+    assert viewer_write.status_code == 403
 
 
 async def test_rbac_rejects_viewer_changes_and_operator_secret_access() -> None:
@@ -448,9 +521,11 @@ async def test_internal_chat_persists_and_completes_a_streamed_turn() -> None:
             json={"client_message_id": client_message_id, "content": "不会重复"},
         )
         conversations_response = await client.get("/api/v1/chat/conversations")
+        trace_response = await client.get(f"/api/v1/cognition/runs/{accepted.run.id}/trace")
 
     replay = MessageAcceptedResponse.model_validate(replay_response.json())
     conversations = ConversationListResponse.model_validate(conversations_response.json())
+    trace = CognitiveRunTraceResponse.model_validate(trace_response.json())
     assert messages is not None
     assert replay.idempotent_replay is True
     assert replay.run.id == accepted.run.id
@@ -458,6 +533,44 @@ async def test_internal_chat_persists_and_completes_a_streamed_turn() -> None:
     assert messages.items[-1].status == "completed"
     assert "你好" in messages.items[-1].content
     assert conversations.items[0].id == conversation.id
+    assert [item.stage for item in trace.steps] == [
+        "perception",
+        "context_assembly",
+        "social_mind",
+        "deliberation",
+        "policy_gate",
+        "realizer",
+    ]
+    assert trace.candidates[0].selected is True
+    assert trace.model_invocations[0].status == "completed"
+
+
+async def test_internal_chat_suppresses_response_when_user_requests_silence() -> None:
+    async with AsyncClient(transport=_transport(), base_url="http://test") as client:
+        conversation_response = await client.post(
+            "/api/v1/chat/conversations", json={"title": "不回复边界"}
+        )
+        conversation = ConversationResponse.model_validate(conversation_response.json())
+        accepted_response = await client.post(
+            f"/api/v1/chat/conversations/{conversation.id}/messages",
+            json={"client_message_id": str(uuid4()), "content": "我想静静，不用回复"},
+        )
+        accepted = MessageAcceptedResponse.model_validate(accepted_response.json())
+        messages: MessageListResponse | None = None
+        for _ in range(50):
+            response = await client.get(f"/api/v1/chat/conversations/{conversation.id}/messages")
+            messages = MessageListResponse.model_validate(response.json())
+            if messages.items[-1].status == "suppressed":
+                break
+            await asyncio.sleep(0.01)
+        trace_response = await client.get(f"/api/v1/cognition/runs/{accepted.run.id}/trace")
+
+    trace = CognitiveRunTraceResponse.model_validate(trace_response.json())
+    assert messages is not None
+    assert messages.items[-1].status == "suppressed"
+    assert messages.items[-1].content == ""
+    assert trace.candidates[0].action == "no_reply"
+    assert trace.model_invocations == ()
 
 
 async def test_internal_chat_rejects_invalid_cursor_and_unknown_conversation() -> None:

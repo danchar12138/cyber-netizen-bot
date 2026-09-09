@@ -6,6 +6,7 @@ from uuid import uuid4
 from cnb_cognition import (
     AgentDecision,
     AgentEvent,
+    CognitiveAction,
     CognitiveContext,
     MinimalCognitiveRuntime,
 )
@@ -13,7 +14,7 @@ from cnb_cognition import (
 
 def test_agent_decision_has_no_implicit_side_effect() -> None:
     decision = AgentDecision(
-        action="reply",
+        action=CognitiveAction.REPLY,
         rationale_summary="The user addressed the agent directly.",
         parameters={"tone": "warm"},
     )

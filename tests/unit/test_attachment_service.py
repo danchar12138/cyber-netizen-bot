@@ -83,6 +83,8 @@ async def test_attachment_upload_is_verified_and_bound_to_message() -> None:
         configuration_version=0,
         persona_version=1,
         prompt_version=1,
+        policy_version=0,
+        model_route_version=0,
         model_profile="development/friendly-echo-v1",
     )
     attached = await service.attach_to_message(

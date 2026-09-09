@@ -10,18 +10,28 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from cnb_api import __version__
 from cnb_api.errors import RequestIdMiddleware, install_error_handlers
-from cnb_api.routes import administration, attachment, configuration, conversation, health, system
+from cnb_api.routes import (
+    administration,
+    attachment,
+    cognition,
+    configuration,
+    conversation,
+    health,
+    system,
+)
 from cnb_application import (
     AdministrationRepository,
     AttachmentRepository,
+    CognitionRepository,
     ConfigurationRepository,
     ConversationRepository,
     ModelProviderResolver,
+    ModelReliabilityGuard,
     ObjectStorage,
     SecretStore,
     StaticModelProviderResolver,
 )
-from cnb_cognition import CognitiveRuntime, MinimalCognitiveRuntime, ModelProvider
+from cnb_cognition import AnthropomorphicCognitiveRuntime, CognitiveRuntime, ModelProvider
 from cnb_domain import DevelopmentIdentity
 from cnb_infrastructure import (
     AesGcmEnvelopeCipher,
@@ -29,12 +39,14 @@ from cnb_infrastructure import (
     DependencyProbe,
     MemoryAdministrationRepository,
     MemoryAttachmentRepository,
+    MemoryCognitionRepository,
     MemoryObjectStorage,
     MemorySecretStore,
     MinioObjectStorage,
     Settings,
     SqlAlchemyAdministrationRepository,
     SqlAlchemyAttachmentRepository,
+    SqlAlchemyCognitionRepository,
     SqlAlchemyConfigurationRepository,
     SqlAlchemyConversationRepository,
     SqlAlchemySecretStore,
@@ -48,6 +60,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     configuration_repository: ConfigurationRepository | None = None,
+    cognition_repository: CognitionRepository | None = None,
     conversation_repository: ConversationRepository | None = None,
     administration_repository: AdministrationRepository | None = None,
     attachment_repository: AttachmentRepository | None = None,
@@ -97,6 +110,12 @@ def create_app(
     application.state.conversation_repository = (
         conversation_repository or SqlAlchemyConversationRepository(session_factory)
     )
+    if cognition_repository is not None:
+        application.state.cognition_repository = cognition_repository
+    elif configuration_repository is not None or conversation_repository is not None:
+        application.state.cognition_repository = MemoryCognitionRepository()
+    else:
+        application.state.cognition_repository = SqlAlchemyCognitionRepository(session_factory)
     if attachment_repository is not None:
         application.state.attachment_repository = attachment_repository
     elif conversation_repository is not None:
@@ -129,7 +148,8 @@ def create_app(
             allow_development_placeholder=resolved_settings.environment in {"development", "test"},
         )
         application.state.secret_store = SqlAlchemySecretStore(session_factory, cipher)
-    application.state.cognitive_runtime = cognitive_runtime or MinimalCognitiveRuntime()
+    application.state.cognitive_runtime = cognitive_runtime or AnthropomorphicCognitiveRuntime()
+    application.state.model_reliability_guard = ModelReliabilityGuard()
     if model_provider_resolver is not None:
         application.state.model_provider_resolver = model_provider_resolver
     elif model_provider is not None:
@@ -160,6 +180,7 @@ def create_app(
     application.include_router(system.router, prefix="/api/v1")
     application.include_router(administration.router, prefix="/api/v1")
     application.include_router(configuration.router, prefix="/api/v1")
+    application.include_router(cognition.router, prefix="/api/v1")
     application.include_router(attachment.router, prefix="/api/v1")
     application.include_router(conversation.router, prefix="/api/v1")
     return application

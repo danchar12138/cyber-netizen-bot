@@ -176,6 +176,8 @@ test('可以创建会话并发送一条持久化消息', async ({ page }) => {
           configuration_version: 0,
           persona_version: 1,
           prompt_version: 1,
+          policy_version: 0,
+          model_route_version: 0,
           model_profile: 'development/friendly-echo-v1',
           input_tokens: null,
           output_tokens: null,

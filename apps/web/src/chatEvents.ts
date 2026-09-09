@@ -25,7 +25,9 @@ function upsert(messages: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
     if (item.id !== incoming.id) return item
     if (
       incoming.status === 'processing' &&
-      (item.status === 'streaming' || item.status === 'completed')
+      (item.status === 'streaming' ||
+        item.status === 'completed' ||
+        item.status === 'suppressed')
     ) {
       return item
     }
@@ -38,7 +40,9 @@ export function applyConversationEvent(
   event: ConversationEvent,
 ): ChatMessage[] {
   if (
-    (event.event_type === 'message.created' || event.event_type === 'message.completed') &&
+    (event.event_type === 'message.created' ||
+      event.event_type === 'message.completed' ||
+      event.event_type === 'message.suppressed') &&
     isMessagePayload(event.payload)
   ) {
     return upsert(messages, event.payload)

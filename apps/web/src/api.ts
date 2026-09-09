@@ -47,6 +47,10 @@ export type AdminPermission =
   | 'access_control:read'
   | 'agent:read'
   | 'agent:write'
+  | 'cognition:read'
+  | 'cognition:write'
+  | 'cognition:evaluate'
+  | 'trace:read'
   | 'user:read'
   | 'user:write'
   | 'audit:read'
@@ -118,6 +122,7 @@ export type MessageStatus =
   | 'processing'
   | 'streaming'
   | 'completed'
+  | 'suppressed'
   | 'cancelled'
   | 'failed'
 export type AgentRunStatus = 'queued' | 'running' | 'completed' | 'cancelled' | 'failed'
@@ -216,6 +221,8 @@ export interface AgentRun {
   configuration_version: number
   persona_version: number
   prompt_version: number
+  policy_version: number
+  model_route_version: number
   model_profile: string
   input_tokens: number | null
   output_tokens: number | null
@@ -273,6 +280,88 @@ export interface AuditRecord {
   resource_id: string | null
   detail: Record<string, ConfigValue>
   created_at: string
+}
+
+export type CognitionResourceKind =
+  | 'persona'
+  | 'prompt'
+  | 'model_profile'
+  | 'model_route'
+  | 'tool'
+  | 'policy'
+
+export type CognitionVersionStatus = 'draft' | 'published' | 'superseded'
+
+export interface CognitionResource {
+  id: string
+  tenant_id: string
+  agent_id: string
+  kind: CognitionResourceKind
+  key: string
+  name: string
+  version: number
+  status: CognitionVersionStatus
+  payload: Record<string, ConfigValue>
+  note: string | null
+  created_by: string
+  created_at: string
+  published_at: string | null
+}
+
+export interface CognitiveRunTrace {
+  run_id: string
+  persona_state: null | {
+    persona_version: number
+    valence: number
+    arousal: number
+    social_energy: number
+    created_at: string
+  }
+  steps: Array<{
+    sequence: number
+    stage: string
+    summary: string
+    detail: Record<string, ConfigValue>
+    created_at: string
+  }>
+  candidates: Array<{
+    sequence: number
+    action: string
+    confidence: number
+    reason_summary: string
+    parameters: Record<string, ConfigValue>
+    tool_name: string | null
+    risk_level: string
+    selected: boolean
+    rejection_reason: string | null
+  }>
+  model_invocations: Array<{
+    purpose: string
+    provider: string
+    model: string
+    attempt: number
+    status: 'running' | 'completed' | 'failed' | 'timed_out'
+    input_tokens: number | null
+    output_tokens: number | null
+    latency_ms: number | null
+    error_code: string | null
+    created_at: string
+    completed_at: string | null
+  }>
+}
+
+export interface EvaluationSuite {
+  passed: number
+  total: number
+  cases: Array<{
+    case_id: string
+    category: string
+    input_text: string
+    expected_action: string
+    actual_action: string
+    passed: boolean
+    summary: string
+  }>
 }
 
 interface ConfigVersionList {
@@ -467,6 +556,41 @@ export const getAuditRecords = (search = '', action = '') => {
   if (action.trim()) query.set('action', action.trim())
   return getJson<CursorPage<AuditRecord>>(`/api/v1/administration/audit?${query}`)
 }
+
+export const getCognitionResources = (kind?: CognitionResourceKind) => {
+  const query = new URLSearchParams()
+  if (kind) query.set('kind', kind)
+  const suffix = query.size ? `?${query}` : ''
+  return getJson<{ items: CognitionResource[] }>(`/api/v1/cognition/resources${suffix}`)
+}
+
+export const createCognitionResourceDraft = (command: {
+  kind: CognitionResourceKind
+  key: string
+  name: string
+  payload: Record<string, ConfigValue>
+  note: string | null
+}) => postJson<CognitionResource>('/api/v1/cognition/resources', command)
+
+export const testCognitionResource = (
+  kind: CognitionResourceKind,
+  payload: Record<string, ConfigValue>,
+) => postJson<{ valid: boolean; messages: string[] }>('/api/v1/cognition/resources/test', {
+  kind,
+  payload,
+})
+
+export const publishCognitionResource = (resourceId: string) =>
+  postJson<CognitionResource>(`/api/v1/cognition/resources/${resourceId}/publish`)
+
+export const rollbackCognitionResource = (resourceId: string) =>
+  postJson<CognitionResource>(`/api/v1/cognition/resources/${resourceId}/rollback`)
+
+export const getCognitiveRunTrace = (runId: string) =>
+  getJson<CognitiveRunTrace>(`/api/v1/cognition/runs/${runId}/trace`)
+
+export const runCognitionEvaluationSuite = () =>
+  postJson<EvaluationSuite>('/api/v1/cognition/evaluations/run')
 
 export const getConfigRegistry = () =>
   getJson<ConfigRegistry>('/api/v1/configuration/definitions')

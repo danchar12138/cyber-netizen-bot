@@ -37,6 +37,7 @@ class MessageStatus(StrEnum):
     PROCESSING = "processing"
     STREAMING = "streaming"
     COMPLETED = "completed"
+    SUPPRESSED = "suppressed"
     CANCELLED = "cancelled"
     FAILED = "failed"
 
@@ -120,6 +121,8 @@ class AgentRun:
     configuration_version: int
     persona_version: int
     prompt_version: int
+    policy_version: int
+    model_route_version: int
     model_profile: str
     input_tokens: int | None
     output_tokens: int | None

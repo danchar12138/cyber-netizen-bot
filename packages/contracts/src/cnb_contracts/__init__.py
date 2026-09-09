@@ -20,6 +20,20 @@ from cnb_contracts.attachment import (
     AttachmentResponse,
     AttachmentUploadGrant,
 )
+from cnb_contracts.cognition import (
+    ActionCandidateResponse,
+    CognitionPayloadTestCommand,
+    CognitionPayloadTestResponse,
+    CognitionResourceDraftCreate,
+    CognitionResourceListResponse,
+    CognitionResourceResponse,
+    CognitiveRunTraceResponse,
+    EvaluationCaseResponse,
+    EvaluationSuiteResponse,
+    ModelInvocationResponse,
+    PersonaStateResponse,
+    RunStepResponse,
+)
 from cnb_contracts.configuration import (
     ConfigDefinitionResponse,
     ConfigDifferenceResponse,
@@ -69,6 +83,7 @@ from cnb_contracts.health import (
 )
 
 __all__ = [
+    "ActionCandidateResponse",
     "AdminRoleListResponse",
     "AdminRoleResponse",
     "AdminSessionResponse",
@@ -86,6 +101,12 @@ __all__ = [
     "AuditRecordResponse",
     "BootstrapSettingsResponse",
     "BulkStatusUpdateCommand",
+    "CognitionPayloadTestCommand",
+    "CognitionPayloadTestResponse",
+    "CognitionResourceDraftCreate",
+    "CognitionResourceListResponse",
+    "CognitionResourceResponse",
+    "CognitiveRunTraceResponse",
     "ComponentHealth",
     "ConfigDefinitionResponse",
     "ConfigDiffResponse",
@@ -105,6 +126,8 @@ __all__ = [
     "EffectiveConfigSourceResponse",
     "EffectiveConfigValueResponse",
     "EffectiveConfigurationResponse",
+    "EvaluationCaseResponse",
+    "EvaluationSuiteResponse",
     "HealthResponse",
     "HeartbeatEnvelope",
     "ManagedAgentListResponse",
@@ -122,6 +145,9 @@ __all__ = [
     "MessageResponse",
     "MessageSearchItemResponse",
     "MessageSearchResponse",
+    "ModelInvocationResponse",
+    "PersonaStateResponse",
+    "RunStepResponse",
     "SecretListResponse",
     "SecretMetadataResponse",
     "SecretRotateCommand",

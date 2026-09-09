@@ -13,6 +13,8 @@ from cnb_application import (
     AdministrationService,
     AttachmentRepository,
     AttachmentService,
+    CognitionRepository,
+    CognitionService,
     ConfigurationRegistry,
     ConfigurationRepository,
     ConfigurationService,
@@ -61,6 +63,20 @@ def get_configuration_service(
 ) -> ConfigurationService:
     """使用进程级端口构建请求级配置服务。"""
     return ConfigurationService(registry, repository)
+
+
+def get_cognition_repository(request: HTTPConnection) -> CognitionRepository:
+    """返回组合根选择的认知资源与运行回放仓储。"""
+    repository: CognitionRepository = request.app.state.cognition_repository
+    return repository
+
+
+def get_cognition_service(
+    request: HTTPConnection,
+    repository: Annotated[CognitionRepository, Depends(get_cognition_repository)],
+) -> CognitionService:
+    """构建绑定当前开发 Agent 的请求级认知服务。"""
+    return CognitionService(repository, agent_id=request.app.state.development_identity.agent_id)
 
 
 def get_secret_store(request: HTTPConnection) -> SecretStore:
@@ -167,6 +183,7 @@ def get_conversation_service(
     request: HTTPConnection,
     repository: Annotated[ConversationRepository, Depends(get_conversation_repository)],
     configuration_service: Annotated[ConfigurationService, Depends(get_configuration_service)],
+    cognition_service: Annotated[CognitionService, Depends(get_cognition_service)],
 ) -> ConversationService:
     """使用进程级端口和开发身份构建请求级对话服务。"""
     runtime: CognitiveRuntime = request.app.state.cognitive_runtime
@@ -176,5 +193,7 @@ def get_conversation_service(
         runtime=runtime,
         model_provider_resolver=model_provider_resolver,
         configuration_service=configuration_service,
+        cognition_service=cognition_service,
         identity=request.app.state.development_identity,
+        reliability_guard=request.app.state.model_reliability_guard,
     )

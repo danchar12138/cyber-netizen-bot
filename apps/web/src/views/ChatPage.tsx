@@ -22,7 +22,7 @@ const MarkdownContent = lazy(() => import('../components/MarkdownContent'))
 
 const messageStatusLabels: Record<ChatMessage['status'], string> = {
   received: '已接收', processing: '处理中', streaming: '正在输入',
-  completed: '已完成', cancelled: '已取消', failed: '失败',
+  completed: '已完成', suppressed: '未回复', cancelled: '已取消', failed: '失败',
 }
 
 interface DraftAttachment {
@@ -406,7 +406,7 @@ export function ChatPage() {
                 <p>{selectedId ? '可以直接聊天，也可以从历史消息创建分支。' : '创建会话后即可开始。'}</p>
               </div>
             )}
-            {messages.map((message) => {
+            {messages.filter((message) => message.status !== 'suppressed').map((message) => {
               const selectedFeedback = feedbackByMessage.get(message.id)
               const messageAttachments = attachments.data?.items.filter((item) => item.message_id === message.id) ?? []
               return (

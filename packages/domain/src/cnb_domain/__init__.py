@@ -10,6 +10,18 @@ from cnb_domain.administration import (
     ManagementOverview,
 )
 from cnb_domain.attachment import Attachment, AttachmentStatus
+from cnb_domain.cognition import (
+    ActionCandidateRecord,
+    CognitionResourceKind,
+    CognitionResourceVersion,
+    CognitionVersionStatus,
+    CognitiveRunTrace,
+    EvaluationCaseResult,
+    InvocationStatus,
+    ModelInvocationRecord,
+    PersonaStateSnapshot,
+    RunStepRecord,
+)
 from cnb_domain.configuration import (
     ConfigDefinition,
     ConfigDifference,
@@ -42,6 +54,7 @@ from cnb_domain.conversation import (
 )
 
 __all__ = [
+    "ActionCandidateRecord",
     "AdminPermission",
     "AdminPrincipal",
     "AdminRole",
@@ -50,6 +63,10 @@ __all__ = [
     "Attachment",
     "AttachmentStatus",
     "AuditRecord",
+    "CognitionResourceKind",
+    "CognitionResourceVersion",
+    "CognitionVersionStatus",
+    "CognitiveRunTrace",
     "ConfigDefinition",
     "ConfigDiffKind",
     "ConfigDifference",
@@ -64,6 +81,8 @@ __all__ = [
     "DevelopmentIdentity",
     "EffectiveConfigSource",
     "EntityStatus",
+    "EvaluationCaseResult",
+    "InvocationStatus",
     "JsonValue",
     "ManagedAgent",
     "ManagedUser",
@@ -74,7 +93,10 @@ __all__ = [
     "MessageSearchResult",
     "MessageSenderType",
     "MessageStatus",
+    "ModelInvocationRecord",
     "PendingAgentRun",
+    "PersonaStateSnapshot",
+    "RunStepRecord",
     "SecretIntegrityStatus",
     "SecretMetadata",
 ]

@@ -60,4 +60,18 @@ describe('applyConversationEvent', () => {
 
     expect(next).toEqual([completed])
   })
+
+  it('不回复事件会终结占位消息且不会被较晚响应覆盖', () => {
+    const suppressed = { ...assistant, status: 'suppressed' as const }
+    const applied = applyConversationEvent(
+      [assistant],
+      event('message.suppressed', { ...suppressed }),
+    )
+    const replayed = applyConversationEvent(
+      applied,
+      event('message.created', { ...assistant }),
+    )
+
+    expect(replayed).toEqual([suppressed])
+  })
 })

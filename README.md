@@ -2,7 +2,7 @@
 
 以自研 Agent 认知运行时为核心的“赛博网友”项目。Web 首发形态是统一管理后台，其中包含内部全功能对话工作台；后续 IM 平台通过统一 Channel Adapter 接入。
 
-当前已完成 P1、P2，并开始推进 P3 拟人认知核心；P0 的代码基线已具备，Docker 实跑与分支保护仍待环境验证。最新开发计划见 [`docs/plans/2026-09-09-v3.md`](docs/plans/2026-09-09-v3.md)。
+当前已完成 P1、P2、P3，下一阶段是 P4 长期记忆与关系；P0 的代码基线已具备，Docker 实跑与分支保护仍待环境验证。最新开发计划见 [`docs/plans/2026-09-09-v3.md`](docs/plans/2026-09-09-v3.md)。
 
 ## 已建立的能力
 
@@ -20,9 +20,17 @@
 - 统一错误 Envelope、请求追踪 ID、稳定开发身份与游标分页。
 - 会话、消息、Agent Run、有序事件持久化，以及可取消、可断线恢复的 WebSocket 流式闭环。
 - 厂商无关的 `ModelProvider` 契约、无需密钥的本地 Provider 和 OpenAI 官方 SDK `Responses API` 适配器。
+- 自研拟人认知状态机：感知、上下文组装、Social Mind、结构化决策、确定性 Policy Gate 与表达器。
+- 版本化 Persona 宪法/特质/风格、可半衰期衰减的情绪状态，以及带来源、优先级、必需项和 Token 预算的 Context Assembler。
+- `reply`、`ask`、`wait`、`no_reply`、`tool` 行动模型；`no_reply` 会落为不可见的 `suppressed` 消息，不调用模型生成伪回复。
+- 人格、Prompt、模型档案、用途路由、工具与策略的不可变草稿、离线测试、原子发布、历史回滚和管理后台。
+- Agent Run 精确冻结配置、人格、Prompt、策略和模型路由版本，历史执行不会漂移到新发布版本。
+- Tool 类型化契约及权限、网络 allowlist、风险、副作用、调用次数、成本和审批策略门；当前阶段不执行真实外部工具。
+- 模型用途路由、总 Token 预算、超时、有限尝试、流式输出后禁止重试、进程内熔断和安全降级，并持久化每次尝试的无正文元数据。
+- 不含隐藏思维链、完整 Prompt 和消息正文的认知阶段轨迹，以及人格一致性、自然追问、关系边界、不回复和副作用拒绝回放评测。
 - MinIO 官方 Python SDK 附件适配器、预签名浏览器直传、服务端摘要复核、私有预览和生命周期清理。
 - Markdown/GFM 消息、自动保存草稿、图片/文件选择、键盘跳转和 axe 无障碍回归。
-- Alembic 配置、对话、附件、加密密钥与审计迁移。
+- Alembic 配置、对话、附件、加密密钥、审计与认知运行迁移，当前 head 为 `20260909_0007`。
 - Python/Web 测试、静态检查和 GitHub Actions。
 
 ## 环境要求
@@ -82,7 +90,9 @@ uv run python -c "import base64,secrets; print(base64.b64encode(secrets.token_by
 
 ## 内部对话
 
-管理后台的内部对话页已经接通最小纵向闭环。默认使用 `development/friendly-echo-v1`，无需外部密钥即可验证消息持久化、流式增量、取消、心跳和断线恢复。在配置中心写入 `model.openai.api_key` 并发布 `model.chat.provider=openai` 与模型名称后，新 Agent Run 会按最终配置动态使用官方 Python SDK `Responses API`；凭证无需也不允许通过模型环境变量维护。
+管理后台的内部对话页已经接通多阶段拟人认知纵向闭环。默认使用 `development/friendly-echo-v1`，无需外部密钥即可验证消息持久化、认知决策、流式增量、不回复、取消、心跳和断线恢复。在配置中心写入 `model.openai.api_key` 并发布 `model.chat.provider=openai` 与模型名称后，新 Agent Run 会按最终配置动态使用官方 Python SDK `Responses API`；也可在“模型与路由”中发布精确模型档案与用途路由。凭证无需也不允许通过模型环境变量维护。
+
+“人格版本”“模型与路由”“Prompt 与上下文”“工具与策略”“评测实验室”和“运行轨迹”均已接通真实管理 API。认知资源只保存无密钥结构化定义；运行轨迹只返回阶段摘要、裁剪统计、行动候选、人格状态和模型尝试元数据。
 
 ## GitHub
 

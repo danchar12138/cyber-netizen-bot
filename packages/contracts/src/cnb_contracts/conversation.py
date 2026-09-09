@@ -172,8 +172,10 @@ class AgentRunResponse(BaseModel):
     response_message_id: UUID
     status: AgentRunStatus
     configuration_version: int = Field(ge=0)
-    persona_version: int = Field(ge=1)
-    prompt_version: int = Field(ge=1)
+    persona_version: int = Field(ge=0)
+    prompt_version: int = Field(ge=0)
+    policy_version: int = Field(ge=0)
+    model_route_version: int = Field(ge=0)
     model_profile: str
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
