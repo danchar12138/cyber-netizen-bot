@@ -255,6 +255,56 @@ export type AdminPermission =
   | 'user:read'
   | 'user:write'
   | 'audit:read'
+  | 'data_lifecycle:read'
+  | 'data_lifecycle:export'
+  | 'data_lifecycle:forget'
+  | 'data_lifecycle:retention_manage'
+  | 'data_lifecycle:backup_drill_record'
+
+export type LifecycleRunKind =
+  | 'user_export'
+  | 'user_forget'
+  | 'retention_cleanup'
+  | 'orphan_cleanup'
+  | 'backup_restore_drill'
+
+export type LifecycleRunStatus = 'running' | 'succeeded' | 'failed'
+
+export interface LifecycleRun {
+  id: string
+  tenant_id: string
+  actor_id: string | null
+  subject_user_id: string | null
+  kind: LifecycleRunKind
+  status: LifecycleRunStatus
+  counters: Record<string, number>
+  evidence: Record<string, ConfigValue>
+  error_code: string | null
+  started_at: string
+  completed_at: string | null
+}
+
+export interface LifecyclePolicy {
+  deleted_conversation_days: number
+  deleted_attachment_days: number
+  orphan_grace_hours: number
+  batch_size: number
+  export_max_records: number
+  export_max_bytes: number
+  backup_expected_interval_hours: number
+}
+
+export interface DataLifecycleOverview {
+  policy: LifecyclePolicy
+  runs: LifecycleRun[]
+}
+
+export interface DataExportDownload {
+  blob: Blob
+  filename: string
+  sha256: string | null
+  runId: string | null
+}
 
 export interface AdminSession {
   tenant_id: string
@@ -1013,6 +1063,51 @@ export const getAdminSession = () =>
 
 export const getAdminRoles = () =>
   getJson<{ roles: AdminRoleDefinition[] }>('/api/v1/administration/roles')
+
+export const getDataLifecycleOverview = () =>
+  getJson<DataLifecycleOverview>('/api/v1/data-lifecycle/overview')
+
+export async function downloadUserDataExport(userId: string): Promise<DataExportDownload> {
+  const response = await fetch('/api/v1/data-lifecycle/exports', {
+    method: 'POST',
+    headers: requestHeaders(true),
+    body: JSON.stringify({ user_id: userId }),
+  })
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: { message?: string }
+    } | null
+    throw new Error(payload?.error?.message ?? `请求失败：${response.status}`)
+  }
+  return {
+    blob: await response.blob(),
+    filename: `cyber-netizen-user-${userId}.json`,
+    sha256: response.headers.get('X-Content-SHA256'),
+    runId: response.headers.get('X-Export-Run-ID'),
+  }
+}
+
+export const forgetUserData = (userId: string, confirmation: string) =>
+  postJson<LifecycleRun>('/api/v1/data-lifecycle/forget', {
+    user_id: userId,
+    confirmation,
+  })
+
+export const runRetentionCleanup = () =>
+  postJson<LifecycleRun>('/api/v1/data-lifecycle/retention/cleanup', { confirmed: true })
+
+export const runOrphanCleanup = () =>
+  postJson<LifecycleRun>('/api/v1/data-lifecycle/objects/orphans/cleanup', { confirmed: true })
+
+export const recordBackupRestoreDrill = (command: {
+  manifest_sha256: string
+  database_rows_verified: number
+  objects_verified: number
+  database_integrity_verified: boolean
+  object_integrity_verified: boolean
+  application_smoke_verified: boolean
+  confirmation: string
+}) => postJson<LifecycleRun>('/api/v1/data-lifecycle/backup-drills', command)
 
 function administrationListPath(resource: string, search: string, status?: string) {
   const query = new URLSearchParams({ limit: '100' })

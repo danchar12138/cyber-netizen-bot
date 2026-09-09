@@ -4,7 +4,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import cast
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_DNS, UUID, uuid4, uuid5
 
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient, Response
@@ -26,6 +26,7 @@ from cnb_contracts import (
     ConfigVersionResponse,
     ConversationListResponse,
     ConversationResponse,
+    DataLifecycleOverviewResponse,
     EvaluationSuiteResponse,
     HealthResponse,
     MessageAcceptedResponse,
@@ -35,15 +36,80 @@ from cnb_contracts import (
     SystemOverviewResponse,
     TaskStatusResponse,
 )
-from cnb_domain import AdminPrincipal, AdminRole, JsonValue
+from cnb_domain import AdminPrincipal, AdminRole, DevelopmentIdentity, JsonValue
 from cnb_infrastructure import (
     InMemoryMemoryRepository,
     MemoryAttachmentRepository,
     MemoryConfigurationRepository,
     MemoryConversationRepository,
+    MemoryDataLifecycleRepository,
     MemoryObjectStorage,
     Settings,
 )
+
+
+async def test_data_lifecycle_api_enforces_permissions_and_returns_safe_download_headers() -> None:
+    identity = DevelopmentIdentity(
+        tenant_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.tenant"),
+        user_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.user"),
+        agent_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.agent"),
+        user_name="本地开发者",
+        agent_name="赛博网友",
+    )
+    lifecycle_repository = MemoryDataLifecycleRepository(identity)
+    private_object_key = f"tenants/{identity.tenant_id}/attachments/private.txt"
+    lifecycle_repository.seed_user_export(
+        identity.user_id,
+        data=cast(
+            dict[str, JsonValue],
+            {"profile": {"id": str(identity.user_id), "display_name": identity.user_name}},
+        ),
+        record_count=1,
+        object_keys=(private_object_key,),
+    )
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+        data_lifecycle_repository=lifecycle_repository,
+        object_storage=MemoryObjectStorage(),
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        overview_response = await client.get(
+            "/api/v1/data-lifecycle/overview",
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        export_response = await client.post(
+            "/api/v1/data-lifecycle/exports",
+            json={"user_id": str(identity.user_id)},
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+        viewer_export = await client.post(
+            "/api/v1/data-lifecycle/exports",
+            json={"user_id": str(identity.user_id)},
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        operator_forget = await client.post(
+            "/api/v1/data-lifecycle/forget",
+            json={
+                "user_id": str(identity.user_id),
+                "confirmation": f"FORGET {identity.user_id}",
+            },
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+
+    overview = DataLifecycleOverviewResponse.model_validate(overview_response.json())
+    exported = export_response.json()
+    assert overview_response.status_code == 200
+    assert overview.policy.deleted_conversation_days == 30
+    assert export_response.status_code == 200
+    assert export_response.headers["content-disposition"].endswith('.json"')
+    assert len(export_response.headers["x-content-sha256"]) == 64
+    assert export_response.headers["x-export-run-id"]
+    assert private_object_key not in export_response.text
+    assert exported["schema_version"] == "cnb-user-export-v1"
+    assert viewer_export.status_code == 403
+    assert operator_forget.status_code == 403
 
 
 class FakeOidcAuthenticator:

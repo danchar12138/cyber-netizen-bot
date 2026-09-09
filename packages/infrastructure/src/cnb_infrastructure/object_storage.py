@@ -21,6 +21,7 @@ from PIL import Image, UnidentifiedImageError
 from cnb_application import (
     ObjectInspectionError,
     ObjectNotFoundError,
+    StoredObjectEntry,
     StoredObjectInfo,
     UploadGrant,
 )
@@ -31,7 +32,7 @@ class MemoryObjectStorage:
     """记录对象字节并产生虚拟授权，便于无基础设施测试。"""
 
     def __init__(self) -> None:
-        self._objects: dict[str, tuple[bytes, str, str]] = {}
+        self._objects: dict[str, tuple[bytes, str, str, datetime]] = {}
 
     async def presign_upload(
         self,
@@ -50,7 +51,7 @@ class MemoryObjectStorage:
 
     async def stat_object(self, object_key: str) -> StoredObjectInfo:
         try:
-            content, content_type, digest = self._objects[object_key]
+            content, content_type, digest, _ = self._objects[object_key]
         except KeyError as error:
             raise ObjectNotFoundError(object_key) from error
         return StoredObjectInfo(size_bytes=len(content), content_type=content_type, sha256=digest)
@@ -62,7 +63,7 @@ class MemoryObjectStorage:
         max_bytes: int,
     ) -> StoredObjectInfo:
         try:
-            content, content_type, metadata_digest = self._objects[object_key]
+            content, content_type, metadata_digest, _ = self._objects[object_key]
         except KeyError as error:
             raise ObjectNotFoundError(object_key) from error
         if len(content) > max_bytes:
@@ -89,6 +90,18 @@ class MemoryObjectStorage:
     async def delete_object(self, object_key: str) -> None:
         self._objects.pop(object_key, None)
 
+    async def list_objects(self, *, prefix: str, limit: int) -> tuple[StoredObjectEntry, ...]:
+        rows = (
+            StoredObjectEntry(
+                object_key=object_key,
+                size_bytes=len(content),
+                last_modified=created_at,
+            )
+            for object_key, (content, _, _, created_at) in self._objects.items()
+            if object_key.startswith(prefix)
+        )
+        return tuple(sorted(rows, key=lambda item: item.object_key)[:limit])
+
     def put_for_test(
         self,
         *,
@@ -96,10 +109,16 @@ class MemoryObjectStorage:
         content: bytes,
         content_type: str,
         sha256: str | None = None,
+        created_at: datetime | None = None,
     ) -> None:
         """模拟客户端完成一次携带摘要元数据的 PUT。"""
         digest = sha256 or calculate_sha256(content).hexdigest()
-        self._objects[object_key] = (content, content_type, digest)
+        self._objects[object_key] = (
+            content,
+            content_type,
+            digest,
+            created_at or datetime.now(UTC),
+        )
 
 
 class MinioObjectStorage:
@@ -228,6 +247,25 @@ class MinioObjectStorage:
 
     async def delete_object(self, object_key: str) -> None:
         await asyncio.to_thread(self._client.remove_object, self._bucket, object_key)
+
+    async def list_objects(self, *, prefix: str, limit: int) -> tuple[StoredObjectEntry, ...]:
+        return await asyncio.to_thread(self._list_objects_sync, prefix, limit)
+
+    def _list_objects_sync(self, prefix: str, limit: int) -> tuple[StoredObjectEntry, ...]:
+        rows: list[StoredObjectEntry] = []
+        for item in self._client.list_objects(self._bucket, prefix=prefix, recursive=True):
+            if item.object_name is None or item.last_modified is None or item.size is None:
+                continue
+            rows.append(
+                StoredObjectEntry(
+                    object_key=item.object_name,
+                    size_bytes=item.size,
+                    last_modified=item.last_modified,
+                )
+            )
+            if len(rows) >= limit:
+                break
+        return tuple(rows)
 
     @staticmethod
     def _content_disposition(name: str) -> str:

@@ -299,6 +299,42 @@ class AdminSession(Base):
     )
 
 
+class DataLifecycleRunModel(Base):
+    """不保存用户正文或存储路径的数据生命周期运行证据。"""
+
+    __tablename__ = "data_lifecycle_runs"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    subject_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    counters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(120))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('user_export', 'user_forget', 'retention_cleanup', "
+            "'orphan_cleanup', 'backup_restore_drill')",
+            name="ck_data_lifecycle_runs_kind",
+        ),
+        CheckConstraint(
+            "status IN ('running', 'succeeded', 'failed')",
+            name="ck_data_lifecycle_runs_status",
+        ),
+        Index("ix_data_lifecycle_runs_tenant_started", "tenant_id", "started_at"),
+        Index("ix_data_lifecycle_runs_subject", "tenant_id", "subject_user_id", "started_at"),
+    )
+
+
 class ConversationModel(Base):
     """内部 Web Channel 使用的持久化会话。"""
 

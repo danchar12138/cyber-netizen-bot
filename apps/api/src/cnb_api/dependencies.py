@@ -26,6 +26,8 @@ from cnb_application import (
     ConfigurationService,
     ConversationRepository,
     ConversationService,
+    DataLifecycleRepository,
+    DataLifecycleService,
     MemoryRepository,
     MemoryService,
     ModelProviderResolver,
@@ -291,6 +293,22 @@ def get_object_storage(request: HTTPConnection) -> ObjectStorage:
     """返回组合根选择的 MinIO 对象存储。"""
     storage: ObjectStorage = request.app.state.object_storage
     return storage
+
+
+def get_data_lifecycle_repository(request: HTTPConnection) -> DataLifecycleRepository:
+    """返回组合根选择的数据生命周期真相源。"""
+    repository: DataLifecycleRepository = request.app.state.data_lifecycle_repository
+    return repository
+
+
+def get_data_lifecycle_service(
+    repository: Annotated[DataLifecycleRepository, Depends(get_data_lifecycle_repository)],
+    object_storage: Annotated[ObjectStorage, Depends(get_object_storage)],
+    configuration_service: Annotated[ConfigurationService, Depends(get_configuration_service)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+) -> DataLifecycleService:
+    """构建绑定当前租户、用户和 Agent 的数据生命周期服务。"""
+    return DataLifecycleService(repository, object_storage, configuration_service, identity)
 
 
 def get_attachment_service(

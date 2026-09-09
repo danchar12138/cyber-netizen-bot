@@ -7,6 +7,7 @@ import {
   Cable,
   ChevronDown,
   CircleGauge,
+  DatabaseBackup,
   FlaskConical,
   KeyRound,
   LockKeyhole,
@@ -54,6 +55,7 @@ const operationsNavigation: NavigationItem[] = [
   { label: '评测实验室', path: '/evaluations', icon: FlaskConical },
   { label: '运行轨迹', path: '/observability', icon: Activity },
   { label: '审计日志', path: '/audit', icon: ScrollText },
+  { label: '数据生命周期', path: '/data-lifecycle', icon: DatabaseBackup },
 ]
 
 function NavigationGroup({

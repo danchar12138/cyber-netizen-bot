@@ -14,6 +14,7 @@ import { ConfigurationPage } from './views/ConfigurationPage'
 import { ConversationsPage } from './views/ConversationsPage'
 import { CognitionResourcesPage } from './views/CognitionResourcesPage'
 import { DashboardPage } from './views/DashboardPage'
+import { DataLifecyclePage } from './views/DataLifecyclePage'
 import { EntityManagementPage } from './views/EntityManagementPage'
 import { EvaluationsPage } from './views/EvaluationsPage'
 import { MemoryPage } from './views/MemoryPage'
@@ -138,6 +139,12 @@ const settingsRoute = createRoute({
   component: SystemSettingsPage,
 })
 
+const dataLifecycleRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/data-lifecycle',
+  component: DataLifecyclePage,
+})
+
 const sectionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/$section',
@@ -163,6 +170,7 @@ const routeTree = rootRoute.addChildren([
   channelsRoute,
   tasksRoute,
   settingsRoute,
+  dataLifecycleRoute,
   sectionRoute,
 ])
 

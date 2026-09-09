@@ -19,6 +19,7 @@ from cnb_api.routes import (
     cognition,
     configuration,
     conversation,
+    data_lifecycle,
     health,
     memory,
     system,
@@ -32,6 +33,7 @@ from cnb_application import (
     CognitionRepository,
     ConfigurationRepository,
     ConversationRepository,
+    DataLifecycleRepository,
     MemoryRepository,
     ModelProviderResolver,
     ModelReliabilityGuard,
@@ -52,6 +54,7 @@ from cnb_infrastructure import (
     MemoryAttachmentRepository,
     MemoryChannelRepository,
     MemoryCognitionRepository,
+    MemoryDataLifecycleRepository,
     MemoryObjectStorage,
     MemorySecretStore,
     MinioObjectStorage,
@@ -63,6 +66,7 @@ from cnb_infrastructure import (
     SqlAlchemyCognitionRepository,
     SqlAlchemyConfigurationRepository,
     SqlAlchemyConversationRepository,
+    SqlAlchemyDataLifecycleRepository,
     SqlAlchemyMemoryRepository,
     SqlAlchemySecretStore,
     SqlAlchemyTaskRepository,
@@ -80,6 +84,7 @@ def create_app(
     channel_repository: ChannelRepository | None = None,
     channel_adapter_registry: ChannelAdapterRegistry | None = None,
     conversation_repository: ConversationRepository | None = None,
+    data_lifecycle_repository: DataLifecycleRepository | None = None,
     memory_repository: MemoryRepository | None = None,
     task_repository: TaskRepository | None = None,
     administration_repository: AdministrationRepository | None = None,
@@ -147,6 +152,16 @@ def create_app(
     application.state.conversation_repository = (
         conversation_repository or SqlAlchemyConversationRepository(session_factory)
     )
+    if data_lifecycle_repository is not None:
+        application.state.data_lifecycle_repository = data_lifecycle_repository
+    elif configuration_repository is not None or conversation_repository is not None:
+        application.state.data_lifecycle_repository = MemoryDataLifecycleRepository(
+            development_identity
+        )
+    else:
+        application.state.data_lifecycle_repository = SqlAlchemyDataLifecycleRepository(
+            session_factory
+        )
     if memory_repository is not None:
         application.state.memory_repository = memory_repository
     elif configuration_repository is not None or conversation_repository is not None:
@@ -224,7 +239,7 @@ def create_app(
             "X-CNB-Development-Role",
             "X-Request-ID",
         ],
-        expose_headers=["X-Request-ID"],
+        expose_headers=["X-Request-ID", "X-Content-SHA256", "X-Export-Run-ID"],
     )
     application.include_router(health.router)
     application.include_router(authentication.router, prefix="/api/v1")
@@ -237,6 +252,7 @@ def create_app(
     application.include_router(tasks.router, prefix="/api/v1")
     application.include_router(attachment.router, prefix="/api/v1")
     application.include_router(conversation.router, prefix="/api/v1")
+    application.include_router(data_lifecycle.router, prefix="/api/v1")
     return application
 
 

@@ -24,6 +24,10 @@ from cnb_infrastructure.conversation_repository import (
     MemoryConversationRepository,
     SqlAlchemyConversationRepository,
 )
+from cnb_infrastructure.data_lifecycle_repository import (
+    MemoryDataLifecycleRepository,
+    SqlAlchemyDataLifecycleRepository,
+)
 from cnb_infrastructure.health import DependencyProbe, probe_dependencies
 from cnb_infrastructure.memory_repository import (
     InMemoryMemoryRepository,
@@ -60,6 +64,7 @@ __all__ = [
     "MemoryCognitionRepository",
     "MemoryConfigurationRepository",
     "MemoryConversationRepository",
+    "MemoryDataLifecycleRepository",
     "MemoryObjectStorage",
     "MemorySecretStore",
     "MinioObjectStorage",
@@ -72,6 +77,7 @@ __all__ = [
     "SqlAlchemyCognitionRepository",
     "SqlAlchemyConfigurationRepository",
     "SqlAlchemyConversationRepository",
+    "SqlAlchemyDataLifecycleRepository",
     "SqlAlchemyMemoryRepository",
     "SqlAlchemySecretStore",
     "SqlAlchemyTaskRepository",

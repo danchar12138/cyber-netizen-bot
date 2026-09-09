@@ -17,6 +17,29 @@ def test_default_registry_is_sorted_and_has_unique_keys() -> None:
     assert len({item.key for item in definitions}) == len(definitions)
 
 
+def test_data_lifecycle_settings_are_runtime_managed_and_bounded() -> None:
+    definitions = {item.key: item for item in build_default_registry().all()}
+
+    expected = {
+        "data.retention.deleted_conversation_days",
+        "data.retention.deleted_attachment_days",
+        "data.retention.orphan_grace_hours",
+        "data.retention.batch_size",
+        "data.export.max_records",
+        "data.export.max_bytes",
+        "data.backup.expected_interval_hours",
+    }
+    assert expected <= definitions.keys()
+    for key in expected:
+        definition = definitions[key]
+        assert definition.section == "data_lifecycle"
+        assert definition.value_kind is ConfigValueKind.INTEGER
+        assert definition.minimum is not None
+        assert definition.maximum is not None
+        assert isinstance(definition.default, int)
+        assert definition.minimum <= definition.default <= definition.maximum
+
+
 def test_registry_rejects_duplicate_keys() -> None:
     definition = ConfigDefinition(
         key="test.enabled",

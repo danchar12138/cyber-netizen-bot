@@ -2,7 +2,7 @@
 
 以自研 Agent 认知运行时为核心的“赛博网友”项目。Web 首发形态是统一管理后台，其中包含内部全功能对话工作台；后续 IM 平台通过统一 Channel Adapter 接入。
 
-当前已完成 P1、P2、P3、P4、P5、P6，下一阶段是 P7 发布准备；P0 的代码基线已具备，Docker 实跑与分支保护仍待环境验证。最新开发计划见 [`docs/plans/2026-09-09-v3.md`](docs/plans/2026-09-09-v3.md)。
+当前已完成 P1、P2、P3、P4、P5、P6，P7 已完成身份安全和数据生命周期两项纵向切片，下一步进入可观测性、性能与成本基线；P0 的 Docker 实跑与分支保护仍待环境验证。最新开发计划见 [`docs/plans/2026-09-09-v3.md`](docs/plans/2026-09-09-v3.md)。
 
 ## 已建立的能力
 
@@ -41,8 +41,10 @@
 - 正式内部 Web Adapter、飞书/Discord/Telegram 零外部副作用占位包，以及渠道能力与模型能力矩阵、平台模拟器和 Adapter 契约测试。
 - 租户隔离的渠道实例、信封加密凭证、启停、连接测试、健康状态、原子限流、幂等发送和不含正文/密钥的诊断事件管理 API 与后台。
 - MinIO 官方 Python SDK 附件适配器、预签名浏览器直传、服务端摘要复核、私有预览和生命周期清理。
+- OIDC Authorization Code + PKCE 正式认证、本地稳定身份绑定、服务端 RBAC、会话撤销，以及 Prompt 注入和上传内容安全加固。
+- 数据白名单 JSON 导出、带精确确认的用户遗忘、保留期清理、MinIO 孤儿保护与清理、隔离恢复演练登记和完整管理后台。
 - Markdown/GFM 消息、自动保存草稿、图片/文件选择、键盘跳转和 axe 无障碍回归。
-- Alembic 配置、对话、附件、加密密钥、审计、认知运行、长期记忆、可靠异步任务和渠道控制平面迁移，当前 head 为 `20260910_0010`。
+- Alembic 配置、对话、附件、加密密钥、审计、认知运行、长期记忆、可靠异步任务、渠道控制平面、OIDC 和数据生命周期迁移，当前 head 为 `20260910_0012`。
 - Python/Web 测试、静态检查和 GitHub Actions。
 
 ## 环境要求
@@ -105,6 +107,12 @@ uv run python -c "import base64,secrets; print(base64.b64encode(secrets.token_by
 管理后台的内部对话页已经接通多阶段拟人认知纵向闭环。默认使用 `development/friendly-echo-v1`，无需外部密钥即可验证消息持久化、认知决策、流式增量、不回复、取消、心跳和断线恢复。在配置中心写入 `model.openai.api_key` 并发布 `model.chat.provider=openai` 与模型名称后，新 Agent Run 会按最终配置动态使用官方 Python SDK `Responses API`；也可在“模型与路由”中发布精确模型档案与用途路由。凭证无需也不允许通过模型环境变量维护。
 
 “人格版本”“模型与路由”“Prompt 与上下文”“工具与策略”“评测实验室”和“运行轨迹”均已接通真实管理 API。认知资源只保存无密钥结构化定义；运行轨迹只返回阶段摘要、裁剪统计、行动候选、人格状态和模型尝试元数据。
+
+## 身份与数据生命周期
+
+开发环境可继续使用请求头模拟内置角色；预发布和生产环境强制使用 OIDC Authorization Code + PKCE。访问令牌只在内存中使用，服务端按可信 issuer、签名、audience、tenant 和角色 claim 绑定本地身份与权限，API、WebSocket、导出和高风险管理命令均执行服务端鉴权。
+
+管理后台“数据生命周期”页面可查看并修改生效策略入口、下载一次性白名单 JSON 导出、执行用户遗忘、运行保留期与 MinIO 孤儿清理，并登记隔离恢复演练。导出文件不在服务端落盘；安全运行证据不保存用户正文、Prompt、密钥、令牌、对象键或底层异常。实际备份与隔离恢复步骤见 [`docs/runbooks/backup-restore.md`](docs/runbooks/backup-restore.md)。
 
 ## 长期记忆与关系
 

@@ -64,6 +64,7 @@ from cnb_domain.conversation import (
     MessageStatus,
     PendingAgentRun,
 )
+from cnb_domain.data_lifecycle import LifecycleRun, LifecycleRunKind, LifecycleRunStatus
 from cnb_domain.memory import (
     Episode,
     EpisodeStatus,
@@ -157,6 +158,9 @@ __all__ = [
     "JobAttemptStatus",
     "JobClaim",
     "JsonValue",
+    "LifecycleRun",
+    "LifecycleRunKind",
+    "LifecycleRunStatus",
     "ManagedAgent",
     "ManagedUser",
     "ManagementOverview",

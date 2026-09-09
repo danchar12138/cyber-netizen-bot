@@ -1,0 +1,85 @@
+"""数据生命周期管理、运行证据与高风险确认契约。"""
+
+from datetime import datetime
+from uuid import UUID
+
+from pydantic import BaseModel, Field
+
+from cnb_domain import JsonValue, LifecycleRunKind, LifecycleRunStatus
+
+
+class LifecyclePolicyResponse(BaseModel):
+    """管理后台可查看、配置中心可修改的最终生效策略。"""
+
+    deleted_conversation_days: int
+    deleted_attachment_days: int
+    orphan_grace_hours: int
+    batch_size: int
+    export_max_records: int
+    export_max_bytes: int
+    backup_expected_interval_hours: int
+
+
+class LifecycleRunResponse(BaseModel):
+    """不包含正文、Prompt、密钥、令牌或对象路径的运行证据。"""
+
+    id: UUID
+    tenant_id: UUID
+    actor_id: UUID | None
+    subject_user_id: UUID | None
+    kind: LifecycleRunKind
+    status: LifecycleRunStatus
+    counters: dict[str, int]
+    evidence: dict[str, JsonValue]
+    error_code: str | None
+    started_at: datetime
+    completed_at: datetime | None
+
+
+class DataLifecycleOverviewResponse(BaseModel):
+    """生命周期策略和最近运行的一屏摘要。"""
+
+    policy: LifecyclePolicyResponse
+    runs: tuple[LifecycleRunResponse, ...]
+
+
+class UserDataExportCommand(BaseModel):
+    """按租户隔离导出一个用户的白名单数据。"""
+
+    user_id: UUID
+
+
+class UserDataForgetCommand(BaseModel):
+    """要求输入包含目标 UUID 的不可逆确认短语。"""
+
+    user_id: UUID
+    confirmation: str = Field(min_length=43, max_length=43)
+
+
+class ConfirmedLifecycleCommand(BaseModel):
+    """保留期与孤儿清理的显式确认。"""
+
+    confirmed: bool
+
+
+class BackupRestoreDrillCommand(BaseModel):
+    """只登记在隔离环境中实际完成的备份恢复验证证据。"""
+
+    manifest_sha256: str = Field(min_length=64, max_length=64)
+    database_rows_verified: int = Field(ge=0)
+    objects_verified: int = Field(ge=0)
+    database_integrity_verified: bool
+    object_integrity_verified: bool
+    application_smoke_verified: bool
+    confirmation: str = Field(min_length=23, max_length=23)
+
+
+__all__ = [
+    "BackupRestoreDrillCommand",
+    "ConfirmedLifecycleCommand",
+    "DataLifecycleOverviewResponse",
+    "LifecyclePolicyResponse",
+    "LifecycleRunResponse",
+    "UserDataExportCommand",
+    "UserDataForgetCommand",
+]

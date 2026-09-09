@@ -48,6 +48,15 @@ class StoredObjectInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class StoredObjectEntry:
+    """对象清单中的最小安全元数据；不包含内容或下载凭证。"""
+
+    object_key: str
+    size_bytes: int
+    last_modified: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class UploadGrant:
     """短期、单对象、约束请求头的直传授权。"""
 
@@ -121,6 +130,8 @@ class ObjectStorage(Protocol):
     ) -> str: ...
 
     async def delete_object(self, object_key: str) -> None: ...
+
+    async def list_objects(self, *, prefix: str, limit: int) -> tuple[StoredObjectEntry, ...]: ...
 
 
 class AttachmentService:

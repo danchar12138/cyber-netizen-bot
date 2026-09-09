@@ -97,6 +97,15 @@ from cnb_contracts.conversation import (
     MessageSearchItemResponse,
     MessageSearchResponse,
 )
+from cnb_contracts.data_lifecycle import (
+    BackupRestoreDrillCommand,
+    ConfirmedLifecycleCommand,
+    DataLifecycleOverviewResponse,
+    LifecyclePolicyResponse,
+    LifecycleRunResponse,
+    UserDataExportCommand,
+    UserDataForgetCommand,
+)
 from cnb_contracts.error import ApiError, ApiErrorDetail, ApiErrorResponse
 from cnb_contracts.health import (
     BootstrapSettingsResponse,
@@ -167,6 +176,7 @@ __all__ = [
     "BackgroundJobDetailResponse",
     "BackgroundJobListResponse",
     "BackgroundJobResponse",
+    "BackupRestoreDrillCommand",
     "BootstrapSettingsResponse",
     "BulkStatusUpdateCommand",
     "ChannelCapabilitiesResponse",
@@ -202,11 +212,13 @@ __all__ = [
     "ConfigValueResponse",
     "ConfigVersionListResponse",
     "ConfigVersionResponse",
+    "ConfirmedLifecycleCommand",
     "ConversationCreate",
     "ConversationEventEnvelope",
     "ConversationListResponse",
     "ConversationResponse",
     "ConversationUpdate",
+    "DataLifecycleOverviewResponse",
     "DevelopmentIdentityResponse",
     "EffectiveConfigSourceResponse",
     "EffectiveConfigValueResponse",
@@ -220,6 +232,8 @@ __all__ = [
     "HealthResponse",
     "HeartbeatEnvelope",
     "JobAttemptResponse",
+    "LifecyclePolicyResponse",
+    "LifecycleRunResponse",
     "ManagedAgentListResponse",
     "ManagedAgentResponse",
     "ManagedUserListResponse",
@@ -275,5 +289,7 @@ __all__ = [
     "TaskDashboardResponse",
     "TaskReplayCommand",
     "TaskStatusResponse",
+    "UserDataExportCommand",
+    "UserDataForgetCommand",
     "WorkerHeartbeatResponse",
 ]

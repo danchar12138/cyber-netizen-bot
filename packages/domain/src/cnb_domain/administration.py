@@ -46,6 +46,11 @@ class AdminPermission(StrEnum):
     USER_READ = "user:read"
     USER_WRITE = "user:write"
     AUDIT_READ = "audit:read"
+    DATA_LIFECYCLE_READ = "data_lifecycle:read"
+    DATA_EXPORT = "data_lifecycle:export"
+    DATA_FORGET = "data_lifecycle:forget"
+    DATA_RETENTION_MANAGE = "data_lifecycle:retention_manage"
+    BACKUP_DRILL_RECORD = "data_lifecycle:backup_drill_record"
 
 
 @dataclass(frozen=True, slots=True)

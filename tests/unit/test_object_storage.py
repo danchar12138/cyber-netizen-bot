@@ -1,7 +1,7 @@
 """MinIO 官方客户端适配器测试。"""
 
 from collections.abc import Iterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from io import BytesIO
 from typing import cast
@@ -65,6 +65,24 @@ class FakeMinioClient:
     def remove_object(self, bucket_name: str, object_name: str) -> None:
         self.removed = (bucket_name, object_name)
 
+    def list_objects(
+        self,
+        bucket_name: str,
+        *,
+        prefix: str,
+        recursive: bool,
+    ) -> Iterator[MinioObject]:
+        assert bucket_name == "cyber-netizen"
+        assert prefix == "tenants/tenant/"
+        assert recursive is True
+        for index in range(2):
+            yield MinioObject(
+                bucket_name,
+                f"{prefix}attachments/{index}.txt",
+                last_modified=datetime(2026, 9, 10, tzinfo=UTC),
+                size=index + 1,
+            )
+
 
 class FakeObjectResponse:
     """模拟 urllib3 流并记录资源释放。"""
@@ -110,6 +128,7 @@ async def test_minio_adapter_presigns_verifies_previews_and_deletes() -> None:
         download_name="资料.txt",
         expires_seconds=300,
     )
+    listed = await storage.list_objects(prefix="tenants/tenant/", limit=1)
     await storage.delete_object(object_key)
 
     assert upload.url == "http://minio.local/upload-token"
@@ -124,6 +143,8 @@ async def test_minio_adapter_presigns_verifies_previews_and_deletes() -> None:
     assert inspected.metadata_sha256 == "a" * 64
     assert inspected.detected_content_type == "text/plain"
     assert preview == "http://minio.local/download-token"
+    assert len(listed) == 1
+    assert listed[0].object_key == "tenants/tenant/attachments/0.txt"
     assert client.removed == ("cyber-netizen", object_key)
 
 

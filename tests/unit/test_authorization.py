@@ -29,10 +29,13 @@ def test_operator_can_publish_configuration_but_cannot_manage_secrets() -> None:
     assert require_admin_permission(principal, AdminPermission.CONFIGURATION_WRITE) is principal
     assert require_admin_permission(principal, AdminPermission.MEMORY_REBUILD) is principal
     assert require_admin_permission(principal, AdminPermission.CHANNEL_WRITE) is principal
+    assert require_admin_permission(principal, AdminPermission.DATA_EXPORT) is principal
     with pytest.raises(PermissionDeniedError, match="secret:manage"):
         require_admin_permission(principal, AdminPermission.SECRET_MANAGE)
     with pytest.raises(PermissionDeniedError, match="channel_credential:manage"):
         require_admin_permission(principal, AdminPermission.CHANNEL_CREDENTIAL_MANAGE)
+    with pytest.raises(PermissionDeniedError, match="data_lifecycle:forget"):
+        require_admin_permission(principal, AdminPermission.DATA_FORGET)
 
 
 def test_viewer_is_strictly_read_only() -> None:
@@ -42,8 +45,10 @@ def test_viewer_is_strictly_read_only() -> None:
     assert AdminPermission.CONVERSATION_READ in permissions
     assert AdminPermission.MEMORY_READ in permissions
     assert AdminPermission.CHANNEL_READ in permissions
+    assert AdminPermission.DATA_LIFECYCLE_READ in permissions
     assert AdminPermission.CONFIGURATION_WRITE not in permissions
     assert AdminPermission.CONVERSATION_USE not in permissions
     assert AdminPermission.MEMORY_WRITE not in permissions
     assert AdminPermission.MEMORY_REBUILD not in permissions
     assert AdminPermission.CHANNEL_WRITE not in permissions
+    assert AdminPermission.DATA_EXPORT not in permissions
