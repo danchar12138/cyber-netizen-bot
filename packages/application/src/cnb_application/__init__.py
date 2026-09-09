@@ -10,14 +10,40 @@ from cnb_application.configuration_service import (
     ConfigurationNotFoundError,
     ConfigurationRepository,
     ConfigurationService,
+    EffectiveConfigurationSnapshot,
+)
+from cnb_application.conversation_service import (
+    AgentRunNotFoundError,
+    ConversationConflictError,
+    ConversationNotFoundError,
+    ConversationRepository,
+    ConversationService,
+    CursorPage,
+)
+from cnb_application.pagination import (
+    EntityCursor,
+    InvalidCursorError,
+    decode_cursor,
+    encode_cursor,
 )
 
 __all__ = [
+    "AgentRunNotFoundError",
     "ConfigurationConflictError",
     "ConfigurationNotFoundError",
     "ConfigurationRegistry",
     "ConfigurationRepository",
     "ConfigurationService",
     "ConfigurationValidationError",
+    "ConversationConflictError",
+    "ConversationNotFoundError",
+    "ConversationRepository",
+    "ConversationService",
+    "CursorPage",
+    "EffectiveConfigurationSnapshot",
+    "EntityCursor",
+    "InvalidCursorError",
     "build_default_registry",
+    "decode_cursor",
+    "encode_cursor",
 ]

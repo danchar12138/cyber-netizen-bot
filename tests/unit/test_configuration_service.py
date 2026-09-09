@@ -148,3 +148,43 @@ async def test_value_and_scope_constraints_are_enforced(
 ) -> None:
     with pytest.raises(ConfigurationValidationError, match=message):
         await service.create_draft(note=None, values=(entry,))
+
+
+async def test_effective_configuration_respects_scope_precedence_and_version() -> None:
+    repository = MemoryConfigurationRepository()
+    configuration = ConfigurationService(build_default_registry(), repository)
+    tenant_id = uuid4()
+    agent_id = uuid4()
+    first = await configuration.create_draft(
+        note="作用域覆盖",
+        values=(
+            ConfigEntry(
+                key="model.chat.max_output_tokens",
+                scope_type=ConfigScope.SYSTEM,
+                value=512,
+            ),
+            ConfigEntry(
+                key="model.chat.max_output_tokens",
+                scope_type=ConfigScope.TENANT,
+                scope_id=tenant_id,
+                value=768,
+            ),
+            ConfigEntry(
+                key="model.chat.max_output_tokens",
+                scope_type=ConfigScope.AGENT,
+                scope_id=agent_id,
+                value=900,
+            ),
+        ),
+    )
+    published = await configuration.publish(first.id)
+
+    effective = await configuration.resolve_effective(tenant_id=tenant_id, agent_id=agent_id)
+    other_agent = await configuration.resolve_effective(tenant_id=tenant_id, agent_id=uuid4())
+    builtin = await configuration.resolve_effective(tenant_id=tenant_id, version=0)
+
+    assert effective.version == published.version
+    assert effective.values["model.chat.max_output_tokens"] == 900
+    assert other_agent.values["model.chat.max_output_tokens"] == 768
+    assert builtin.version == 0
+    assert builtin.values["model.chat.max_output_tokens"] == 1024

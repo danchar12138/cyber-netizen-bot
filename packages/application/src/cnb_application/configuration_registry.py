@@ -134,6 +134,17 @@ def build_default_registry() -> ConfigurationRegistry:
                 maximum=100,
             ),
             ConfigDefinition(
+                key="model.chat.max_output_tokens",
+                section="model",
+                label="对话输出 Token 上限",
+                description="内部对话单次模型响应允许生成的最大 Token 数量。",
+                value_kind=ConfigValueKind.INTEGER,
+                default=1024,
+                scopes=per_agent,
+                minimum=64,
+                maximum=32768,
+            ),
+            ConfigDefinition(
                 key="memory.recall.semantic_weight",
                 section="memory",
                 label="语义相关权重",
@@ -151,6 +162,18 @@ def build_default_registry() -> ConfigurationRegistry:
                 description="允许 Agent 创建主动联系候选; 候选仍需通过策略门。",
                 value_kind=ConfigValueKind.BOOLEAN,
                 default=False,
+                scopes=per_agent,
+            ),
+            ConfigDefinition(
+                key="persona.system_prompt",
+                section="persona",
+                label="基础人格提示",
+                description="进入对话模型的基础人格与行为边界；后续将迁移至独立人格版本。",
+                value_kind=ConfigValueKind.STRING,
+                default=(
+                    "你是一个自然、友善且尊重边界的赛博网友。"
+                    "请直接回应用户，不要声称执行了未发生的操作。"
+                ),
                 scopes=per_agent,
             ),
             ConfigDefinition(

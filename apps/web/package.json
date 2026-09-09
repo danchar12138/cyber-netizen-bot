@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "typecheck": "tsc -b --pretty false",
     "check": "eslint . --max-warnings=0 && tsc -b --pretty false && vitest run && vite build"
   },
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
+    "@playwright/test": "1.55.0",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.3",

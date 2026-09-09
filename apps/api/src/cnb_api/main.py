@@ -1,18 +1,25 @@
 """FastAPI 应用组合根。"""
 
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from uuid import NAMESPACE_DNS, UUID, uuid5
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from cnb_api import __version__
-from cnb_api.routes import configuration, health, system
-from cnb_application import ConfigurationRepository
+from cnb_api.errors import RequestIdMiddleware, install_error_handlers
+from cnb_api.routes import configuration, conversation, health, system
+from cnb_application import ConfigurationRepository, ConversationRepository
+from cnb_cognition import CognitiveRuntime, MinimalCognitiveRuntime, ModelProvider
+from cnb_domain import DevelopmentIdentity
 from cnb_infrastructure import (
     DependencyProbe,
+    DevelopmentModelProvider,
     Settings,
     SqlAlchemyConfigurationRepository,
+    SqlAlchemyConversationRepository,
     get_settings,
     probe_dependencies,
 )
@@ -23,14 +30,25 @@ def create_app(
     settings: Settings | None = None,
     *,
     configuration_repository: ConfigurationRepository | None = None,
+    conversation_repository: ConversationRepository | None = None,
+    cognitive_runtime: CognitiveRuntime | None = None,
+    model_provider: ModelProvider | None = None,
     dependency_probe: DependencyProbe | None = None,
 ) -> FastAPI:
     """创建可用于生产或测试的独立应用实例。"""
     resolved_settings = settings or get_settings()
 
+    agent_run_tasks: dict[UUID, asyncio.Task[None]] = {}
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
-        yield
+        try:
+            yield
+        finally:
+            for task in agent_run_tasks.values():
+                task.cancel()
+            if agent_run_tasks:
+                await asyncio.gather(*agent_run_tasks.values(), return_exceptions=True)
 
     application = FastAPI(
         title="Cyber Netizen Bot API",
@@ -41,20 +59,43 @@ def create_app(
         lifespan=lifespan,
     )
     application.state.settings = resolved_settings
-    application.state.configuration_repository = configuration_repository or (
-        SqlAlchemyConfigurationRepository(create_session_factory(resolved_settings))
+    session_factory = create_session_factory(resolved_settings)
+    application.state.configuration_repository = (
+        configuration_repository or SqlAlchemyConfigurationRepository(session_factory)
     )
+    application.state.conversation_repository = (
+        conversation_repository or SqlAlchemyConversationRepository(session_factory)
+    )
+    application.state.cognitive_runtime = cognitive_runtime or MinimalCognitiveRuntime()
+    application.state.model_provider = model_provider or DevelopmentModelProvider()
+    application.state.development_identity = DevelopmentIdentity(
+        tenant_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.tenant"),
+        user_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.user"),
+        agent_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.agent"),
+        user_name="本地开发者",
+        agent_name="赛博网友",
+    )
+    application.state.agent_run_tasks = agent_run_tasks
+    install_error_handlers(application)
+    application.add_middleware(RequestIdMiddleware)
     application.state.dependency_probe = dependency_probe or probe_dependencies
     application.add_middleware(
         CORSMiddleware,
         allow_origins=list(resolved_settings.cors_origins),
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Idempotency-Key",
+            "X-Request-ID",
+        ],
+        expose_headers=["X-Request-ID"],
     )
     application.include_router(health.router)
     application.include_router(system.router, prefix="/api/v1")
     application.include_router(configuration.router, prefix="/api/v1")
+    application.include_router(conversation.router, prefix="/api/v1")
     return application
 
 

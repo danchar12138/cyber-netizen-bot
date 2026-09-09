@@ -18,7 +18,7 @@ const queryClient = new QueryClient({
 const rootElement = document.getElementById('root')
 
 if (!rootElement) {
-  throw new Error('Root element was not found')
+  throw new Error('找不到应用根节点')
 }
 
 createRoot(rootElement).render(
@@ -28,4 +28,3 @@ createRoot(rootElement).render(
     </QueryClientProvider>
   </StrictMode>,
 )
-

@@ -57,6 +57,88 @@ export interface ConfigVersion {
   values: ConfigVersionValue[]
 }
 
+export type ConversationStatus = 'active' | 'archived'
+export type MessageStatus =
+  | 'received'
+  | 'processing'
+  | 'streaming'
+  | 'completed'
+  | 'cancelled'
+  | 'failed'
+export type AgentRunStatus = 'queued' | 'running' | 'completed' | 'cancelled' | 'failed'
+
+export interface DevelopmentIdentity {
+  tenant_id: string
+  user_id: string
+  agent_id: string
+  user_name: string
+  agent_name: string
+}
+
+export interface Conversation {
+  id: string
+  tenant_id: string
+  agent_id: string
+  title: string
+  status: ConversationStatus
+  event_sequence: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ChatMessage {
+  id: string
+  conversation_id: string
+  sender_type: 'user' | 'agent' | 'system'
+  sender_id: string | null
+  content: string
+  status: MessageStatus
+  client_message_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentRun {
+  id: string
+  conversation_id: string
+  response_message_id: string
+  status: AgentRunStatus
+  configuration_version: number
+  persona_version: number
+  prompt_version: number
+  model_profile: string
+  input_tokens: number | null
+  output_tokens: number | null
+  error_code: string | null
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface MessageAccepted {
+  user_message: ChatMessage
+  response_message: ChatMessage
+  run: AgentRun
+  idempotent_replay: boolean
+}
+
+export interface ConversationEvent {
+  schema_version: '1'
+  event_id: string
+  conversation_id: string
+  sequence: number
+  event_type: string
+  occurred_at: string
+  run_id: string | null
+  message_id: string | null
+  payload: Record<string, unknown>
+}
+
+interface CursorPage<T> {
+  items: T[]
+  next_cursor: string | null
+}
+
 interface ConfigVersionList {
   versions: ConfigVersion[]
 }
@@ -76,7 +158,10 @@ async function getJson<T>(path: string): Promise<T> {
     headers: { Accept: 'application/json' },
   })
   if (!response.ok) {
-    throw new Error(`请求失败，状态码 ${response.status}`)
+    const payload = (await response.json().catch(() => null)) as {
+      error?: { message?: string }
+    } | null
+    throw new Error(payload?.error?.message ?? `请求失败，状态码 ${response.status}`)
   }
   return response.json() as Promise<T>
 }
@@ -88,8 +173,10 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { detail?: string } | null
-    throw new Error(payload?.detail ?? `请求失败，状态码 ${response.status}`)
+    const payload = (await response.json().catch(() => null)) as {
+      error?: { message?: string }
+    } | null
+    throw new Error(payload?.error?.message ?? `请求失败，状态码 ${response.status}`)
   }
   return response.json() as Promise<T>
 }
@@ -110,6 +197,29 @@ export const publishConfigVersion = (versionId: string) =>
 
 export const rollbackConfigVersion = (versionId: string) =>
   postJson<ConfigVersion>(`/api/v1/configuration/versions/${versionId}/rollback`)
+
+export const getDevelopmentIdentity = () =>
+  getJson<DevelopmentIdentity>('/api/v1/chat/identity')
+
+export const getConversations = () =>
+  getJson<CursorPage<Conversation>>('/api/v1/chat/conversations?limit=100')
+
+export const createConversation = (title?: string) =>
+  postJson<Conversation>('/api/v1/chat/conversations', { title: title || null })
+
+export const getMessages = (conversationId: string) =>
+  getJson<CursorPage<ChatMessage>>(
+    `/api/v1/chat/conversations/${conversationId}/messages?limit=200`,
+  )
+
+export const sendChatMessage = (
+  conversationId: string,
+  command: { client_message_id: string; content: string },
+) =>
+  postJson<MessageAccepted>(`/api/v1/chat/conversations/${conversationId}/messages`, command)
+
+export const cancelAgentRun = (runId: string) =>
+  postJson<AgentRun>(`/api/v1/chat/runs/${runId}/cancel`)
 
 export function formatConfigValue(value: ConfigValue): string {
   if (value === null) return '未设置'

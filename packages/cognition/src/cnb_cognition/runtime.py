@@ -46,3 +46,19 @@ class CognitiveRuntime(Protocol):
     async def run(self, event: AgentEvent, context: CognitiveContext) -> AgentDecision:
         """生成不带外部副作用的结构化候选行动。"""
         ...
+
+
+class MinimalCognitiveRuntime:
+    """P1 使用的最小认知决策器，仅产生无副作用的回复候选。"""
+
+    async def run(self, event: AgentEvent, context: CognitiveContext) -> AgentDecision:
+        del context
+        if event.event_type != "message.received" or not event.text:
+            return AgentDecision(
+                action="wait",
+                rationale_summary="当前事件不需要生成文本回复。",
+            )
+        return AgentDecision(
+            action="reply",
+            rationale_summary="用户发送了可处理的文本消息。",
+        )

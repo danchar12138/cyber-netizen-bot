@@ -1,19 +1,31 @@
 """无需外部基础设施的 API 契约冒烟测试。"""
 
+import asyncio
+from typing import cast
 from uuid import uuid4
 
-from httpx import ASGITransport, AsyncClient
+from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient, Response
 
 from cnb_api.main import create_app
 from cnb_contracts import (
+    ApiErrorResponse,
     ComponentHealth,
     ConfigRegistryResponse,
     ConfigVersionListResponse,
     ConfigVersionResponse,
+    ConversationListResponse,
+    ConversationResponse,
     HealthResponse,
+    MessageAcceptedResponse,
+    MessageListResponse,
     SystemOverviewResponse,
 )
-from cnb_infrastructure import MemoryConfigurationRepository, Settings
+from cnb_infrastructure import (
+    MemoryConfigurationRepository,
+    MemoryConversationRepository,
+    Settings,
+)
 
 
 def _transport(
@@ -24,7 +36,8 @@ def _transport(
 ) -> ASGITransport:
     settings = Settings(environment="test", readiness_deep_checks=deep_checks)
     arguments: dict[str, object] = {
-        "configuration_repository": repository or MemoryConfigurationRepository()
+        "configuration_repository": repository or MemoryConfigurationRepository(),
+        "conversation_repository": MemoryConversationRepository(),
     }
     if dependency_probe is not None:
         arguments["dependency_probe"] = dependency_probe
@@ -166,7 +179,9 @@ async def test_configuration_validation_error_is_friendly() -> None:
         )
 
     assert response.status_code == 422
-    assert "不能大于" in response.json()["detail"]
+    error = ApiErrorResponse.model_validate(response.json())
+    assert "不能大于" in error.error.message
+    assert response.headers["X-Request-ID"] == error.error.request_id
 
 
 async def test_configuration_missing_version_returns_404() -> None:
@@ -175,7 +190,7 @@ async def test_configuration_missing_version_returns_404() -> None:
         response = await client.get(f"/api/v1/configuration/versions/{missing_id}")
 
     assert response.status_code == 404
-    assert "配置版本不存在" in response.json()["detail"]
+    assert "配置版本不存在" in ApiErrorResponse.model_validate(response.json()).error.message
 
 
 async def test_configuration_rejects_republishing_and_rolling_back_a_draft() -> None:
@@ -191,7 +206,126 @@ async def test_configuration_rejects_republishing_and_rolling_back_a_draft() -> 
         republish_response = await client.post(f"/api/v1/configuration/versions/{draft.id}/publish")
 
     assert rollback_response.status_code == 409
-    assert "草稿不能" in rollback_response.json()["detail"]
+    assert "草稿不能" in ApiErrorResponse.model_validate(rollback_response.json()).error.message
     assert publish_response.status_code == 200
     assert republish_response.status_code == 409
-    assert "草稿状态" in republish_response.json()["detail"]
+    assert "草稿状态" in ApiErrorResponse.model_validate(republish_response.json()).error.message
+
+
+async def test_internal_chat_persists_and_completes_a_streamed_turn() -> None:
+    repository = MemoryConversationRepository()
+    settings = Settings(environment="test")
+    transport = ASGITransport(
+        app=create_app(
+            settings,
+            configuration_repository=MemoryConfigurationRepository(),
+            conversation_repository=repository,
+        )
+    )
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        identity_response = await client.get("/api/v1/chat/identity")
+        assert identity_response.status_code == 200
+
+        create_response = await client.post(
+            "/api/v1/chat/conversations", json={"title": "API 流式测试"}
+        )
+        assert create_response.status_code == 201
+        conversation = ConversationResponse.model_validate(create_response.json())
+
+        client_message_id = str(uuid4())
+        accepted_response = await client.post(
+            f"/api/v1/chat/conversations/{conversation.id}/messages",
+            json={"client_message_id": client_message_id, "content": "你好"},
+        )
+        assert accepted_response.status_code == 202
+        accepted = MessageAcceptedResponse.model_validate(accepted_response.json())
+        assert accepted.idempotent_replay is False
+
+        messages: MessageListResponse | None = None
+        for _ in range(50):
+            messages_response = await client.get(
+                f"/api/v1/chat/conversations/{conversation.id}/messages"
+            )
+            messages = MessageListResponse.model_validate(messages_response.json())
+            if messages.items[-1].status == "completed":
+                break
+            await asyncio.sleep(0.01)
+
+        replay_response = await client.post(
+            f"/api/v1/chat/conversations/{conversation.id}/messages",
+            json={"client_message_id": client_message_id, "content": "不会重复"},
+        )
+        conversations_response = await client.get("/api/v1/chat/conversations")
+
+    replay = MessageAcceptedResponse.model_validate(replay_response.json())
+    conversations = ConversationListResponse.model_validate(conversations_response.json())
+    assert messages is not None
+    assert replay.idempotent_replay is True
+    assert replay.run.id == accepted.run.id
+    assert len(messages.items) == 2
+    assert messages.items[-1].status == "completed"
+    assert "你好" in messages.items[-1].content
+    assert conversations.items[0].id == conversation.id
+
+
+async def test_internal_chat_rejects_invalid_cursor_and_unknown_conversation() -> None:
+    async with AsyncClient(transport=_transport(), base_url="http://test") as client:
+        invalid_cursor = await client.get(
+            "/api/v1/chat/conversations", params={"cursor": "不是游标"}
+        )
+        missing_conversation = await client.get(f"/api/v1/chat/conversations/{uuid4()}/messages")
+
+    assert invalid_cursor.status_code == 422
+    assert ApiErrorResponse.model_validate(invalid_cursor.json()).error.message == "分页游标无效"
+    assert missing_conversation.status_code == 404
+
+
+async def test_api_validation_errors_use_versioned_envelope_and_request_id() -> None:
+    async with AsyncClient(transport=_transport(), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/chat/conversations",
+            json={"title": "x" * 201},
+            headers={"X-Request-ID": "test-request-id"},
+        )
+
+    payload = ApiErrorResponse.model_validate(response.json())
+    assert response.status_code == 422
+    assert payload.schema_version == "1"
+    assert payload.error.code == "validation_error"
+    assert payload.error.request_id == "test-request-id"
+    assert payload.error.details[0].field == "body.title"
+
+
+def test_internal_chat_websocket_replays_from_sequence_and_responds_to_ping() -> None:
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+    )
+    with TestClient(app) as client:
+        response = cast(
+            Response,
+            client.post(  # pyright: ignore[reportUnknownMemberType]
+                "/api/v1/chat/conversations", json={"title": "重连测试"}
+            ),
+        )
+        conversation = ConversationResponse.model_validate(response.json())
+
+        with client.websocket_connect(
+            f"/api/v1/chat/conversations/{conversation.id}/events?after=0"
+        ) as websocket:
+            first_event = websocket.receive_json()
+            assert first_event["sequence"] == 1
+            assert first_event["event_type"] == "conversation.created"
+            websocket.send_text("ping")
+            heartbeat = websocket.receive_json()
+            assert heartbeat["event_type"] == "system.heartbeat"
+            assert heartbeat["last_sequence"] == 1
+
+        with client.websocket_connect(
+            f"/api/v1/chat/conversations/{conversation.id}/events?after=1"
+        ) as resumed:
+            resumed.send_text("ping")
+            heartbeat = resumed.receive_json()
+            assert heartbeat["event_type"] == "system.heartbeat"
+            assert heartbeat["last_sequence"] == 1

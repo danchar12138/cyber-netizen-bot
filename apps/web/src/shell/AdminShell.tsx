@@ -74,8 +74,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
         <div className="brand">
           <div className="brand-mark"><BrainCircuit size={21} /></div>
           <div>
-            <strong>CYBER NETIZEN</strong>
-            <span>CONTROL PLANE</span>
+            <strong>赛博网友</strong>
+            <span>控制平面</span>
           </div>
         </div>
 
@@ -117,7 +117,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           <div className="breadcrumb">
             <span>管理后台</span>
             <span>/</span>
-            <strong>Cyber Netizen Core</strong>
+            <strong>赛博网友核心</strong>
           </div>
           <div className="topbar-actions">
             <div className="secure-badge"><ShieldCheck size={14} /> 本地安全会话</div>

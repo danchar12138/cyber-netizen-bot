@@ -38,6 +38,21 @@ class MemoryConfigurationRepository:
         async with self._lock:
             return self._versions.get(version_id)
 
+    async def get_version_number(self, version: int) -> ConfigVersion | None:
+        async with self._lock:
+            return next((item for item in self._versions.values() if item.version == version), None)
+
+    async def get_published(self) -> ConfigVersion | None:
+        async with self._lock:
+            return next(
+                (
+                    item
+                    for item in self._versions.values()
+                    if item.status is ConfigVersionStatus.PUBLISHED
+                ),
+                None,
+            )
+
     async def create_draft(
         self, *, note: str | None, values: tuple[ConfigEntry, ...], actor_id: UUID | None
     ) -> ConfigVersion:
@@ -124,6 +139,22 @@ class SqlAlchemyConfigurationRepository:
     async def get_version(self, version_id: UUID) -> ConfigVersion | None:
         async with self._session_factory() as session:
             row = await session.get(ConfigurationVersion, version_id)
+            return None if row is None else await self._snapshot(session, row)
+
+    async def get_version_number(self, version: int) -> ConfigVersion | None:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(ConfigurationVersion).where(ConfigurationVersion.version == version)
+            )
+            return None if row is None else await self._snapshot(session, row)
+
+    async def get_published(self) -> ConfigVersion | None:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(ConfigurationVersion).where(
+                    ConfigurationVersion.status == ConfigVersionStatus.PUBLISHED.value
+                )
+            )
             return None if row is None else await self._snapshot(session, row)
 
     async def create_draft(
