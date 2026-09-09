@@ -48,6 +48,7 @@ from cnb_application.cognition_service import (
     CognitionService,
     CognitionValidationError,
     ModelRoutePlan,
+    ModelRouteProfile,
     RuntimeCognitionBundle,
 )
 from cnb_application.configuration_registry import (
@@ -99,6 +100,11 @@ from cnb_application.memory_service import (
     MemorySourceDraft,
     MemoryValidationError,
 )
+from cnb_application.observability_service import (
+    ApiRequestObservation,
+    ObservabilityRepository,
+    ObservabilityService,
+)
 from cnb_application.pagination import (
     EntityCursor,
     InvalidCursorError,
@@ -133,6 +139,7 @@ __all__ = [
     "AdministrationService",
     "AdministrationValidationError",
     "AgentRunNotFoundError",
+    "ApiRequestObservation",
     "AttachmentConflictError",
     "AttachmentNotFoundError",
     "AttachmentRepository",
@@ -195,9 +202,12 @@ __all__ = [
     "ModelProviderResolver",
     "ModelReliabilityGuard",
     "ModelRoutePlan",
+    "ModelRouteProfile",
     "ObjectInspectionError",
     "ObjectNotFoundError",
     "ObjectStorage",
+    "ObservabilityRepository",
+    "ObservabilityService",
     "PermanentTaskError",
     "PermissionDeniedError",
     "ReflectionTaskHandler",

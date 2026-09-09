@@ -596,6 +596,7 @@ class SqlAlchemyCognitionRepository:
                     input_tokens=invocation.input_tokens,
                     output_tokens=invocation.output_tokens,
                     latency_ms=invocation.latency_ms,
+                    estimated_cost_microusd=invocation.estimated_cost_microusd,
                     error_code=invocation.error_code,
                     created_at=invocation.created_at,
                     completed_at=invocation.completed_at,
@@ -780,4 +781,5 @@ class SqlAlchemyCognitionRepository:
             error_code=row.error_code,
             created_at=row.created_at,
             completed_at=row.completed_at,
+            estimated_cost_microusd=row.estimated_cost_microusd,
         )

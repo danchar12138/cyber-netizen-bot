@@ -32,6 +32,8 @@ from cnb_application import (
     MemoryService,
     ModelProviderResolver,
     ObjectStorage,
+    ObservabilityRepository,
+    ObservabilityService,
     ScheduledActionService,
     SecretManagementService,
     SecretStore,
@@ -120,6 +122,9 @@ def get_secret_management_service(
 
 async def get_admin_principal(request: HTTPConnection) -> AdminPrincipal:
     """开发模式显式使用本地身份；OIDC 模式只接受已验证 Bearer JWT。"""
+    cached = getattr(request.state, "admin_principal", None)
+    if isinstance(cached, AdminPrincipal):
+        return cached
     settings = request.app.state.settings
     if settings.authentication_mode == "oidc":
         token = _bearer_token(request)
@@ -130,7 +135,9 @@ async def get_admin_principal(request: HTTPConnection) -> AdminPrincipal:
                 detail="OIDC 认证服务尚未就绪",
             )
         try:
-            return await authenticator.authenticate(token)
+            principal = await authenticator.authenticate(token)
+            request.state.admin_principal = principal
+            return principal
         except AuthenticationError as error:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -151,7 +158,7 @@ async def get_admin_principal(request: HTTPConnection) -> AdminPrincipal:
             detail=f"未知开发角色：{role_value}",
         ) from error
     identity = request.app.state.development_identity
-    return AdminPrincipal(
+    principal = AdminPrincipal(
         tenant_id=identity.tenant_id,
         user_id=identity.user_id,
         display_name=identity.user_name,
@@ -159,6 +166,8 @@ async def get_admin_principal(request: HTTPConnection) -> AdminPrincipal:
         permissions=permissions_for_role(role),
         authentication_mode="development",
     )
+    request.state.admin_principal = principal
+    return principal
 
 
 def require_permission(
@@ -299,6 +308,20 @@ def get_data_lifecycle_repository(request: HTTPConnection) -> DataLifecycleRepos
     """返回组合根选择的数据生命周期真相源。"""
     repository: DataLifecycleRepository = request.app.state.data_lifecycle_repository
     return repository
+
+
+def get_observability_repository(request: HTTPConnection) -> ObservabilityRepository:
+    """返回组合根选择的安全请求指标与聚合仓储。"""
+    repository: ObservabilityRepository = request.app.state.observability_repository
+    return repository
+
+
+def get_observability_service(
+    repository: Annotated[ObservabilityRepository, Depends(get_observability_repository)],
+    configuration_service: Annotated[ConfigurationService, Depends(get_configuration_service)],
+) -> ObservabilityService:
+    """构建读取已发布 SLO 与成本阈值的可观测服务。"""
+    return ObservabilityService(repository, configuration_service)
 
 
 def get_data_lifecycle_service(

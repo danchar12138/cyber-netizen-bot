@@ -8,6 +8,7 @@ import httpx
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
+from pydantic import ValidationError
 
 from cnb_application import AuthenticationError
 from cnb_domain import AdminPermission, AdminRole
@@ -17,6 +18,19 @@ ISSUER = "https://identity.example.test/realms/cnb"
 JWKS_URI = f"{ISSUER}/protocol/openid-connect/certs"
 AUDIENCE = "cyber-netizen-api"
 CLIENT_ID = "cyber-netizen-web"
+
+
+def test_otel_bootstrap_rejects_missing_or_credential_bearing_endpoint() -> None:
+    with pytest.raises(ValidationError, match="OTLP endpoint"):
+        Settings(environment="test", otel_enabled=True)
+    with pytest.raises(ValidationError, match="不能包含凭证"):
+        Settings(
+            environment="test",
+            otel_enabled=True,
+            otel_exporter_otlp_endpoint="https://user:secret@collector.example.test/v1/traces",
+        )
+    with pytest.raises(ValidationError, match="采样率"):
+        Settings(environment="test", otel_trace_sample_ratio=1.1)
 
 
 def _settings() -> Settings:

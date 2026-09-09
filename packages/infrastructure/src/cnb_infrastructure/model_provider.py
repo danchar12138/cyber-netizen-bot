@@ -11,6 +11,8 @@ from openai.types.responses import (
     ResponseIncompleteEvent,
     ResponseTextDeltaEvent,
 )
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 from cnb_application import ModelProviderConfigurationError, SecretStore
 from cnb_cognition import (
@@ -70,10 +72,14 @@ class OpenAIResponsesProvider:
         model: str,
         timeout_seconds: float = 60,
         client: AsyncOpenAI | None = None,
+        tenant_id: UUID | None = None,
+        run_id: UUID | None = None,
     ) -> None:
         self._model = model
         self._owns_client = client is None
         self._client = client or AsyncOpenAI(api_key=api_key, timeout=timeout_seconds)
+        self._tenant_id = tenant_id
+        self._run_id = run_id
 
     @property
     def name(self) -> str:
@@ -95,37 +101,50 @@ class OpenAIResponsesProvider:
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
         stream = None
-        try:
-            stream = await self._client.responses.create(
-                model=self._model,
-                instructions=request.instructions,
-                input=[
-                    {"role": message.role.value, "content": message.content}
-                    for message in request.messages
-                ],
-                max_output_tokens=request.max_output_tokens,
-                store=False,
-                stream=True,
-            )
-            async for event in stream:
-                if isinstance(event, ResponseTextDeltaEvent):
-                    yield ModelStreamEvent(delta=event.delta)
-                elif isinstance(event, ResponseCompletedEvent) and event.response.usage:
-                    yield ModelStreamEvent(
-                        usage=ModelUsage(
-                            input_tokens=event.response.usage.input_tokens,
-                            output_tokens=event.response.usage.output_tokens,
+        tracer = trace.get_tracer("cnb.model_provider")
+        with tracer.start_as_current_span(
+            "model.invoke", record_exception=False, set_status_on_exception=False
+        ) as span:
+            span.set_attribute("gen_ai.provider.name", self.name)
+            span.set_attribute("gen_ai.request.model", self.model)
+            if self._tenant_id is not None:
+                span.set_attribute("cnb.tenant.id", str(self._tenant_id))
+            if self._run_id is not None:
+                span.set_attribute("cnb.agent_run.id", str(self._run_id))
+            try:
+                stream = await self._client.responses.create(
+                    model=self._model,
+                    instructions=request.instructions,
+                    input=[
+                        {"role": message.role.value, "content": message.content}
+                        for message in request.messages
+                    ],
+                    max_output_tokens=request.max_output_tokens,
+                    store=False,
+                    stream=True,
+                )
+                async for event in stream:
+                    if isinstance(event, ResponseTextDeltaEvent):
+                        yield ModelStreamEvent(delta=event.delta)
+                    elif isinstance(event, ResponseCompletedEvent) and event.response.usage:
+                        yield ModelStreamEvent(
+                            usage=ModelUsage(
+                                input_tokens=event.response.usage.input_tokens,
+                                output_tokens=event.response.usage.output_tokens,
+                            )
                         )
-                    )
-                elif isinstance(event, ResponseFailedEvent):
-                    raise RuntimeError("OpenAI 模型响应失败")
-                elif isinstance(event, ResponseIncompleteEvent):
-                    raise RuntimeError("OpenAI 模型响应未完整完成")
-        finally:
-            if stream is not None:
-                await stream.close()
-            if self._owns_client:
-                await self._client.close()
+                    elif isinstance(event, ResponseFailedEvent):
+                        raise RuntimeError("OpenAI 模型响应失败")
+                    elif isinstance(event, ResponseIncompleteEvent):
+                        raise RuntimeError("OpenAI 模型响应未完整完成")
+            except Exception:
+                span.set_status(Status(StatusCode.ERROR, "model_request_failed"))
+                raise
+            finally:
+                if stream is not None:
+                    await stream.close()
+                if self._owns_client:
+                    await self._client.close()
 
 
 class ConfiguredModelProviderResolver:
@@ -144,6 +163,7 @@ class ConfiguredModelProviderResolver:
         agent_id: UUID | None = None,
         channel_id: UUID | None = None,
         user_id: UUID | None = None,
+        run_id: UUID | None = None,
     ) -> ModelProvider:
         if provider == "development":
             return self._development_provider
@@ -160,7 +180,12 @@ class ConfiguredModelProviderResolver:
             raise ModelProviderConfigurationError(
                 "当前作用域尚未配置 OpenAI API 密钥，请先在配置中心写入凭证"
             )
-        return OpenAIResponsesProvider(api_key=api_key, model=model)
+        return OpenAIResponsesProvider(
+            api_key=api_key,
+            model=model,
+            tenant_id=tenant_id,
+            run_id=run_id,
+        )
 
 
 def assert_model_provider(_: ModelProvider) -> None:

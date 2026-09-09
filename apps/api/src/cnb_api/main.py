@@ -22,9 +22,11 @@ from cnb_api.routes import (
     data_lifecycle,
     health,
     memory,
+    observability,
     system,
     tasks,
 )
+from cnb_api.telemetry import SafeObservabilityMiddleware, configure_telemetry
 from cnb_application import (
     AdminAuthenticator,
     AdministrationRepository,
@@ -38,6 +40,7 @@ from cnb_application import (
     ModelProviderResolver,
     ModelReliabilityGuard,
     ObjectStorage,
+    ObservabilityRepository,
     SecretStore,
     StaticModelProviderResolver,
     TaskRepository,
@@ -56,6 +59,7 @@ from cnb_infrastructure import (
     MemoryCognitionRepository,
     MemoryDataLifecycleRepository,
     MemoryObjectStorage,
+    MemoryObservabilityRepository,
     MemorySecretStore,
     MinioObjectStorage,
     OidcAuthenticator,
@@ -68,6 +72,7 @@ from cnb_infrastructure import (
     SqlAlchemyConversationRepository,
     SqlAlchemyDataLifecycleRepository,
     SqlAlchemyMemoryRepository,
+    SqlAlchemyObservabilityRepository,
     SqlAlchemySecretStore,
     SqlAlchemyTaskRepository,
     get_settings,
@@ -90,6 +95,7 @@ def create_app(
     administration_repository: AdministrationRepository | None = None,
     attachment_repository: AttachmentRepository | None = None,
     object_storage: ObjectStorage | None = None,
+    observability_repository: ObservabilityRepository | None = None,
     secret_store: SecretStore | None = None,
     cognitive_runtime: CognitiveRuntime | None = None,
     model_provider: ModelProvider | None = None,
@@ -99,6 +105,7 @@ def create_app(
 ) -> FastAPI:
     """创建可用于生产或测试的独立应用实例。"""
     resolved_settings = settings or get_settings()
+    telemetry_runtime = configure_telemetry(resolved_settings)
 
     agent_run_tasks: dict[UUID, asyncio.Task[None]] = {}
 
@@ -111,6 +118,7 @@ def create_app(
                 task.cancel()
             if agent_run_tasks:
                 await asyncio.gather(*agent_run_tasks.values(), return_exceptions=True)
+            telemetry_runtime.shutdown()
 
     application = FastAPI(
         title="Cyber Netizen Bot API",
@@ -180,6 +188,14 @@ def create_app(
         application.state.task_repository = InMemoryTaskRepository()
     else:
         application.state.task_repository = SqlAlchemyTaskRepository(session_factory)
+    if observability_repository is not None:
+        application.state.observability_repository = observability_repository
+    elif configuration_repository is not None or conversation_repository is not None:
+        application.state.observability_repository = MemoryObservabilityRepository()
+    else:
+        application.state.observability_repository = SqlAlchemyObservabilityRepository(
+            session_factory
+        )
     if attachment_repository is not None:
         application.state.attachment_repository = attachment_repository
     elif conversation_repository is not None:
@@ -226,6 +242,11 @@ def create_app(
     install_error_handlers(application)
     application.add_middleware(RequestIdMiddleware)
     application.add_middleware(SecurityHeadersMiddleware)
+    application.add_middleware(
+        SafeObservabilityMiddleware,
+        repository=application.state.observability_repository,
+        tracer=telemetry_runtime.tracer,
+    )
     application.state.dependency_probe = dependency_probe or probe_dependencies
     application.add_middleware(
         CORSMiddleware,
@@ -249,6 +270,7 @@ def create_app(
     application.include_router(cognition.router, prefix="/api/v1")
     application.include_router(channels.router, prefix="/api/v1")
     application.include_router(memory.router, prefix="/api/v1")
+    application.include_router(observability.router, prefix="/api/v1")
     application.include_router(tasks.router, prefix="/api/v1")
     application.include_router(attachment.router, prefix="/api/v1")
     application.include_router(conversation.router, prefix="/api/v1")

@@ -45,34 +45,56 @@ class Settings(BaseSettings):
     oidc_display_name_claim: str = "name"
     oidc_allowed_algorithms: tuple[Literal["RS256", "RS384", "RS512", "ES256"]] = ("RS256",)
     oidc_jwks_cache_seconds: int = 300
+    otel_enabled: bool = False
+    otel_service_name: str = "cyber-netizen-api"
+    otel_exporter_otlp_endpoint: str | None = None
+    otel_exporter_otlp_headers: SecretStr = SecretStr("")
+    otel_trace_sample_ratio: float = 0.1
 
     @model_validator(mode="after")
     def validate_authentication_bootstrap(self) -> "Settings":
         """正式环境必须显式配置 OIDC，且发现地址不能退化为明文传输。"""
         if self.environment in {"staging", "production"} and self.authentication_mode != "oidc":
             raise ValueError("预发布与生产环境必须启用 OIDC 认证")
-        if self.authentication_mode == "development":
-            return self
-        required = {
-            "CNB_OIDC_ISSUER_URL": self.oidc_issuer_url,
-            "CNB_OIDC_CLIENT_ID": self.oidc_client_id,
-            "CNB_OIDC_TENANT_ID": self.oidc_tenant_id,
-            "CNB_OIDC_AGENT_ID": self.oidc_agent_id,
-        }
-        missing = [key for key, value in required.items() if value is None or value == ""]
-        if missing:
-            raise ValueError(f"OIDC 启动配置缺失：{', '.join(missing)}")
-        issuer = urlsplit(self.oidc_issuer_url or "")
-        if issuer.scheme != "https" or not issuer.netloc:
-            raise ValueError("OIDC issuer 必须是完整的 HTTPS URL")
-        if issuer.query or issuer.fragment or issuer.username or issuer.password:
-            raise ValueError("OIDC issuer 不能包含凭证、查询参数或片段")
-        if not self.oidc_role_claim.strip() or not self.oidc_display_name_claim.strip():
-            raise ValueError("OIDC claim 名称不能为空")
-        if not 30 <= self.oidc_jwks_cache_seconds <= 86_400:
-            raise ValueError("OIDC JWKS 缓存时间必须位于 30 到 86400 秒之间")
-        if not self.oidc_allowed_algorithms:
-            raise ValueError("OIDC 至少需要允许一种非对称签名算法")
+        if self.authentication_mode == "oidc":
+            required = {
+                "CNB_OIDC_ISSUER_URL": self.oidc_issuer_url,
+                "CNB_OIDC_CLIENT_ID": self.oidc_client_id,
+                "CNB_OIDC_TENANT_ID": self.oidc_tenant_id,
+                "CNB_OIDC_AGENT_ID": self.oidc_agent_id,
+            }
+            missing = [key for key, value in required.items() if value is None or value == ""]
+            if missing:
+                raise ValueError(f"OIDC 启动配置缺失：{', '.join(missing)}")
+            issuer = urlsplit(self.oidc_issuer_url or "")
+            if issuer.scheme != "https" or not issuer.netloc:
+                raise ValueError("OIDC issuer 必须是完整的 HTTPS URL")
+            if issuer.query or issuer.fragment or issuer.username or issuer.password:
+                raise ValueError("OIDC issuer 不能包含凭证、查询参数或片段")
+            if not self.oidc_role_claim.strip() or not self.oidc_display_name_claim.strip():
+                raise ValueError("OIDC claim 名称不能为空")
+            if not 30 <= self.oidc_jwks_cache_seconds <= 86_400:
+                raise ValueError("OIDC JWKS 缓存时间必须位于 30 到 86400 秒之间")
+            if not self.oidc_allowed_algorithms:
+                raise ValueError("OIDC 至少需要允许一种非对称签名算法")
+        if not self.otel_service_name.strip() or len(self.otel_service_name) > 120:
+            raise ValueError("OpenTelemetry service name 必须是 1 到 120 个字符")
+        if not 0 <= self.otel_trace_sample_ratio <= 1:
+            raise ValueError("OpenTelemetry Trace 采样率必须位于 0 到 1 之间")
+        if self.otel_enabled:
+            if not self.otel_exporter_otlp_endpoint:
+                raise ValueError("启用 OpenTelemetry 时必须配置 OTLP endpoint")
+            endpoint = urlsplit(self.otel_exporter_otlp_endpoint)
+            if endpoint.scheme not in {"http", "https"} or not endpoint.netloc:
+                raise ValueError("OTLP endpoint 必须是完整的 HTTP(S) URL")
+            if endpoint.query or endpoint.fragment or endpoint.username or endpoint.password:
+                raise ValueError("OTLP endpoint 不能包含凭证、查询参数或片段")
+            if (
+                self.environment in {"staging", "production"}
+                and endpoint.scheme != "https"
+                and endpoint.hostname not in {"localhost", "127.0.0.1", "::1"}
+            ):
+                raise ValueError("预发布与生产环境的远程 OTLP endpoint 必须使用 HTTPS")
         return self
 
 

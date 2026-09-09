@@ -141,6 +141,15 @@ from cnb_contracts.memory import (
     RelationshipEventResponse,
     RelationshipResponse,
 )
+from cnb_contracts.observability import (
+    ActiveAlertResponse,
+    AgentRunSloResponse,
+    ApiSloResponse,
+    LatencyPercentilesResponse,
+    ModelUsageResponse,
+    ObservabilityDashboardResponse,
+    QueueMetricsResponse,
+)
 from cnb_contracts.tasks import (
     BackgroundJobDetailResponse,
     BackgroundJobListResponse,
@@ -157,13 +166,16 @@ from cnb_contracts.tasks import (
 
 __all__ = [
     "ActionCandidateResponse",
+    "ActiveAlertResponse",
     "AdminRoleListResponse",
     "AdminRoleResponse",
     "AdminSessionResponse",
     "AgentRunResponse",
+    "AgentRunSloResponse",
     "ApiError",
     "ApiErrorDetail",
     "ApiErrorResponse",
+    "ApiSloResponse",
     "AttachmentListResponse",
     "AttachmentPreviewResponse",
     "AttachmentReservationResponse",
@@ -232,6 +244,7 @@ __all__ = [
     "HealthResponse",
     "HeartbeatEnvelope",
     "JobAttemptResponse",
+    "LatencyPercentilesResponse",
     "LifecyclePolicyResponse",
     "LifecycleRunResponse",
     "ManagedAgentListResponse",
@@ -269,9 +282,12 @@ __all__ = [
     "ModelCapabilityMatrixResponse",
     "ModelCapabilityResponse",
     "ModelInvocationResponse",
+    "ModelUsageResponse",
     "MultimodalContentBlockInput",
     "MultimodalContentBlockResponse",
+    "ObservabilityDashboardResponse",
     "PersonaStateResponse",
+    "QueueMetricsResponse",
     "RelationshipDetailResponse",
     "RelationshipEventCreate",
     "RelationshipEventResponse",

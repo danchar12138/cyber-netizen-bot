@@ -9,6 +9,9 @@ dependencies = [
   "cnb-contracts",
   "cnb-infrastructure",
   "fastapi>=0.116,<1",
+  "opentelemetry-api>=1.36,<2",
+  "opentelemetry-exporter-otlp-proto-http>=1.36,<2",
+  "opentelemetry-sdk>=1.36,<2",
   "uvicorn[standard]>=0.35,<1",
 ]
 

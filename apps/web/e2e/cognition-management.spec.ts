@@ -122,6 +122,20 @@ test('可以运行拟人边界回放并查看通过率', async ({ page }) => {
 
 test('可以按 Run ID 查看安全认知轨迹', async ({ page }) => {
   await mockAdminSession(page)
+  await page.route('**/api/v1/observability/dashboard', async (route) => {
+    await route.fulfill({
+      json: {
+        window_started_at: timestamp,
+        window_ended_at: timestamp,
+        api: { requests: 120, server_errors: 1, error_rate_percent: 0.8333, latency: { p50_ms: 18, p95_ms: 80, p99_ms: 130 } },
+        agent_runs: { terminal_runs: 20, completed_runs: 20, unsuccessful_runs: 0, success_rate_percent: 100, latency: { p50_ms: 800, p95_ms: 1400, p99_ms: 1800 } },
+        models: [{ provider: 'development', model: 'friendly-echo-v1', invocations: 20, failed_invocations: 0, input_tokens: 2400, output_tokens: 640, estimated_cost_microusd: 0, latency: { p50_ms: 18, p95_ms: 40, p99_ms: 55 } }],
+        queue: { backlog: 0, oldest_wait_seconds: 0 },
+        total_estimated_cost_microusd: 0,
+        alerts: [],
+      },
+    })
+  })
   await page.route(`**/api/v1/cognition/runs/${runId}/trace`, async (route) => {
     await route.fulfill({
       json: {
@@ -160,6 +174,7 @@ test('可以按 Run ID 查看安全认知轨迹', async ({ page }) => {
           input_tokens: 120,
           output_tokens: 32,
           latency_ms: 18,
+          estimated_cost_microusd: 0,
           error_code: null,
           created_at: timestamp,
           completed_at: timestamp,
@@ -173,6 +188,8 @@ test('可以按 Run ID 查看安全认知轨迹', async ({ page }) => {
   await page.getByRole('button', { name: '查询轨迹' }).click()
   await expect(page.getByText('7 步')).toBeVisible()
   await expect(page.getByText('策略已选')).toBeVisible()
-  await expect(page.getByText('development / friendly-echo-v1')).toBeVisible()
-  await expect(page.getByText('隐藏思维链或请求正文')).toBeVisible()
+  await expect(page.getByText('development / friendly-echo-v1').last()).toBeVisible()
+  await expect(page.getByText('API 错误率')).toBeVisible()
+  await expect(page.getByText('消息正文、完整 Prompt、隐藏推理')).toBeVisible()
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
 })

@@ -53,7 +53,7 @@ const operationsNavigation: NavigationItem[] = [
   { label: '渠道与适配器', path: '/channels', icon: Cable },
   { label: '任务与主动行为', path: '/tasks', icon: ListChecks },
   { label: '评测实验室', path: '/evaluations', icon: FlaskConical },
-  { label: '运行轨迹', path: '/observability', icon: Activity },
+  { label: '可观测性', path: '/observability', icon: Activity },
   { label: '审计日志', path: '/audit', icon: ScrollText },
   { label: '数据生命周期', path: '/data-lifecycle', icon: DatabaseBackup },
 ]

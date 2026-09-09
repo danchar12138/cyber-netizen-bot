@@ -37,3 +37,4 @@ Thumbs.db
 tmp/
 uploads/
 backups/
+tests/performance/results/

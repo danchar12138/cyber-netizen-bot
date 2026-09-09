@@ -243,3 +243,38 @@ async def test_model_invocation_trace_is_tenant_isolated_without_persona_state()
     assert owner_trace is not None
     assert owner_trace.model_invocations == (invocation,)
     assert foreign_trace is None
+
+
+def test_model_profile_pricing_is_validated_and_invocation_cost_is_frozen() -> None:
+    valid_payload: dict[str, JsonValue] = {
+        "provider": "openai",
+        "model": "example-model",
+        "purposes": ["chat.realizer"],
+        "pricing": {
+            "input_usd_per_million_tokens": 2.5,
+            "output_usd_per_million_tokens": 10,
+        },
+    }
+    CognitionService.validate_payload(CognitionResourceKind.MODEL_PROFILE, valid_payload)
+
+    invocation = CognitionService.new_invocation(
+        run_id=uuid4(),
+        tenant_id=uuid4(),
+        purpose="chat.realizer",
+        provider="openai",
+        model="example-model",
+        attempt=1,
+        status=InvocationStatus.COMPLETED,
+        started_at=datetime.now(UTC),
+        usage=(1000, 500),
+        pricing=(2.5, 10),
+    )
+
+    assert invocation.estimated_cost_microusd == 7500
+    invalid_payload = dict(valid_payload)
+    invalid_payload["pricing"] = {
+        "input_usd_per_million_tokens": -1,
+        "output_usd_per_million_tokens": 10,
+    }
+    with pytest.raises(CognitionValidationError, match="有限非负数"):
+        CognitionService.validate_payload(CognitionResourceKind.MODEL_PROFILE, invalid_payload)

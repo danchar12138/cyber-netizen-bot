@@ -122,6 +122,7 @@ class ModelInvocationRecord:
     error_code: str | None
     created_at: datetime
     completed_at: datetime | None
+    estimated_cost_microusd: int = 0
 
 
 @dataclass(frozen=True, slots=True)

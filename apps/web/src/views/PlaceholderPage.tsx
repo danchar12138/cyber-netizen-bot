@@ -10,7 +10,7 @@ const names: Record<string, string> = {
   channels: '渠道与适配器',
   tasks: '任务与主动行为',
   evaluations: '评测实验室',
-  observability: '运行轨迹',
+  observability: '可观测性',
   audit: '审计日志',
   settings: '系统设置',
 }

@@ -115,8 +115,9 @@ class RoutingModelProviderResolver:
         agent_id: object | None = None,
         channel_id: object | None = None,
         user_id: object | None = None,
+        run_id: object | None = None,
     ) -> ModelProvider:
-        del tenant_id, agent_id, channel_id, user_id
+        del tenant_id, agent_id, channel_id, user_id, run_id
         self.calls.append((provider, model))
         return self._providers[(provider, model)]
 

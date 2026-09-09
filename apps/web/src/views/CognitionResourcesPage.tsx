@@ -36,7 +36,7 @@ const defaults: Record<CognitionResourceKind, { key: string; name: string; paylo
     },
   },
   prompt: { key: 'chat.realizer', name: '对话表达 Prompt', payload: { template: '理解用户真正关心的内容，像自然的网友一样回应。' } },
-  model_profile: { key: 'development', name: '本地开发模型', payload: { provider: 'development', model: 'friendly-echo-v1', purposes: ['chat.realizer'], capabilities: { text_input: true, image_input: false, document_input: false, streaming: true, structured_output: false, tool_calling: false } } },
+  model_profile: { key: 'development', name: '本地开发模型', payload: { provider: 'development', model: 'friendly-echo-v1', purposes: ['chat.realizer'], pricing: { input_usd_per_million_tokens: 0, output_usd_per_million_tokens: 0 }, capabilities: { text_input: true, image_input: false, document_input: false, streaming: true, structured_output: false, tool_calling: false } } },
   model_route: { key: 'chat.realizer', name: '对话表达路由', payload: { purpose: 'chat.realizer', primary_profile: { key: 'development', version: 1 }, fallback_profiles: [], timeout_seconds: 60, max_attempts: 2 } },
   tool: { key: 'example.readonly', name: '只读示例工具', payload: { description: '无副作用的示例工具契约', input_schema: { type: 'object' }, output_schema: { type: 'object' }, risk_level: 'none', has_external_side_effect: false, enabled: false } },
   policy: { key: 'default', name: '默认安全策略', payload: { allowed_tools: [], maximum_tool_risk: 'low', allow_external_side_effects: false, allow_no_reply: true, network_allowlist: [], maximum_tool_calls_per_run: 0, maximum_cost_units_per_run: 0, approval_required_at_or_above: 'medium' } },

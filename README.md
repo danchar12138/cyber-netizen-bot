@@ -2,7 +2,7 @@
 
 以自研 Agent 认知运行时为核心的“赛博网友”项目。Web 首发形态是统一管理后台，其中包含内部全功能对话工作台；后续 IM 平台通过统一 Channel Adapter 接入。
 
-当前已完成 P1、P2、P3、P4、P5、P6，P7 已完成身份安全和数据生命周期两项纵向切片，下一步进入可观测性、性能与成本基线；P0 的 Docker 实跑与分支保护仍待环境验证。最新开发计划见 [`docs/plans/2026-09-09-v3.md`](docs/plans/2026-09-09-v3.md)。
+当前已完成 P1、P2、P3、P4、P5、P6，P7 已完成身份安全、数据生命周期以及可观测性/性能/成本三项纵向切片，下一步进入拟人表现盲评与自动回放回归；P0 的 Docker 实跑与分支保护仍待环境验证。最新开发计划见 [`docs/plans/2026-09-09-v3.md`](docs/plans/2026-09-09-v3.md)。
 
 ## 已建立的能力
 
@@ -43,8 +43,10 @@
 - MinIO 官方 Python SDK 附件适配器、预签名浏览器直传、服务端摘要复核、私有预览和生命周期清理。
 - OIDC Authorization Code + PKCE 正式认证、本地稳定身份绑定、服务端 RBAC、会话撤销，以及 Prompt 注入和上传内容安全加固。
 - 数据白名单 JSON 导出、带精确确认的用户遗忘、保留期清理、MinIO 孤儿保护与清理、隔离恢复演练登记和完整管理后台。
+- OpenTelemetry OTLP Trace、SQLAlchemy 与模型调用链路、路由模板请求指标、API/Agent SLO、数据库队列积压、模型 Token 与调用时冻结成本、确定性阈值告警和可观测管理页面。
+- Locust 分层性能场景、可配置失败率/P95 质量门，以及 PostgreSQL、Redis、MinIO、模型服务、队列、成本和 OTLP 故障处置手册。
 - Markdown/GFM 消息、自动保存草稿、图片/文件选择、键盘跳转和 axe 无障碍回归。
-- Alembic 配置、对话、附件、加密密钥、审计、认知运行、长期记忆、可靠异步任务、渠道控制平面、OIDC 和数据生命周期迁移，当前 head 为 `20260910_0012`。
+- Alembic 配置、对话、附件、加密密钥、审计、认知运行、长期记忆、可靠异步任务、渠道控制平面、OIDC、数据生命周期和可观测成本迁移，当前 head 为 `20260910_0013`。
 - Python/Web 测试、静态检查和 GitHub Actions。
 
 ## 环境要求
@@ -90,6 +92,12 @@ corepack pnpm --filter @cnb/web check
 uv run alembic heads
 ```
 
+隔离性能环境的冒烟压测：
+
+```powershell
+uv run python -X utf8 -m locust -f tests/performance/locustfile.py --headless -u 5 -r 2 -t 30s --host http://127.0.0.1:8000 --only-summary
+```
+
 ## 配置边界
 
 `.env` 只保存系统启动前必须知道的配置，例如数据库、Redis、MinIO 连接和配置加密主密钥。模型、人格、Prompt、记忆、渠道、工具、策略等运行配置将由配置注册表、数据库版本和管理后台维护。
@@ -107,6 +115,12 @@ uv run python -c "import base64,secrets; print(base64.b64encode(secrets.token_by
 管理后台的内部对话页已经接通多阶段拟人认知纵向闭环。默认使用 `development/friendly-echo-v1`，无需外部密钥即可验证消息持久化、认知决策、流式增量、不回复、取消、心跳和断线恢复。在配置中心写入 `model.openai.api_key` 并发布 `model.chat.provider=openai` 与模型名称后，新 Agent Run 会按最终配置动态使用官方 Python SDK `Responses API`；也可在“模型与路由”中发布精确模型档案与用途路由。凭证无需也不允许通过模型环境变量维护。
 
 “人格版本”“模型与路由”“Prompt 与上下文”“工具与策略”“评测实验室”和“运行轨迹”均已接通真实管理 API。认知资源只保存无密钥结构化定义；运行轨迹只返回阶段摘要、裁剪统计、行动候选、人格状态和模型尝试元数据。
+
+## 可观测性、成本与性能
+
+管理后台“可观测性”页面展示 API 错误率和 P50/P95/P99、Agent Run 成功率与延迟、队列积压、按 Provider/模型聚合的 Token 与冻结估算成本，以及按已发布配置确定性计算的活动告警。SLO、告警阈值、成本预算和聚合窗口均在配置中心管理；模型单价属于版本化模型档案。
+
+OpenTelemetry 的启用状态、服务名、OTLP endpoint/Header 和 Trace 采样率属于数据库可用前的启动配置。管理 API 只返回安全状态，不返回 Exporter Header；Trace 和指标禁止采集正文、完整 Prompt、隐藏推理、密钥、令牌和对象键。配置与故障处置见 [`docs/runbooks/observability-alerts.md`](docs/runbooks/observability-alerts.md)，压测方法见 [`docs/runbooks/performance-load-test.md`](docs/runbooks/performance-load-test.md)。
 
 ## 身份与数据生命周期
 

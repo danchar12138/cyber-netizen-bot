@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal
+from math import isfinite
 from typing import Protocol, cast
 from uuid import UUID, uuid4
 
@@ -59,9 +61,19 @@ class ModelRoutePlan:
 
     purpose: str
     version: int
-    profiles: tuple[tuple[str, str], ...]
+    profiles: tuple["ModelRouteProfile", ...]
     timeout_seconds: int
     max_attempts: int
+
+
+@dataclass(frozen=True, slots=True)
+class ModelRouteProfile:
+    """一次模型路由目标及其可审计价格快照。"""
+
+    provider: str
+    model: str
+    input_usd_per_million_tokens: float = 0.0
+    output_usd_per_million_tokens: float = 0.0
 
 
 class CognitionRepository(Protocol):
@@ -376,6 +388,12 @@ class CognitionService:
                     "tool_calling",
                 ):
                     cls._require_boolean(capabilities, key)
+            pricing = payload.get("pricing")
+            if pricing is not None:
+                if not isinstance(pricing, dict):
+                    raise CognitionValidationError("字段 pricing 必须是价格对象")
+                cls._require_non_negative_number(pricing, "input_usd_per_million_tokens")
+                cls._require_non_negative_number(pricing, "output_usd_per_million_tokens")
         elif kind is CognitionResourceKind.MODEL_ROUTE:
             cls._require_string(payload, "purpose")
             cls._require_profile_reference(payload.get("primary_profile"), "primary_profile")
@@ -468,7 +486,7 @@ class CognitionService:
         )
         if route is None:
             return None
-        profiles: list[tuple[str, str]] = []
+        profiles: list[ModelRouteProfile] = []
         for key, profile_version in self._profile_references(route.payload):
             resource = await self._repository.get_resource_version(
                 tenant_id=tenant_id,
@@ -484,10 +502,17 @@ class CognitionService:
             purposes = cast(list[str], resource.payload["purposes"])
             if purpose not in purposes:
                 raise CognitionValidationError(f"模型档案 {key} 未声明用途 {purpose}")
+            pricing = cast(dict[str, JsonValue], resource.payload.get("pricing", {}))
             profiles.append(
-                (
-                    cast(str, resource.payload["provider"]),
-                    cast(str, resource.payload["model"]),
+                ModelRouteProfile(
+                    provider=cast(str, resource.payload["provider"]),
+                    model=cast(str, resource.payload["model"]),
+                    input_usd_per_million_tokens=float(
+                        cast(int | float, pricing.get("input_usd_per_million_tokens", 0))
+                    ),
+                    output_usd_per_million_tokens=float(
+                        cast(int | float, pricing.get("output_usd_per_million_tokens", 0))
+                    ),
                 )
             )
         return ModelRoutePlan(
@@ -701,6 +726,7 @@ class CognitionService:
         status: InvocationStatus,
         started_at: datetime,
         usage: tuple[int, int] | None = None,
+        pricing: tuple[float, float] = (0.0, 0.0),
         error_code: str | None = None,
     ) -> ModelInvocationRecord:
         now = datetime.now(UTC)
@@ -716,6 +742,7 @@ class CognitionService:
             input_tokens=usage[0] if usage else None,
             output_tokens=usage[1] if usage else None,
             latency_ms=max(0, int((now - started_at).total_seconds() * 1000)),
+            estimated_cost_microusd=CognitionService._estimated_cost_microusd(usage, pricing),
             error_code=error_code,
             created_at=started_at,
             completed_at=now,
@@ -828,6 +855,31 @@ class CognitionService:
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             raise CognitionValidationError(f"字段 {key} 必须是非负整数")
         return value
+
+    @staticmethod
+    def _require_non_negative_number(payload: dict[str, JsonValue], key: str) -> float:
+        value = payload.get(key)
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not isfinite(float(value))
+            or value < 0
+        ):
+            raise CognitionValidationError(f"字段 {key} 必须是有限非负数")
+        return float(value)
+
+    @staticmethod
+    def _estimated_cost_microusd(
+        usage: tuple[int, int] | None,
+        pricing: tuple[float, float],
+    ) -> int:
+        """按调用时价格冻结成本；每 Token 价格换算后恰为微美元。"""
+        if usage is None:
+            return 0
+        cost = Decimal(usage[0]) * Decimal(str(pricing[0])) + Decimal(usage[1]) * Decimal(
+            str(pricing[1])
+        )
+        return int(cost.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
     @staticmethod
     def _require_profile_reference(value: JsonValue | None, key: str) -> dict[str, JsonValue]:

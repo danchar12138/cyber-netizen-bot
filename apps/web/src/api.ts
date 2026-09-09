@@ -21,6 +21,10 @@ export interface BootstrapSettings {
   readiness_deep_checks: boolean
   authentication_mode: 'development' | 'oidc'
   oidc_configured: boolean
+  otel_enabled: boolean
+  otel_exporter_configured: boolean
+  otel_service_name: string
+  otel_trace_sample_ratio: number
   object_storage_provider: 'minio'
   minio_endpoint_url: string
   minio_bucket: string
@@ -559,6 +563,54 @@ export interface CognitionResource {
   published_at: string | null
 }
 
+export interface LatencyPercentiles {
+  p50_ms: number
+  p95_ms: number
+  p99_ms: number
+}
+
+export interface ObservabilityDashboard {
+  window_started_at: string
+  window_ended_at: string
+  api: {
+    requests: number
+    server_errors: number
+    error_rate_percent: number
+    latency: LatencyPercentiles
+  }
+  agent_runs: {
+    terminal_runs: number
+    completed_runs: number
+    unsuccessful_runs: number
+    success_rate_percent: number
+    latency: LatencyPercentiles
+  }
+  models: Array<{
+    provider: string
+    model: string
+    invocations: number
+    failed_invocations: number
+    input_tokens: number
+    output_tokens: number
+    estimated_cost_microusd: number
+    latency: LatencyPercentiles
+  }>
+  queue: {
+    backlog: number
+    oldest_wait_seconds: number
+  }
+  total_estimated_cost_microusd: number
+  alerts: Array<{
+    code: string
+    severity: 'warning' | 'critical'
+    title: string
+    summary: string
+    current_value: number
+    threshold_value: number
+    unit: string
+  }>
+}
+
 export interface CognitiveRunTrace {
   run_id: string
   persona_state: null | {
@@ -595,6 +647,7 @@ export interface CognitiveRunTrace {
     input_tokens: number | null
     output_tokens: number | null
     latency_ms: number | null
+    estimated_cost_microusd: number
     error_code: string | null
     created_at: string
     completed_at: string | null
@@ -1178,6 +1231,9 @@ export const rollbackCognitionResource = (resourceId: string) =>
 
 export const getCognitiveRunTrace = (runId: string) =>
   getJson<CognitiveRunTrace>(`/api/v1/cognition/runs/${runId}/trace`)
+
+export const getObservabilityDashboard = () =>
+  getJson<ObservabilityDashboard>('/api/v1/observability/dashboard')
 
 export const runCognitionEvaluationSuite = () =>
   postJson<EvaluationSuite>('/api/v1/cognition/evaluations/run')

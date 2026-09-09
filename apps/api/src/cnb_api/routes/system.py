@@ -74,6 +74,10 @@ async def bootstrap_settings(request: Request) -> BootstrapSettingsResponse:
             and settings.oidc_tenant_id
             and settings.oidc_agent_id
         ),
+        otel_enabled=settings.otel_enabled,
+        otel_exporter_configured=bool(settings.otel_exporter_otlp_endpoint),
+        otel_service_name=settings.otel_service_name,
+        otel_trace_sample_ratio=settings.otel_trace_sample_ratio,
         minio_endpoint_url=settings.minio_endpoint_url,
         minio_bucket=settings.minio_bucket,
         database_configured=bool(settings.database_url.get_secret_value()),

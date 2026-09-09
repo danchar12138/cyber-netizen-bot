@@ -106,6 +106,7 @@ class ModelInvocationResponse(BaseModel):
     input_tokens: int | None
     output_tokens: int | None
     latency_ms: int | None
+    estimated_cost_microusd: int = Field(ge=0)
     error_code: str | None
     created_at: datetime
     completed_at: datetime | None

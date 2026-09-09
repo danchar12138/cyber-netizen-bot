@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import UUID
 
-from cnb_application.cognition_service import CognitionService
+from cnb_application.cognition_service import CognitionService, ModelRouteProfile
 from cnb_application.configuration_service import ConfigurationService
 from cnb_application.memory_service import MemoryService
 from cnb_application.pagination import EntityCursor, decode_cursor, encode_cursor
@@ -240,6 +240,7 @@ class ModelProviderResolver(Protocol):
         agent_id: UUID | None = None,
         channel_id: UUID | None = None,
         user_id: UUID | None = None,
+        run_id: UUID | None = None,
     ) -> ModelProvider: ...
 
 
@@ -258,8 +259,9 @@ class StaticModelProviderResolver:
         agent_id: UUID | None = None,
         channel_id: UUID | None = None,
         user_id: UUID | None = None,
+        run_id: UUID | None = None,
     ) -> ModelProvider:
-        del provider, model, tenant_id, agent_id, channel_id, user_id
+        del provider, model, tenant_id, agent_id, channel_id, user_id, run_id
         return self._model_provider
 
 
@@ -587,10 +589,10 @@ class ConversationService:
             max_output_tokens = configuration.values["model.chat.max_output_tokens"]
             if not isinstance(system_prompt, str) or not isinstance(max_output_tokens, int):
                 raise ConversationConflictError("生效配置中的模型参数类型无效")
-            provider_name, model_name = (
+            primary_profile = (
                 bundle.model_route.profiles[0]
                 if bundle.model_route
-                else self._model_selection(configuration.values)
+                else ModelRouteProfile(*self._model_selection(configuration.values))
             )
             total_token_budget = self._integer_setting(
                 configuration.values, "model.chat.total_token_budget"
@@ -622,7 +624,7 @@ class ConversationService:
                 pending=pending,
                 request=request,
                 configuration=configuration.values,
-                primary=(provider_name, model_name),
+                primary=primary_profile,
                 route_profiles=(bundle.model_route.profiles if bundle.model_route else None),
                 route_timeout=(bundle.model_route.timeout_seconds if bundle.model_route else None),
                 route_max_attempts=(
@@ -643,8 +645,8 @@ class ConversationService:
         pending: PendingAgentRun,
         request: ModelRequest,
         configuration: Mapping[str, object],
-        primary: tuple[str, str],
-        route_profiles: tuple[tuple[str, str], ...] | None,
+        primary: ModelRouteProfile,
+        route_profiles: tuple[ModelRouteProfile, ...] | None,
         route_timeout: int | None,
         route_max_attempts: int | None,
     ) -> ModelUsage | None:
@@ -664,7 +666,8 @@ class ConversationService:
         if route_profiles is not None:
             profiles = route_profiles
         else:
-            fallback = self._fallback_selection(configuration)
+            fallback_selection = self._fallback_selection(configuration)
+            fallback = ModelRouteProfile(*fallback_selection)
             profiles = (primary,) if fallback == primary else (primary, fallback)
         last_error: Exception | None = None
         global_attempt = 0
@@ -672,7 +675,13 @@ class ConversationService:
         attempt_profiles = tuple(
             profiles[min(index, len(profiles) - 1)] for index in range(max_attempts)
         )
-        for provider_name, model_name in attempt_profiles:
+        for route_profile in attempt_profiles:
+            provider_name = route_profile.provider
+            model_name = route_profile.model
+            pricing = (
+                route_profile.input_usd_per_million_tokens,
+                route_profile.output_usd_per_million_tokens,
+            )
             profile = f"{provider_name}/{model_name}"
             global_attempt += 1
             started_at = datetime.now(UTC)
@@ -689,6 +698,7 @@ class ConversationService:
                     global_attempt,
                     InvocationStatus.FAILED,
                     started_at,
+                    pricing=pricing,
                     error_code="CircuitOpen",
                 )
                 continue
@@ -702,6 +712,7 @@ class ConversationService:
                     tenant_id=self._identity.tenant_id,
                     agent_id=self._identity.agent_id,
                     user_id=self._identity.user_id,
+                    run_id=pending.run.id,
                 )
                 async with asyncio.timeout(timeout_seconds):
                     async for event in provider.stream(request):
@@ -719,6 +730,7 @@ class ConversationService:
                     InvocationStatus.COMPLETED,
                     started_at,
                     usage=usage,
+                    pricing=pricing,
                 )
                 return usage
             except TimeoutError as error:
@@ -740,6 +752,7 @@ class ConversationService:
                 global_attempt,
                 invocation_status,
                 started_at,
+                pricing=pricing,
                 error_code=type(last_error).__name__,
             )
             if emitted:
@@ -759,6 +772,7 @@ class ConversationService:
         started_at: datetime,
         *,
         usage: ModelUsage | None = None,
+        pricing: tuple[float, float] = (0.0, 0.0),
         error_code: str | None = None,
     ) -> None:
         await self._cognition_service.record_model_invocation(
@@ -772,6 +786,7 @@ class ConversationService:
                 status=status,
                 started_at=started_at,
                 usage=(usage.input_tokens, usage.output_tokens) if usage else None,
+                pricing=pricing,
                 error_code=error_code,
             )
         )
@@ -1155,11 +1170,11 @@ class ConversationService:
             tenant_id=self._identity.tenant_id,
             agent_id=self._identity.agent_id,
         )
-        provider_name, model_name = (
-            bundle.model_route.profiles[0]
-            if bundle.model_route
-            else self._model_selection(configuration.values)
-        )
+        if bundle.model_route:
+            route_profile = bundle.model_route.profiles[0]
+            provider_name, model_name = route_profile.provider, route_profile.model
+        else:
+            provider_name, model_name = self._model_selection(configuration.values)
         return (
             configuration.version,
             f"{provider_name}/{model_name}",

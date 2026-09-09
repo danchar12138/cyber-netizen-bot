@@ -33,6 +33,7 @@ from cnb_contracts import (
     MessageFeedbackResponse,
     MessageListResponse,
     MessageSearchResponse,
+    ObservabilityDashboardResponse,
     SystemOverviewResponse,
     TaskStatusResponse,
 )
@@ -44,8 +45,29 @@ from cnb_infrastructure import (
     MemoryConversationRepository,
     MemoryDataLifecycleRepository,
     MemoryObjectStorage,
+    MemoryObservabilityRepository,
     Settings,
 )
+
+
+async def test_observability_dashboard_records_only_safe_request_metadata() -> None:
+    repository = MemoryObservabilityRepository()
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+        observability_repository=repository,
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.get("/api/v1/administration/session?secret=must-not-be-recorded")
+        response = await client.get("/api/v1/observability/dashboard")
+
+    payload = ObservabilityDashboardResponse.model_validate(response.json())
+    assert response.status_code == 200
+    assert payload.api.requests == 1
+    assert payload.api.server_errors == 0
+    assert payload.alerts == ()
+    assert payload.models == ()
 
 
 async def test_data_lifecycle_api_enforces_permissions_and_returns_safe_download_headers() -> None:
@@ -475,6 +497,8 @@ async def test_system_settings_and_task_status_hide_bootstrap_secrets() -> None:
         minio_secret_key=SecretStr("minio-test-secret"),
         minio_bucket="attachments",
         config_master_key=SecretStr("configured-test-key"),
+        otel_exporter_otlp_endpoint="https://collector.internal/v1/traces",
+        otel_exporter_otlp_headers=SecretStr("Authorization=Bearer%20telemetry-test-secret"),
     )
     app = create_app(
         settings,
@@ -492,9 +516,13 @@ async def test_system_settings_and_task_status_hide_bootstrap_secrets() -> None:
     assert bootstrap.minio_bucket == "attachments"
     assert bootstrap.minio_credentials_configured is True
     assert bootstrap.config_master_key_status == "configured"
+    assert bootstrap.otel_enabled is False
+    assert bootstrap.otel_exporter_configured is True
     assert "minio-test-user" not in settings_response.text
     assert "minio-test-secret" not in settings_response.text
     assert "configured-test-key" not in settings_response.text
+    assert "collector.internal" not in settings_response.text
+    assert "telemetry-test-secret" not in settings_response.text
     assert tasks.broker == "dramatiq-redis"
     assert tasks.worker.status == "not_checked"
 

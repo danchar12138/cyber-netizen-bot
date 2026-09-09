@@ -165,6 +165,26 @@ class AuditLog(Base):
     )
 
 
+class ApiRequestMetricModel(Base):
+    """仅保存路由模板、状态和耗时的 API 请求指标。"""
+
+    __tablename__ = "api_request_metrics"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[UUID | None] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"))
+    method: Mapped[str] = mapped_column(String(12), nullable=False)
+    route: Mapped[str] = mapped_column(String(255), nullable=False)
+    status_code: Mapped[int] = mapped_column(Integer, nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("status_code BETWEEN 100 AND 599", name="ck_api_metrics_status"),
+        CheckConstraint("duration_ms >= 0", name="ck_api_metrics_duration"),
+        Index("ix_api_metrics_tenant_occurred", "tenant_id", "occurred_at"),
+    )
+
+
 class Tenant(Base):
     """承载全部业务数据隔离边界的租户。"""
 
@@ -546,6 +566,7 @@ class AgentRunModel(Base):
         ),
         Index("ix_agent_runs_conversation_created", "conversation_id", "created_at"),
         Index("ix_agent_runs_trigger", "trigger_message_id"),
+        Index("ix_agent_runs_tenant_completed", "tenant_id", "completed_at"),
     )
 
 
@@ -741,6 +762,9 @@ class ModelInvocationModel(Base):
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
+    estimated_cost_microusd: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default=text("0")
+    )
     error_code: Mapped[str | None] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -749,12 +773,14 @@ class ModelInvocationModel(Base):
 
     __table_args__ = (
         CheckConstraint("attempt > 0", name="ck_model_invocations_attempt"),
+        CheckConstraint("estimated_cost_microusd >= 0", name="ck_model_invocations_estimated_cost"),
         CheckConstraint(
             "status IN ('running', 'completed', 'failed', 'timed_out')",
             name="ck_model_invocations_status",
         ),
         UniqueConstraint("run_id", "purpose", "attempt", name="uq_model_invocations_attempt"),
         Index("ix_model_invocations_tenant_run", "tenant_id", "run_id"),
+        Index("ix_model_invocations_tenant_created", "tenant_id", "created_at"),
     )
 
 
@@ -1338,6 +1364,7 @@ class BackgroundJobModel(Base):
         UniqueConstraint("source_inbox_id", name="uq_background_jobs_source_inbox"),
         Index("ix_background_jobs_queue_due", "status", "queue", "available_at"),
         Index("ix_background_jobs_tenant_created", "tenant_id", "created_at"),
+        Index("ix_background_jobs_tenant_status_available", "tenant_id", "status", "available_at"),
         Index("ix_background_jobs_lease", "status", "lease_expires_at"),
     )
 

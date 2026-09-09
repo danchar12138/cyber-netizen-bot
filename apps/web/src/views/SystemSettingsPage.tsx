@@ -59,6 +59,10 @@ export function SystemSettingsPage() {
           <dl className="settings-list">
             <div><dt>配置主密钥</dt><dd>{data?.config_master_key_status === 'configured' ? '已安全配置' : '开发占位值'}</dd></div>
             <div><dt>OIDC 引导</dt><dd>{configuredLabel(data?.oidc_configured ?? false)}</dd></div>
+            <div><dt>OpenTelemetry</dt><dd>{data?.otel_enabled ? '已启用' : '未启用'}</dd></div>
+            <div><dt>OTLP Exporter</dt><dd>{configuredLabel(data?.otel_exporter_configured ?? false)}</dd></div>
+            <div><dt>Telemetry 服务名</dt><dd><code>{data?.otel_service_name ?? '读取中'}</code></dd></div>
+            <div><dt>Trace 采样率</dt><dd>{data ? `${(data.otel_trace_sample_ratio * 100).toFixed(1)}%` : '读取中'}</dd></div>
             <div><dt>允许的 Web 来源</dt><dd>{data?.cors_origins.join('、') || '读取中'}</dd></div>
           </dl>
           <p className="settings-help"><ShieldCheck size={14} /> 页面永不返回数据库、Redis、MinIO 或配置主密钥明文。</p>

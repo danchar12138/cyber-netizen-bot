@@ -47,6 +47,10 @@ class BootstrapSettingsResponse(BaseModel):
     readiness_deep_checks: bool
     authentication_mode: Literal["development", "oidc"]
     oidc_configured: bool
+    otel_enabled: bool
+    otel_exporter_configured: bool
+    otel_service_name: str
+    otel_trace_sample_ratio: float = Field(ge=0, le=1)
     object_storage_provider: Literal["minio"] = "minio"
     minio_endpoint_url: str
     minio_bucket: str
