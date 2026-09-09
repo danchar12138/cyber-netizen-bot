@@ -10,6 +10,7 @@ from cnb_api.dependencies import (
     get_configuration_service,
     get_current_actor_id,
     get_secret_management_service,
+    require_permission,
 )
 from cnb_application import (
     ConfigurationConflictError,
@@ -38,9 +39,13 @@ from cnb_contracts import (
     SecretRotateCommand,
     SecretWriteCommand,
 )
-from cnb_domain import ConfigEntry, ConfigVersion, SecretMetadata
+from cnb_domain import AdminPermission, ConfigEntry, ConfigVersion, SecretMetadata
 
-router = APIRouter(prefix="/configuration", tags=["configuration"])
+router = APIRouter(
+    prefix="/configuration",
+    tags=["configuration"],
+    dependencies=[Depends(require_permission(AdminPermission.CONFIGURATION_READ))],
+)
 
 
 @router.get("/definitions", response_model=ConfigRegistryResponse)
@@ -162,7 +167,12 @@ async def get_effective_configuration(
     )
 
 
-@router.post("/drafts", response_model=ConfigVersionResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/drafts",
+    response_model=ConfigVersionResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(AdminPermission.CONFIGURATION_WRITE))],
+)
 async def create_draft(
     command: ConfigDraftCreate,
     service: Annotated[ConfigurationService, Depends(get_configuration_service)],
@@ -190,7 +200,11 @@ async def create_draft(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
 
-@router.post("/versions/{version_id}/publish", response_model=ConfigVersionResponse)
+@router.post(
+    "/versions/{version_id}/publish",
+    response_model=ConfigVersionResponse,
+    dependencies=[Depends(require_permission(AdminPermission.CONFIGURATION_WRITE))],
+)
 async def publish_version(
     version_id: UUID,
     service: Annotated[ConfigurationService, Depends(get_configuration_service)],
@@ -209,7 +223,11 @@ async def publish_version(
         ) from error
 
 
-@router.post("/versions/{version_id}/rollback", response_model=ConfigVersionResponse)
+@router.post(
+    "/versions/{version_id}/rollback",
+    response_model=ConfigVersionResponse,
+    dependencies=[Depends(require_permission(AdminPermission.CONFIGURATION_WRITE))],
+)
 async def rollback_version(
     version_id: UUID,
     service: Annotated[ConfigurationService, Depends(get_configuration_service)],
@@ -243,7 +261,11 @@ def _secret_response(secret: SecretMetadata) -> SecretMetadataResponse:
     )
 
 
-@router.get("/secrets", response_model=SecretListResponse)
+@router.get(
+    "/secrets",
+    response_model=SecretListResponse,
+    dependencies=[Depends(require_permission(AdminPermission.SECRET_MANAGE))],
+)
 async def list_secrets(
     service: Annotated[SecretManagementService, Depends(get_secret_management_service)],
 ) -> SecretListResponse:
@@ -253,7 +275,11 @@ async def list_secrets(
     )
 
 
-@router.post("/secrets", response_model=SecretMetadataResponse)
+@router.post(
+    "/secrets",
+    response_model=SecretMetadataResponse,
+    dependencies=[Depends(require_permission(AdminPermission.SECRET_MANAGE))],
+)
 async def set_secret(
     command: SecretWriteCommand,
     service: Annotated[SecretManagementService, Depends(get_secret_management_service)],
@@ -275,7 +301,11 @@ async def set_secret(
     return _secret_response(secret)
 
 
-@router.post("/secrets/{secret_id}/rotate", response_model=SecretMetadataResponse)
+@router.post(
+    "/secrets/{secret_id}/rotate",
+    response_model=SecretMetadataResponse,
+    dependencies=[Depends(require_permission(AdminPermission.SECRET_MANAGE))],
+)
 async def rotate_secret(
     secret_id: UUID,
     command: SecretRotateCommand,
@@ -292,7 +322,11 @@ async def rotate_secret(
     return _secret_response(secret)
 
 
-@router.post("/secrets/{secret_id}/test", response_model=SecretMetadataResponse)
+@router.post(
+    "/secrets/{secret_id}/test",
+    response_model=SecretMetadataResponse,
+    dependencies=[Depends(require_permission(AdminPermission.SECRET_MANAGE))],
+)
 async def test_secret_integrity(
     secret_id: UUID,
     service: Annotated[SecretManagementService, Depends(get_secret_management_service)],
@@ -307,7 +341,11 @@ async def test_secret_integrity(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
 
-@router.delete("/secrets/{secret_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/secrets/{secret_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission(AdminPermission.SECRET_MANAGE))],
+)
 async def clear_secret(
     secret_id: UUID,
     service: Annotated[SecretManagementService, Depends(get_secret_management_service)],

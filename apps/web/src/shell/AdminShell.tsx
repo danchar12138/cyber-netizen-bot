@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import {
   Activity,
@@ -8,6 +9,7 @@ import {
   CircleGauge,
   FlaskConical,
   KeyRound,
+  LockKeyhole,
   ListChecks,
   MemoryStick,
   MessageCircleMore,
@@ -20,6 +22,8 @@ import {
   Wrench,
 } from 'lucide-react'
 import type { ComponentType, ReactNode } from 'react'
+
+import { getAdminSession } from '../api'
 
 interface NavigationItem {
   label: string
@@ -38,6 +42,7 @@ const primaryNavigation: NavigationItem[] = [
 
 const operationsNavigation: NavigationItem[] = [
   { label: '用户与身份', path: '/users', icon: Users },
+  { label: '访问控制', path: '/access', icon: LockKeyhole },
   { label: '工具与策略', path: '/tools', icon: Wrench },
   { label: '渠道与适配器', path: '/channels', icon: Cable },
   { label: '任务与主动行为', path: '/tasks', icon: ListChecks },
@@ -68,6 +73,9 @@ function NavigationGroup({ title, items }: { title: string; items: NavigationIte
 }
 
 export function AdminShell({ children }: { children: ReactNode }) {
+  const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
+  const roleLabels = { admin: '管理员', operator: '运营者', viewer: '只读' }
+
   return (
     <div className="admin-shell">
       <aside className="sidebar">
@@ -120,9 +128,11 @@ export function AdminShell({ children }: { children: ReactNode }) {
             <strong>赛博网友核心</strong>
           </div>
           <div className="topbar-actions">
-            <div className="secure-badge"><ShieldCheck size={14} /> 本地安全会话</div>
+            <div className="secure-badge">
+              <ShieldCheck size={14} /> {session.data ? roleLabels[session.data.role] : '正在验证权限'}
+            </div>
             <button className="icon-button" aria-label="凭证管理"><KeyRound size={17} /></button>
-            <div className="avatar">CN</div>
+            <div className="avatar" title={session.data?.display_name}>CN</div>
           </div>
         </header>
         <div className="page-scroll">{children}</div>

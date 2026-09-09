@@ -1,10 +1,11 @@
 """FastAPI 依赖提供器与进程内单例。"""
 
+from collections.abc import Callable
 from functools import lru_cache
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException, status
 from starlette.requests import HTTPConnection
 
 from cnb_application import (
@@ -17,8 +18,11 @@ from cnb_application import (
     SecretManagementService,
     SecretStore,
     build_default_registry,
+    permissions_for_role,
+    require_admin_permission,
 )
 from cnb_cognition import CognitiveRuntime
+from cnb_domain import AdminPermission, AdminPrincipal, AdminRole
 
 
 @lru_cache(maxsize=1)
@@ -55,10 +59,53 @@ def get_secret_management_service(
     return SecretManagementService(registry, store)
 
 
-def get_current_actor_id(request: HTTPConnection) -> UUID:
-    """返回当前开发会话的稳定操作者 ID，供审计记录使用。"""
-    actor_id: UUID = request.app.state.development_identity.user_id
-    return actor_id
+def get_admin_principal(request: HTTPConnection) -> AdminPrincipal:
+    """解析开发期管理主体；非开发环境等待 P7 正式认证，不静默放行。"""
+    settings = request.app.state.settings
+    if settings.environment not in {"development", "test"}:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="正式管理身份认证尚未配置",
+        )
+    role_value = request.headers.get("X-CNB-Development-Role", AdminRole.ADMIN.value)
+    try:
+        role = AdminRole(role_value)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"未知开发角色：{role_value}",
+        ) from error
+    identity = request.app.state.development_identity
+    return AdminPrincipal(
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+        display_name=identity.user_name,
+        role=role,
+        permissions=permissions_for_role(role),
+        authentication_mode="development",
+    )
+
+
+def require_permission(
+    permission: AdminPermission,
+) -> Callable[[HTTPConnection], AdminPrincipal]:
+    """创建由 FastAPI 注入的服务端权限守卫。"""
+
+    def enforce(request: HTTPConnection) -> AdminPrincipal:
+        principal = get_admin_principal(request)
+        try:
+            return require_admin_permission(principal, permission)
+        except PermissionError as error:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+
+    return enforce
+
+
+def get_current_actor_id(
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+) -> UUID:
+    """返回当前已解析管理主体的稳定操作者 ID，供审计记录使用。"""
+    return principal.user_id
 
 
 def get_conversation_repository(request: HTTPConnection) -> ConversationRepository:

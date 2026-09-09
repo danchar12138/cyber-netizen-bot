@@ -9,6 +9,8 @@ from httpx import ASGITransport, AsyncClient, Response
 
 from cnb_api.main import create_app
 from cnb_contracts import (
+    AdminRoleListResponse,
+    AdminSessionResponse,
     ApiErrorResponse,
     ComponentHealth,
     ConfigRegistryResponse,
@@ -50,6 +52,48 @@ async def test_live_health() -> None:
 
     assert response.status_code == 200
     assert HealthResponse.model_validate(response.json()).status == "healthy"
+
+
+async def test_admin_session_and_role_matrix_expose_server_permissions() -> None:
+    async with AsyncClient(transport=_transport(), base_url="http://test") as client:
+        session_response = await client.get(
+            "/api/v1/administration/session",
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        roles_response = await client.get(
+            "/api/v1/administration/roles",
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+
+    session = AdminSessionResponse.model_validate(session_response.json())
+    roles = AdminRoleListResponse.model_validate(roles_response.json())
+    assert session.role == "viewer"
+    assert "configuration:read" in session.permissions
+    assert "configuration:write" not in session.permissions
+    assert [item.role for item in roles.roles] == ["admin", "operator", "viewer"]
+
+
+async def test_rbac_rejects_viewer_changes_and_operator_secret_access() -> None:
+    async with AsyncClient(transport=_transport(), base_url="http://test") as client:
+        viewer_change = await client.post(
+            "/api/v1/configuration/drafts",
+            json={"values": []},
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        operator_change = await client.post(
+            "/api/v1/configuration/drafts",
+            json={"values": []},
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+        operator_secrets = await client.get(
+            "/api/v1/configuration/secrets",
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+
+    assert viewer_change.status_code == 403
+    assert ApiErrorResponse.model_validate(viewer_change.json()).error.code == "forbidden"
+    assert operator_change.status_code == 201
+    assert operator_secrets.status_code == 403
 
 
 async def test_ready_health_discloses_disabled_deep_checks() -> None:

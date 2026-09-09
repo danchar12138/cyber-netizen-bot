@@ -16,6 +16,7 @@ import {
   type ConversationEvent,
   cancelAgentRun,
   createConversation,
+  getAdminSession,
   getConversations,
   getDevelopmentIdentity,
   getMessages,
@@ -42,6 +43,8 @@ export function ChatPage() {
   const lastSequence = useRef(0)
 
   const identity = useQuery({ queryKey: ['chat-identity'], queryFn: getDevelopmentIdentity })
+  const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
+  const canUseConversation = session.data?.permissions.includes('conversation:use') ?? false
   const conversations = useQuery({ queryKey: ['conversations'], queryFn: getConversations })
   const messageHistory = useQuery({
     queryKey: ['messages', selectedId],
@@ -190,7 +193,7 @@ export function ChatPage() {
           <button
             className="new-conversation"
             onClick={() => createConversationMutation.mutate()}
-            disabled={createConversationMutation.isPending}
+            disabled={!canUseConversation || createConversationMutation.isPending}
           >
             <Sparkles size={15} /> 新建会话
           </button>
@@ -259,7 +262,7 @@ export function ChatPage() {
                   submit()
                 }
               }}
-              disabled={!selectedId}
+              disabled={!canUseConversation || !selectedId}
               placeholder={
                 selectedId
                   ? '输入消息，Enter 发送，Shift + Enter 换行'
@@ -276,7 +279,7 @@ export function ChatPage() {
                   className="stop-button"
                   aria-label="停止生成"
                   onClick={() => cancelRun.mutate(activeRunId)}
-                  disabled={cancelRun.isPending}
+                  disabled={!canUseConversation || cancelRun.isPending}
                 >
                   <CircleStop size={17} />
                 </button>
@@ -285,7 +288,7 @@ export function ChatPage() {
                   className="send-button"
                   aria-label="发送消息"
                   onClick={submit}
-                  disabled={!selectedId || !draft.trim() || sendMessage.isPending}
+                  disabled={!canUseConversation || !selectedId || !draft.trim() || sendMessage.isPending}
                 >
                   <SendHorizontal size={16} />
                 </button>

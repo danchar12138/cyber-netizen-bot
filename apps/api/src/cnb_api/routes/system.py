@@ -5,12 +5,17 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 
 from cnb_api import __version__
-from cnb_api.dependencies import get_configuration_registry
+from cnb_api.dependencies import get_configuration_registry, require_permission
 from cnb_application import ConfigurationRegistry
 from cnb_contracts import ComponentHealth, SystemOverviewResponse
+from cnb_domain import AdminPermission
 from cnb_infrastructure import Settings
 
-router = APIRouter(prefix="/system", tags=["system"])
+router = APIRouter(
+    prefix="/system",
+    tags=["system"],
+    dependencies=[Depends(require_permission(AdminPermission.DASHBOARD_READ))],
+)
 
 
 @router.get("/overview", response_model=SystemOverviewResponse)

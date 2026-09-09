@@ -1,5 +1,10 @@
 """公共 API 与事件契约。"""
 
+from cnb_contracts.administration import (
+    AdminRoleListResponse,
+    AdminRoleResponse,
+    AdminSessionResponse,
+)
 from cnb_contracts.configuration import (
     ConfigDefinitionResponse,
     ConfigDifferenceResponse,
@@ -35,6 +40,9 @@ from cnb_contracts.error import ApiError, ApiErrorDetail, ApiErrorResponse
 from cnb_contracts.health import ComponentHealth, HealthResponse, SystemOverviewResponse
 
 __all__ = [
+    "AdminRoleListResponse",
+    "AdminRoleResponse",
+    "AdminSessionResponse",
     "AgentRunResponse",
     "ApiError",
     "ApiErrorDetail",

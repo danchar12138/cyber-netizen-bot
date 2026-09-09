@@ -14,6 +14,32 @@ export interface SystemOverview {
   components: ComponentHealth[]
 }
 
+export type AdminRole = 'admin' | 'operator' | 'viewer'
+export type AdminPermission =
+  | 'dashboard:read'
+  | 'configuration:read'
+  | 'configuration:write'
+  | 'secret:manage'
+  | 'conversation:read'
+  | 'conversation:use'
+  | 'access_control:read'
+
+export interface AdminSession {
+  tenant_id: string
+  user_id: string
+  display_name: string
+  role: AdminRole
+  permissions: AdminPermission[]
+  authentication_mode: string
+}
+
+export interface AdminRoleDefinition {
+  role: AdminRole
+  label: string
+  description: string
+  permissions: AdminPermission[]
+}
+
 export type ConfigValue = string | number | boolean | null | ConfigValue[] | {
   [key: string]: ConfigValue
 }
@@ -242,6 +268,12 @@ async function deleteRequest(path: string): Promise<void> {
 }
 
 export const getSystemOverview = () => getJson<SystemOverview>('/api/v1/system/overview')
+
+export const getAdminSession = () =>
+  getJson<AdminSession>('/api/v1/administration/session')
+
+export const getAdminRoles = () =>
+  getJson<{ roles: AdminRoleDefinition[] }>('/api/v1/administration/roles')
 
 export const getConfigRegistry = () =>
   getJson<ConfigRegistry>('/api/v1/configuration/definitions')

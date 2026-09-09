@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-router'
 
 import { AdminShell } from './shell/AdminShell'
+import { AccessControlPage } from './views/AccessControlPage'
 import { ChatPage } from './views/ChatPage'
 import { ConfigurationPage } from './views/ConfigurationPage'
 import { DashboardPage } from './views/DashboardPage'
@@ -37,6 +38,12 @@ const chatRoute = createRoute({
   component: ChatPage,
 })
 
+const accessControlRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/access',
+  component: AccessControlPage,
+})
+
 const sectionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/$section',
@@ -47,6 +54,7 @@ const routeTree = rootRoute.addChildren([
   dashboardRoute,
   configurationRoute,
   chatRoute,
+  accessControlRoute,
   sectionRoute,
 ])
 

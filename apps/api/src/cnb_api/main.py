@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from cnb_api import __version__
 from cnb_api.errors import RequestIdMiddleware, install_error_handlers
-from cnb_api.routes import configuration, conversation, health, system
+from cnb_api.routes import administration, configuration, conversation, health, system
 from cnb_application import (
     ConfigurationRepository,
     ConversationRepository,
@@ -116,12 +116,14 @@ def create_app(
             "Authorization",
             "Content-Type",
             "Idempotency-Key",
+            "X-CNB-Development-Role",
             "X-Request-ID",
         ],
         expose_headers=["X-Request-ID"],
     )
     application.include_router(health.router)
     application.include_router(system.router, prefix="/api/v1")
+    application.include_router(administration.router, prefix="/api/v1")
     application.include_router(configuration.router, prefix="/api/v1")
     application.include_router(conversation.router, prefix="/api/v1")
     return application

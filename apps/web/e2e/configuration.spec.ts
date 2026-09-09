@@ -10,6 +10,18 @@ const timestamp = '2026-09-09T08:00:00Z'
 test('可以预览并发布配置差异以及安全写入密钥', async ({ page }) => {
   let versionStatus: 'draft' | 'published' | null = null
   let secretConfigured = false
+  await page.route('**/api/v1/administration/session', async (route) => {
+    await route.fulfill({
+      json: {
+        tenant_id: tenantId,
+        user_id: userId,
+        display_name: '本地开发者',
+        role: 'admin',
+        permissions: ['configuration:read', 'configuration:write', 'secret:manage'],
+        authentication_mode: 'development',
+      },
+    })
+  })
   await page.route('**/api/v1/chat/identity', async (route) => {
     await route.fulfill({
       json: {

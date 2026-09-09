@@ -22,6 +22,7 @@ import {
   createConfigDraft,
   formatConfigValue,
   formatConfigVersionStatus,
+  getAdminSession,
   getConfigDiff,
   getConfigRegistry,
   getConfigVersions,
@@ -74,10 +75,12 @@ function ConfigInput({
   definition,
   value,
   onChange,
+  disabled = false,
 }: {
   definition: ConfigDefinition
   value: ConfigValue
   onChange: (value: ConfigValue) => void
+  disabled?: boolean
 }) {
   if (definition.value_kind === 'boolean') {
     const enabled = value === true
@@ -87,6 +90,7 @@ function ConfigInput({
         className={`toggle ${enabled ? 'enabled' : ''}`}
         onClick={() => onChange(!enabled)}
         aria-pressed={enabled}
+        disabled={disabled}
       >
         <span /> {enabled ? '已开启' : '已关闭'}
       </button>
@@ -99,6 +103,7 @@ function ConfigInput({
         className="config-input"
         value={typeof value === 'string' ? value : ''}
         onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
       >
         {definition.options.map((option) => <option key={option}>{option}</option>)}
       </select>
@@ -118,6 +123,7 @@ function ConfigInput({
           const parsed = event.target.valueAsNumber
           onChange(Number.isNaN(parsed) ? definition.default : parsed)
         }}
+        disabled={disabled}
       />
     )
   }
@@ -131,6 +137,7 @@ function ConfigInput({
           onChange(event.target.value.split(',').map((item) => item.trim()).filter(Boolean))
         }
         placeholder="使用逗号分隔"
+        disabled={disabled}
       />
     )
   }
@@ -140,6 +147,7 @@ function ConfigInput({
       className="config-input"
       value={typeof value === 'string' ? value : ''}
       onChange={(event) => onChange(event.target.value)}
+      disabled={disabled}
     />
   )
 }
@@ -157,7 +165,14 @@ export function ConfigurationPage() {
   const registry = useQuery({ queryKey: ['config-registry'], queryFn: getConfigRegistry })
   const history = useQuery({ queryKey: ['config-versions'], queryFn: getConfigVersions })
   const identity = useQuery({ queryKey: ['development-identity'], queryFn: getDevelopmentIdentity })
-  const secrets = useQuery({ queryKey: ['config-secrets'], queryFn: getSecrets })
+  const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
+  const canWrite = session.data?.permissions.includes('configuration:write') ?? false
+  const canManageSecrets = session.data?.permissions.includes('secret:manage') ?? false
+  const secrets = useQuery({
+    queryKey: ['config-secrets'],
+    queryFn: getSecrets,
+    enabled: canManageSecrets,
+  })
   const published = history.data?.versions.find((item) => item.status === 'published')
   const scopeId = scopeIdFor(scope, identity.data, customScopeId)
   const effective = useQuery({
@@ -279,12 +294,12 @@ export function ConfigurationPage() {
         </div>
         {tab === 'runtime' && (
           <div className="heading-actions">
-            <button className="secondary-button" disabled={createDraft.isPending} onClick={() => createDraft.mutate()}>
+            <button className="secondary-button" disabled={!canWrite || createDraft.isPending} onClick={() => createDraft.mutate()}>
               <Save size={15} /> 保存新草稿
             </button>
             <button
               className="primary-button"
-              disabled={!currentDraft || publishDraft.isPending}
+              disabled={!canWrite || !currentDraft || publishDraft.isPending}
               onClick={() => currentDraft && publishDraft.mutate(currentDraft.id)}
             >
               <UploadCloud size={15} /> 校验并发布
@@ -310,7 +325,7 @@ export function ConfigurationPage() {
       <section className="config-context panel">
         <div className="config-tabs" role="tablist" aria-label="配置类型">
           <button className={tab === 'runtime' ? 'active' : ''} onClick={() => setTab('runtime')}><Eye size={14} /> 运行配置</button>
-          <button className={tab === 'secrets' ? 'active' : ''} onClick={() => setTab('secrets')}><KeyRound size={14} /> 密钥管理</button>
+          <button disabled={!canManageSecrets} className={tab === 'secrets' ? 'active' : ''} onClick={() => setTab('secrets')}><KeyRound size={14} /> 密钥管理</button>
         </div>
         <label>编辑作用域
           <select value={scope} onChange={(event) => setScope(event.target.value as ConfigScope)}>
@@ -332,7 +347,7 @@ export function ConfigurationPage() {
               <div><strong>v{version.version}</strong><span className={`version-status ${version.status}`}>{formatConfigVersionStatus(version.status)}</span></div>
               <small>{version.note || '无版本说明'}</small>
               {version.status !== 'draft' && (
-                <button type="button" onClick={() => rollbackVersion.mutate(version.id)} disabled={rollbackVersion.isPending}>
+                <button type="button" onClick={() => rollbackVersion.mutate(version.id)} disabled={!canWrite || rollbackVersion.isPending}>
                   <RotateCcw size={12} /> 回滚到此版本
                 </button>
               )}
@@ -401,7 +416,7 @@ export function ConfigurationPage() {
                         <small>
                           最终生效：{formatConfigValue(effectiveValue?.value ?? definition.default)} · 来源 {effectiveValue?.source.scope_type ? scopeLabels[effectiveValue.source.scope_type] : '内置默认'} v{effectiveValue?.source.version ?? 0}
                         </small>
-                        <ConfigInput definition={definition} value={values[definition.key] ?? definition.default} onChange={(value) => setValues((current) => ({ ...current, [definition.key]: value }))} />
+                        <ConfigInput disabled={!canWrite} definition={definition} value={values[definition.key] ?? definition.default} onChange={(value) => setValues((current) => ({ ...current, [definition.key]: value }))} />
                       </>
                     )}
                   </div>

@@ -10,7 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, status
 from starlette.websockets import WebSocketDisconnect
 
-from cnb_api.dependencies import get_conversation_service
+from cnb_api.dependencies import get_conversation_service, require_permission
 from cnb_application import (
     AgentRunNotFoundError,
     ConversationConflictError,
@@ -31,9 +31,20 @@ from cnb_contracts import (
     MessageListResponse,
     MessageResponse,
 )
-from cnb_domain import AgentRun, Conversation, ConversationEvent, Message, PendingAgentRun
+from cnb_domain import (
+    AdminPermission,
+    AgentRun,
+    Conversation,
+    ConversationEvent,
+    Message,
+    PendingAgentRun,
+)
 
-router = APIRouter(prefix="/chat", tags=["internal-chat"])
+router = APIRouter(
+    prefix="/chat",
+    tags=["internal-chat"],
+    dependencies=[Depends(require_permission(AdminPermission.CONVERSATION_READ))],
+)
 
 
 def _conversation_response(item: Conversation) -> ConversationResponse:
@@ -142,6 +153,7 @@ async def list_conversations(
     "/conversations",
     response_model=ConversationResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(AdminPermission.CONVERSATION_USE))],
 )
 async def create_conversation(
     command: ConversationCreate,
@@ -177,6 +189,7 @@ async def list_messages(
     "/conversations/{conversation_id}/messages",
     response_model=MessageAcceptedResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_permission(AdminPermission.CONVERSATION_USE))],
 )
 async def send_message(
     conversation_id: UUID,
@@ -204,7 +217,11 @@ async def send_message(
     return _accepted_response(pending)
 
 
-@router.post("/runs/{run_id}/cancel", response_model=AgentRunResponse)
+@router.post(
+    "/runs/{run_id}/cancel",
+    response_model=AgentRunResponse,
+    dependencies=[Depends(require_permission(AdminPermission.CONVERSATION_USE))],
+)
 async def cancel_run(
     run_id: UUID,
     request: Request,

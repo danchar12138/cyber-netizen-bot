@@ -1,5 +1,10 @@
 """应用服务与用例。"""
 
+from cnb_application.authorization import (
+    PermissionDeniedError,
+    permissions_for_role,
+    require_admin_permission,
+)
 from cnb_application.configuration_registry import (
     ConfigurationRegistry,
     ConfigurationValidationError,
@@ -54,6 +59,7 @@ __all__ = [
     "InvalidCursorError",
     "ModelProviderConfigurationError",
     "ModelProviderResolver",
+    "PermissionDeniedError",
     "SecretManagementService",
     "SecretNotFoundError",
     "SecretOperationError",
@@ -62,4 +68,6 @@ __all__ = [
     "build_default_registry",
     "decode_cursor",
     "encode_cursor",
+    "permissions_for_role",
+    "require_admin_permission",
 ]

@@ -11,6 +11,18 @@ const timestamp = '2026-09-09T08:00:00Z'
 
 test('可以创建会话并发送一条持久化消息', async ({ page }) => {
   let created = false
+  await page.route('**/api/v1/administration/session', async (route) => {
+    await route.fulfill({
+      json: {
+        tenant_id: tenantId,
+        user_id: userId,
+        display_name: '本地开发者',
+        role: 'admin',
+        permissions: ['conversation:read', 'conversation:use'],
+        authentication_mode: 'development',
+      },
+    })
+  })
   await page.route('**/api/v1/chat/identity', async (route) => {
     await route.fulfill({
       json: {

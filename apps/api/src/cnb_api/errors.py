@@ -59,6 +59,7 @@ def install_error_handlers(application: FastAPI) -> None:
     async def handle_http_exception(request: Request, error: HTTPException) -> JSONResponse:
         message = error.detail
         codes = {
+            403: "forbidden",
             404: "not_found",
             409: "conflict",
             422: "validation_error",
