@@ -3,6 +3,7 @@ import { RouterProvider } from '@tanstack/react-router'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
+import { TabSyncBridge } from './components/TabSyncBridge'
 import { router } from './router'
 import './styles.css'
 
@@ -24,6 +25,7 @@ if (!rootElement) {
 createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
+      <TabSyncBridge />
       <RouterProvider router={router} />
     </QueryClientProvider>
   </StrictMode>,

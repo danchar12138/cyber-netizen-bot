@@ -36,3 +36,29 @@ class SystemOverviewResponse(BaseModel):
     pending_jobs: int = Field(ge=0)
     configuration_definitions: int = Field(ge=0)
     components: tuple[ComponentHealth, ...]
+
+
+class BootstrapSettingsResponse(BaseModel):
+    """仅返回非敏感启动设置和凭证配置状态。"""
+
+    environment: str
+    log_level: str
+    cors_origins: tuple[str, ...]
+    readiness_deep_checks: bool
+    object_storage_provider: Literal["minio"] = "minio"
+    minio_endpoint_url: str
+    minio_bucket: str
+    database_configured: bool
+    redis_configured: bool
+    minio_credentials_configured: bool
+    config_master_key_status: Literal["development_placeholder", "configured"]
+    requires_restart: bool = True
+
+
+class TaskStatusResponse(BaseModel):
+    """异步任务后台在 P2 可展示的安全基础状态。"""
+
+    broker: Literal["dramatiq-redis"] = "dramatiq-redis"
+    queues: tuple[str, ...] = ("system",)
+    pending_jobs: int = Field(ge=0)
+    worker: ComponentHealth

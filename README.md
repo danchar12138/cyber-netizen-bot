@@ -2,7 +2,7 @@
 
 以自研 Agent 认知运行时为核心的“赛博网友”项目。Web 首发形态是统一管理后台，其中包含内部全功能对话工作台；后续 IM 平台通过统一 Channel Adapter 接入。
 
-当前已完成 P1，并正在推进 P2 管理后台；P0 的代码基线已具备，Docker 实跑与分支保护仍待环境验证。最新开发计划见 [`docs/plans/2026-09-09-v3.md`](docs/plans/2026-09-09-v3.md)。
+当前已完成 P1、P2，并开始推进 P3 拟人认知核心；P0 的代码基线已具备，Docker 实跑与分支保护仍待环境验证。最新开发计划见 [`docs/plans/2026-09-09-v3.md`](docs/plans/2026-09-09-v3.md)。
 
 ## 已建立的能力
 
@@ -11,6 +11,7 @@
 - 自研 Domain、Cognition、Application、Infrastructure、Contracts、Adapters 包边界。
 - Dramatiq Worker 骨架。
 - React 管理后台骨架，包含总览、配置中心、内部对话和其他管理入口。
+- 系统启动设置安全摘要、用户身份、会话消息详情、任务基础状态、多标签页同步与手机响应式页面。
 - PostgreSQL/pgvector、Redis、MinIO 本地基础设施定义，以及 MinIO 私有桶幂等初始化。
 - 配置注册表、全作用域编辑、不可变草稿、发布前重校验、安全差异、版本历史、回滚和逐项生效来源。
 - AES-256-GCM 自托管密钥存储，以及只返回掩码的写入、轮换、完整性测试、清除和审计接口。
@@ -20,6 +21,7 @@
 - 会话、消息、Agent Run、有序事件持久化，以及可取消、可断线恢复的 WebSocket 流式闭环。
 - 厂商无关的 `ModelProvider` 契约、无需密钥的本地 Provider 和 OpenAI 官方 SDK `Responses API` 适配器。
 - MinIO 官方 Python SDK 附件适配器、预签名浏览器直传、服务端摘要复核、私有预览和生命周期清理。
+- Markdown/GFM 消息、自动保存草稿、图片/文件选择、键盘跳转和 axe 无障碍回归。
 - Alembic 配置、对话、附件、加密密钥与审计迁移。
 - Python/Web 测试、静态检查和 GitHub Actions。
 

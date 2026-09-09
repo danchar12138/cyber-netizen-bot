@@ -14,6 +14,8 @@ import { ConversationsPage } from './views/ConversationsPage'
 import { DashboardPage } from './views/DashboardPage'
 import { EntityManagementPage } from './views/EntityManagementPage'
 import { SectionRoutePage } from './views/SectionRoutePage'
+import { SystemSettingsPage } from './views/SystemSettingsPage'
+import { TaskStatusPage } from './views/TaskStatusPage'
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -71,6 +73,18 @@ const auditRoute = createRoute({
   component: AuditLogPage,
 })
 
+const tasksRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/tasks',
+  component: TaskStatusPage,
+})
+
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings',
+  component: SystemSettingsPage,
+})
+
 const sectionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/$section',
@@ -86,6 +100,8 @@ const routeTree = rootRoute.addChildren([
   agentsRoute,
   usersRoute,
   auditRoute,
+  tasksRoute,
+  settingsRoute,
   sectionRoute,
 ])
 

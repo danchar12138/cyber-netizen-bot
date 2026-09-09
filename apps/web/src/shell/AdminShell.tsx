@@ -53,17 +53,27 @@ const operationsNavigation: NavigationItem[] = [
   { label: '审计日志', path: '/audit', icon: ScrollText },
 ]
 
-function NavigationGroup({ title, items }: { title: string; items: NavigationItem[] }) {
+function NavigationGroup({
+  title,
+  items,
+  kind,
+}: {
+  title: string
+  items: NavigationItem[]
+  kind: 'primary' | 'operations'
+}) {
   return (
-    <section className="nav-group">
+    <section className={`nav-group ${kind}`}>
       <p className="nav-label">{title}</p>
-      <nav>
+      <nav aria-label={`${title}导航`}>
         {items.map(({ icon: Icon, label, path }) => (
           <Link
             key={path}
             to={path}
             className="nav-item"
             activeProps={{ className: 'nav-item active' }}
+            aria-label={label}
+            title={label}
           >
             <Icon size={17} strokeWidth={1.8} />
             <span>{label}</span>
@@ -80,7 +90,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="admin-shell">
-      <aside className="sidebar">
+      <a className="skip-link" href="#main-content">跳转到主要内容</a>
+      <aside className="sidebar" aria-label="主导航">
         <div className="brand">
           <div className="brand-mark"><BrainCircuit size={21} /></div>
           <div>
@@ -93,13 +104,13 @@ export function AdminShell({ children }: { children: ReactNode }) {
           <span className="status-dot" />
           <div>
             <strong>本地开发环境</strong>
-            <small>development</small>
+            <small>开发模式</small>
           </div>
           <ChevronDown size={15} />
         </div>
 
-        <NavigationGroup title="心智系统" items={primaryNavigation} />
-        <NavigationGroup title="运营与治理" items={operationsNavigation} />
+        <NavigationGroup title="心智系统" items={primaryNavigation} kind="primary" />
+        <NavigationGroup title="运营与治理" items={operationsNavigation} kind="operations" />
 
         <div className="sidebar-footer">
           <Link
@@ -111,8 +122,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
             <span>配置中心</span>
           </Link>
           <Link
-            to="/$section"
-            params={{ section: 'settings' }}
+            to="/settings"
             className="nav-item"
             activeProps={{ className: 'nav-item active' }}
           >
@@ -122,7 +132,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <main className="main-area">
+      <main className="main-area" id="main-content" tabIndex={-1}>
         <header className="topbar">
           <div className="breadcrumb">
             <span>管理后台</span>

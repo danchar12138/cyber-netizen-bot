@@ -20,7 +20,7 @@ export function PlaceholderPage({ section }: { section: string }) {
   return (
     <div className="page">
       <section className="page-heading compact">
-        <div><p className="eyebrow">MANAGEMENT MODULE</p><h1>{title}</h1><p>管理入口已经预留，将按开发计划逐步接入真实数据与操作。</p></div>
+        <div><p className="eyebrow">管理模块</p><h1>{title}</h1><p>管理入口已经预留，将按开发计划逐步接入真实数据与操作。</p></div>
       </section>
       <div className="panel placeholder-panel">
         <div className="placeholder-icon"><Construction size={25} /></div>
@@ -31,4 +31,3 @@ export function PlaceholderPage({ section }: { section: string }) {
     </div>
   )
 }
-

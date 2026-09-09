@@ -11,6 +11,21 @@ const fallbackMetrics = [
   { label: '配置定义', value: '—', icon: Settings2 },
 ]
 
+const componentLabels: Record<string, string> = {
+  api: '应用接口',
+  postgresql: 'PostgreSQL 数据库',
+  redis: 'Redis 任务服务',
+  object_storage: 'MinIO 对象存储',
+}
+
+const healthLabels: Record<string, string> = {
+  healthy: '健康',
+  ready: '就绪',
+  degraded: '异常',
+  not_checked: '待探测',
+  not_configured: '未配置',
+}
+
 export function DashboardPage() {
   const overview = useQuery({ queryKey: ['system-overview'], queryFn: getSystemOverview })
   const data = overview.data
@@ -66,7 +81,7 @@ export function DashboardPage() {
             ]).map((component) => (
               <div className="component-row" key={component.name}>
                 <span className={`component-status ${component.status}`} />
-                <div><strong>{component.name}</strong><small>{component.status}</small></div>
+                <div><strong>{componentLabels[component.name] ?? component.name}</strong><small>{healthLabels[component.status] ?? component.status}</small></div>
                 <span className="latency">等待探测</span>
               </div>
             ))}
@@ -76,10 +91,10 @@ export function DashboardPage() {
         <article className="panel roadmap-card">
           <div className="panel-heading">
             <div><p className="eyebrow">开发进度</p><h2>P2 管理后台</h2></div>
-            <span className="phase-tag">进行中</span>
+            <span className="phase-tag">已完成</span>
           </div>
-          <div className="progress-track"><span /></div>
-          <p className="progress-copy">配置与密钥闭环、服务端权限、资源批量管理和审计查询已接通。</p>
+          <div className="progress-track"><span className="complete" /></div>
+          <p className="progress-copy">配置、权限、资源、会话、MinIO 附件、基础管理页与跨标签页同步已经接通。</p>
           <ul className="phase-list">
             <li className="done">uv workspace 与包边界</li>
             <li className="done">FastAPI 管理接口</li>
@@ -89,7 +104,9 @@ export function DashboardPage() {
             <li className="done">内部对话与断线事件恢复</li>
             <li className="done">生产模型凭证与后台配置</li>
             <li className="done">角色权限与资源审计</li>
-            <li>完整会话管理与附件</li>
+            <li className="done">完整会话管理与 MinIO 附件</li>
+            <li className="done">响应式与无障碍基础</li>
+            <li className="done">基础管理页收口</li>
           </ul>
         </article>
       </section>

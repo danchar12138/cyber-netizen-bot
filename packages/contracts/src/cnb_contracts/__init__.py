@@ -60,7 +60,13 @@ from cnb_contracts.conversation import (
     MessageSearchResponse,
 )
 from cnb_contracts.error import ApiError, ApiErrorDetail, ApiErrorResponse
-from cnb_contracts.health import ComponentHealth, HealthResponse, SystemOverviewResponse
+from cnb_contracts.health import (
+    BootstrapSettingsResponse,
+    ComponentHealth,
+    HealthResponse,
+    SystemOverviewResponse,
+    TaskStatusResponse,
+)
 
 __all__ = [
     "AdminRoleListResponse",
@@ -78,6 +84,7 @@ __all__ = [
     "AttachmentUploadGrant",
     "AuditRecordListResponse",
     "AuditRecordResponse",
+    "BootstrapSettingsResponse",
     "BulkStatusUpdateCommand",
     "ComponentHealth",
     "ConfigDefinitionResponse",
@@ -120,4 +127,5 @@ __all__ = [
     "SecretRotateCommand",
     "SecretWriteCommand",
     "SystemOverviewResponse",
+    "TaskStatusResponse",
 ]

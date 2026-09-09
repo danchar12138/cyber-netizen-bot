@@ -7,12 +7,14 @@ from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient, Response
+from pydantic import SecretStr
 
 from cnb_api.main import create_app
 from cnb_contracts import (
     AdminRoleListResponse,
     AdminSessionResponse,
     ApiErrorResponse,
+    BootstrapSettingsResponse,
     ComponentHealth,
     ConfigRegistryResponse,
     ConfigVersionListResponse,
@@ -25,6 +27,7 @@ from cnb_contracts import (
     MessageListResponse,
     MessageSearchResponse,
     SystemOverviewResponse,
+    TaskStatusResponse,
 )
 from cnb_infrastructure import (
     MemoryAttachmentRepository,
@@ -213,6 +216,38 @@ async def test_system_overview_matches_registry_count() -> None:
 
     assert overview.configuration_definitions == len(registry.definitions)
     assert overview.environment == "test"
+
+
+async def test_system_settings_and_task_status_hide_bootstrap_secrets() -> None:
+    settings = Settings(
+        environment="test",
+        minio_endpoint_url="http://minio.internal:9000",
+        minio_access_key=SecretStr("minio-test-user"),
+        minio_secret_key=SecretStr("minio-test-secret"),
+        minio_bucket="attachments",
+        config_master_key=SecretStr("configured-test-key"),
+    )
+    app = create_app(
+        settings,
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        settings_response = await client.get("/api/v1/system/settings")
+        tasks_response = await client.get("/api/v1/system/tasks/status")
+
+    bootstrap = BootstrapSettingsResponse.model_validate(settings_response.json())
+    tasks = TaskStatusResponse.model_validate(tasks_response.json())
+    assert bootstrap.object_storage_provider == "minio"
+    assert bootstrap.minio_endpoint_url == "http://minio.internal:9000"
+    assert bootstrap.minio_bucket == "attachments"
+    assert bootstrap.minio_credentials_configured is True
+    assert bootstrap.config_master_key_status == "configured"
+    assert "minio-test-user" not in settings_response.text
+    assert "minio-test-secret" not in settings_response.text
+    assert "configured-test-key" not in settings_response.text
+    assert tasks.broker == "dramatiq-redis"
+    assert tasks.worker.status == "not_checked"
 
 
 async def test_configuration_draft_publish_and_rollback_flow() -> None:

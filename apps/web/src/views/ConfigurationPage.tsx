@@ -35,6 +35,7 @@ import {
   setSecret,
   testSecret,
 } from '../api'
+import { invalidateAcrossTabs } from '../tabSync'
 
 const scopeLabels: Record<ConfigScope, string> = {
   system: '系统',
@@ -199,8 +200,8 @@ export function ConfigurationPage() {
 
   const refreshHistory = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['config-versions'] }),
-      queryClient.invalidateQueries({ queryKey: ['effective-configuration'] }),
+      invalidateAcrossTabs(queryClient, ['config-versions']),
+      invalidateAcrossTabs(queryClient, ['effective-configuration']),
     ])
   }
 
@@ -253,17 +254,17 @@ export function ConfigurationPage() {
     },
     onSuccess: async (_, definition) => {
       setSecretValues((current) => ({ ...current, [definition.key]: '' }))
-      await queryClient.invalidateQueries({ queryKey: ['config-secrets'] })
+      await invalidateAcrossTabs(queryClient, ['config-secrets'])
     },
   })
 
   const verifySecret = useMutation({
     mutationFn: testSecret,
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['config-secrets'] }),
+    onSuccess: async () => invalidateAcrossTabs(queryClient, ['config-secrets']),
   })
   const removeSecret = useMutation({
     mutationFn: clearSecret,
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['config-secrets'] }),
+    onSuccess: async () => invalidateAcrossTabs(queryClient, ['config-secrets']),
   })
 
   const definitions = useMemo(() => {

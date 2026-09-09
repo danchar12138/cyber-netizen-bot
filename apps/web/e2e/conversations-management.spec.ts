@@ -77,13 +77,37 @@ test('可以重命名、置顶、归档和软删除会话', async ({ page }) => 
       },
     })
   })
+  await page.route(`**/api/v1/chat/conversations/${conversationId}/messages?limit=200`, async (route) => {
+    await route.fulfill({
+      json: {
+        items: [{
+          id: '55555555-5555-4555-8555-555555555555',
+          conversation_id: conversationId,
+          sender_type: 'user',
+          sender_id: userId,
+          content: '需要在管理页查看的消息',
+          status: 'completed',
+          client_message_id: '66666666-6666-4666-8666-666666666666',
+          created_at: timestamp,
+          updated_at: timestamp,
+          edited_from_id: null,
+        }],
+        next_cursor: null,
+      },
+    })
+  })
+  await page.route(`**/api/v1/chat/conversations/${conversationId}/attachments`, async (route) => {
+    await route.fulfill({ json: { items: [] } })
+  })
 
   await page.goto('/conversations')
   await expect(page.getByText('需要治理的会话')).toBeVisible()
+  await page.getByRole('button', { name: '查看消息' }).click()
+  await expect(page.getByText('需要在管理页查看的消息')).toBeVisible()
 
   page.once('dialog', (dialog) => dialog.accept('新的会话标题'))
   await page.getByRole('button', { name: '重命名 需要治理的会话' }).click()
-  await expect(page.getByText('新的会话标题')).toBeVisible()
+  await expect(page.locator('.admin-table').getByText('新的会话标题', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: '置顶', exact: true }).click()
   await expect(page.getByRole('button', { name: '取消置顶', exact: true })).toBeVisible()

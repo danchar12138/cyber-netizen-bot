@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Archive, Bot, CircleStop, Copy, CornerDownLeft, ImagePlus, LoaderCircle,
-  FileText, Paperclip, Pencil, Pin, RotateCcw, Search, SendHorizontal, Sparkles,
+  FileText, Menu, Paperclip, Pencil, Pin, RotateCcw, Search, SendHorizontal, Sparkles,
   ThumbsDown, ThumbsUp, Trash2, UserRound, X,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   type ChatAttachment, type ChatMessage, type ConversationEvent, type MessageAccepted,
@@ -16,6 +16,9 @@ import {
   uploadReservedAttachment,
 } from '../api'
 import { applyConversationEvent } from '../chatEvents'
+import { invalidateAcrossTabs } from '../tabSync'
+
+const MarkdownContent = lazy(() => import('../components/MarkdownContent'))
 
 const messageStatusLabels: Record<ChatMessage['status'], string> = {
   received: '已接收', processing: '处理中', streaming: '正在输入',
@@ -31,6 +34,27 @@ interface DraftAttachment {
   error?: string
 }
 
+function draftStorageKey(conversationId: string) {
+  return `cnb-chat-draft:${conversationId}`
+}
+
+function readDraft(conversationId: string): string {
+  try {
+    return window.localStorage.getItem(draftStorageKey(conversationId)) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function writeDraft(conversationId: string, value: string): void {
+  try {
+    if (value) window.localStorage.setItem(draftStorageKey(conversationId), value)
+    else window.localStorage.removeItem(draftStorageKey(conversationId))
+  } catch {
+    // 浏览器禁用本地存储时仍允许正常对话，仅不保留草稿。
+  }
+}
+
 export function ChatPage() {
   const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -40,15 +64,17 @@ export function ChatPage() {
   const [searchText, setSearchText] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
+  const [showConversationList, setShowConversationList] = useState(false)
   const [connection, setConnection] = useState<'连接中' | '已连接' | '正在重连'>('连接中')
   const lastSequence = useRef(0)
   const fileInput = useRef<HTMLInputElement>(null)
+  const imageInput = useRef<HTMLInputElement>(null)
 
   const identity = useQuery({ queryKey: ['chat-identity'], queryFn: getDevelopmentIdentity })
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const canUseConversation = session.data?.permissions.includes('conversation:use') ?? false
   const conversations = useQuery({
-    queryKey: ['conversations', searchText],
+    queryKey: ['conversations', 'chat', searchText],
     queryFn: () => getConversations(searchText),
   })
   const messageSearch = useQuery({
@@ -81,6 +107,7 @@ export function ChatPage() {
   useEffect(() => setMessages(messageHistory.data?.items ?? []), [messageHistory.data])
 
   useEffect(() => {
+    setDraft(selectedId ? readDraft(selectedId) : '')
     setDraftAttachments([])
     setDraftMessageId(crypto.randomUUID())
   }, [selectedId])
@@ -143,15 +170,16 @@ export function ChatPage() {
       )
     })
     setActiveRunId(accepted.run.id)
-    void queryClient.invalidateQueries({ queryKey: ['conversations'] })
+    void invalidateAcrossTabs(queryClient, ['conversations'])
   }
 
   const createConversationMutation = useMutation({
     mutationFn: () => createConversation(),
     onSuccess: async (conversation) => {
       setSearchText('')
-      await queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      await invalidateAcrossTabs(queryClient, ['conversations'])
       setSelectedId(conversation.id)
+      setShowConversationList(false)
     },
   })
   const updateConversationMutation = useMutation({
@@ -159,13 +187,16 @@ export function ChatPage() {
       conversationId: string
       command: { title?: string; status?: 'active' | 'archived'; pinned?: boolean }
     }) => updateConversation(conversationId, command),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['conversations'] }),
+    onSuccess: () => invalidateAcrossTabs(queryClient, ['conversations']),
   })
   const deleteConversationMutation = useMutation({
     mutationFn: deleteConversation,
     onSuccess: async (_, conversationId) => {
-      if (selectedId === conversationId) setSelectedId(null)
-      await queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      if (selectedId === conversationId) {
+        setSelectedId(null)
+        setShowConversationList(false)
+      }
+      await invalidateAcrossTabs(queryClient, ['conversations'])
     },
   })
   const sendMessage = useMutation({
@@ -178,10 +209,11 @@ export function ChatPage() {
     }),
     onSuccess: (accepted) => {
       acceptRun(accepted)
+      if (selectedId) writeDraft(selectedId, '')
       setDraft('')
       setDraftAttachments([])
       setDraftMessageId(crypto.randomUUID())
-      void queryClient.invalidateQueries({ queryKey: ['attachments', selectedId] })
+      void invalidateAcrossTabs(queryClient, ['attachments', selectedId])
     },
   })
   const regenerateMessage = useMutation({ mutationFn: regenerateChatMessage, onSuccess: acceptRun })
@@ -190,7 +222,7 @@ export function ChatPage() {
       editChatMessage(messageId, content),
     onSuccess: async (accepted) => {
       setSearchText('')
-      await queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      await invalidateAcrossTabs(queryClient, ['conversations'])
       setSelectedId(accepted.run.conversation_id)
       setMessages([accepted.user_message, accepted.response_message])
       setActiveRunId(accepted.run.id)
@@ -199,11 +231,11 @@ export function ChatPage() {
   const feedbackMutation = useMutation({
     mutationFn: ({ messageId, rating }: { messageId: string; rating: 'positive' | 'negative' }) =>
       setMessageFeedback(messageId, rating),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['message-feedback', selectedId] }),
+    onSuccess: () => invalidateAcrossTabs(queryClient, ['message-feedback', selectedId]),
   })
   const clearFeedbackMutation = useMutation({
     mutationFn: clearMessageFeedback,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['message-feedback', selectedId] }),
+    onSuccess: () => invalidateAcrossTabs(queryClient, ['message-feedback', selectedId]),
   })
   const cancelRun = useMutation({
     mutationFn: (runId: string) => cancelAgentRun(runId),
@@ -221,12 +253,17 @@ export function ChatPage() {
   const operationError = createConversationMutation.error ?? updateConversationMutation.error ??
     deleteConversationMutation.error ?? sendMessage.error ?? regenerateMessage.error ??
     editMessage.error ?? feedbackMutation.error ?? clearFeedbackMutation.error ?? cancelRun.error
+  const draftAttachmentsBlocked = draftAttachments.some((item) => item.status !== 'ready')
+
+  const updateDraft = (value: string) => {
+    setDraft(value)
+    if (selectedId) writeDraft(selectedId, value)
+  }
 
   const submit = () => {
     const content = draft.trim()
     const ready = draftAttachments.filter((item) => item.status === 'ready')
-    const busy = draftAttachments.some((item) => ['preparing', 'uploading'].includes(item.status))
-    if (content && selectedId && !activeRunId && !sendMessage.isPending && !busy) {
+    if (content && selectedId && !activeRunId && !sendMessage.isPending && !draftAttachmentsBlocked) {
       sendMessage.mutate({
         content,
         messageId: draftMessageId,
@@ -270,7 +307,7 @@ export function ChatPage() {
         )
         await completeAttachment(reservation.attachment.id)
         updateDraftAttachment(localId, { status: 'ready', progress: 100 })
-        await queryClient.invalidateQueries({ queryKey: ['attachments', selectedId] })
+        await invalidateAcrossTabs(queryClient, ['attachments', selectedId])
       } catch (error) {
         updateDraftAttachment(localId, {
           status: 'failed',
@@ -279,6 +316,7 @@ export function ChatPage() {
       }
     }
     if (fileInput.current) fileInput.current.value = ''
+    if (imageInput.current) imageInput.current.value = ''
   }
   const removeDraftAttachment = async (item: DraftAttachment) => {
     if (item.attachmentId) await deleteAttachment(item.attachmentId).catch(() => undefined)
@@ -288,20 +326,24 @@ export function ChatPage() {
     const preview = await getAttachmentPreview(attachment.id)
     window.open(preview.url, '_blank', 'noopener,noreferrer')
   }
+  const selectConversation = (conversationId: string) => {
+    setSelectedId(conversationId)
+    setShowConversationList(false)
+  }
 
   return (
     <div className="page chat-page">
       <section className="page-heading compact">
         <div>
           <p className="eyebrow">内部对话工作台</p>
-          <h1>内部对话</h1>
+          <h1 id="chat-heading">内部对话</h1>
           <p>管理会话、搜索消息、创建分支与反馈，并按事件序号恢复流式响应。</p>
         </div>
-        <span className={`phase-tag connection ${connection === '已连接' ? 'online' : ''}`}>{connection}</span>
+        <span className={`phase-tag connection ${connection === '已连接' ? 'online' : ''}`} role="status" aria-live="polite">{connection}</span>
       </section>
       {operationError && <div className="notice error">{operationError.message}</div>}
-      <section className="chat-workspace panel">
-        <aside className="conversation-list">
+      <section className="chat-workspace panel" aria-labelledby="chat-heading">
+        <aside className={`conversation-list ${showConversationList ? 'mobile-open' : ''}`} aria-label="会话列表">
           <button className="new-conversation" onClick={() => createConversationMutation.mutate()}
             disabled={!canUseConversation || createConversationMutation.isPending}>
             <Sparkles size={15} /> 新建会话
@@ -314,7 +356,7 @@ export function ChatPage() {
             <div className="message-search-results" aria-label="消息搜索结果">
               <p className="nav-label">消息命中</p>
               {messageSearch.data.items.slice(0, 5).map((result) => (
-                <button key={result.message.id} onClick={() => setSelectedId(result.conversation.id)}>
+                <button key={result.message.id} onClick={() => selectConversation(result.conversation.id)}>
                   <strong>{result.conversation.title}</strong><span>{result.message.content}</span>
                 </button>
               ))}
@@ -323,7 +365,7 @@ export function ChatPage() {
           <p className="nav-label">会话</p>
           {conversations.data?.items.map((conversation) => (
             <div className={`conversation-row ${conversation.id === selectedId ? 'active' : ''}`} key={conversation.id}>
-              <button className="conversation" onClick={() => setSelectedId(conversation.id)}>
+              <button className="conversation" onClick={() => selectConversation(conversation.id)}>
                 <strong>{conversation.title}</strong>
                 <span>{conversation.status === 'active' ? '进行中' : '已归档'}{conversation.pinned_at ? ' · 已置顶' : ''}</span>
               </button>
@@ -343,10 +385,19 @@ export function ChatPage() {
         </aside>
         <div className="conversation-main">
           <div className="conversation-header">
+            <button
+              className="mobile-conversation-toggle"
+              type="button"
+              aria-label={showConversationList ? '隐藏会话列表' : '显示会话列表'}
+              aria-expanded={showConversationList}
+              onClick={() => setShowConversationList((current) => !current)}
+            >
+              <Menu size={18} />
+            </button>
             <div className="agent-avatar"><Bot size={20} /></div>
             <div><strong>{identity.data?.agent_name ?? '赛博网友'}</strong><span>{selectedConversation?.title ?? '请选择或创建会话'}</span></div>
           </div>
-          <div className={`message-stage ${messages.length ? 'has-messages' : ''}`}>
+          <div className={`message-stage ${messages.length ? 'has-messages' : ''}`} aria-live="polite">
             {messageHistory.isLoading && <LoaderCircle className="spin" size={24} />}
             {!messageHistory.isLoading && messages.length === 0 && (
               <div className="chat-empty">
@@ -366,19 +417,23 @@ export function ChatPage() {
                       <strong>{message.sender_type === 'agent' ? identity.data?.agent_name ?? 'Agent' : '我'}</strong>
                       <span>{message.edited_from_id ? '分支消息 · ' : ''}{messageStatusLabels[message.status]}</span>
                     </div>
-                    <p>{message.content || (message.status === 'processing' ? '正在思考…' : '…')}</p>
+                    <div className="message-content">
+                      <Suspense fallback={<p>{message.content || '正在读取内容…'}</p>}>
+                        <MarkdownContent content={message.content || (message.status === 'processing' ? '正在思考…' : '…')} />
+                      </Suspense>
+                    </div>
                     {messageAttachments.length > 0 && (
                       <div className="message-attachments">
                         {messageAttachments.map((attachment) => (
                           <button key={attachment.id} onClick={() => void previewAttachment(attachment)}>
-                            <FileText size={13} /> {attachment.original_name}
+                            {attachment.content_type.startsWith('image/') ? <ImagePlus size={13} /> : <FileText size={13} />} {attachment.original_name}
                           </button>
                         ))}
                       </div>
                     )}
                     <div className="message-actions">
                       <button aria-label="复制消息" onClick={() => void navigator.clipboard.writeText(message.content)}><Copy size={13} /></button>
-                      <button aria-label="引用消息" onClick={() => setDraft(`> ${message.content.replaceAll('\n', '\n> ')}\n\n`)}><CornerDownLeft size={13} /></button>
+                      <button aria-label="引用消息" onClick={() => updateDraft(`> ${message.content.replaceAll('\n', '\n> ')}\n\n`)}><CornerDownLeft size={13} /></button>
                       {message.sender_type === 'user' && canUseConversation && <button aria-label="编辑并创建分支" onClick={() => editUserMessage(message)}><Pencil size={13} /></button>}
                       {message.sender_type === 'agent' && canUseConversation && (
                         <>
@@ -406,7 +461,7 @@ export function ChatPage() {
                 ))}
               </div>
             )}
-            <textarea value={draft} onChange={(event) => setDraft(event.target.value)}
+            <textarea aria-label="消息内容" value={draft} onChange={(event) => updateDraft(event.target.value)}
               onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit() } }}
               disabled={!canUseConversation || !selectedId}
               placeholder={selectedId ? '输入消息，Enter 发送，Shift + Enter 换行' : '请先创建会话'} />
@@ -414,12 +469,13 @@ export function ChatPage() {
               <div>
                 <input ref={fileInput} type="file" hidden multiple onChange={(event) => void uploadFiles(event.target.files)} />
                 <button aria-label="添加附件" disabled={!canUseConversation || !selectedId} onClick={() => fileInput.current?.click()}><Paperclip size={17} /></button>
-                <button disabled aria-label="添加图片"><ImagePlus size={17} /></button>
+                <input ref={imageInput} type="file" accept="image/*" hidden multiple onChange={(event) => void uploadFiles(event.target.files)} />
+                <button aria-label="添加图片" disabled={!canUseConversation || !selectedId} onClick={() => imageInput.current?.click()}><ImagePlus size={17} /></button>
               </div>
               {activeRunId ? (
                 <button className="stop-button" aria-label="停止生成" onClick={() => cancelRun.mutate(activeRunId)} disabled={!canUseConversation || cancelRun.isPending}><CircleStop size={17} /></button>
               ) : (
-                <button className="send-button" aria-label="发送消息" onClick={submit} disabled={!canUseConversation || !selectedId || !draft.trim() || sendMessage.isPending}><SendHorizontal size={16} /></button>
+                <button className="send-button" aria-label="发送消息" onClick={submit} disabled={!canUseConversation || !selectedId || !draft.trim() || draftAttachmentsBlocked || sendMessage.isPending}><SendHorizontal size={16} /></button>
               )}
             </div>
           </div>

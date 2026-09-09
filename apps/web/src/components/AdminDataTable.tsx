@@ -68,15 +68,17 @@ export function AdminDataTable<T extends object>({
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder}
           />
         </label>
-        <span>{visibleRows.length} 条结果</span>
+        <span aria-live="polite">{visibleRows.length} 条结果</span>
       </div>
       <div className="admin-table-scroll">
         <table className="admin-table">
+          <caption className="sr-only">管理数据列表</caption>
           <thead><tr>
-            {selectable && <th className="selection-cell"><input type="checkbox" aria-label="选择当前全部结果" checked={allVisibleSelected} onChange={toggleAll} /></th>}
-            {columns.map((column) => <th key={column.key}>{column.label}</th>)}
+            {selectable && <th scope="col" className="selection-cell"><input type="checkbox" aria-label="选择当前全部结果" checked={allVisibleSelected} onChange={toggleAll} /></th>}
+            {columns.map((column) => <th scope="col" key={column.key}>{column.label}</th>)}
           </tr></thead>
           <tbody>
             {visibleRows.map((row) => (

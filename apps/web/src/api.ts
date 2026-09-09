@@ -14,6 +14,28 @@ export interface SystemOverview {
   components: ComponentHealth[]
 }
 
+export interface BootstrapSettings {
+  environment: string
+  log_level: string
+  cors_origins: string[]
+  readiness_deep_checks: boolean
+  object_storage_provider: 'minio'
+  minio_endpoint_url: string
+  minio_bucket: string
+  database_configured: boolean
+  redis_configured: boolean
+  minio_credentials_configured: boolean
+  config_master_key_status: 'development_placeholder' | 'configured'
+  requires_restart: boolean
+}
+
+export interface TaskStatus {
+  broker: 'dramatiq-redis'
+  queues: string[]
+  pending_jobs: number
+  worker: ComponentHealth
+}
+
 export type AdminRole = 'admin' | 'operator' | 'viewer'
 export type AdminPermission =
   | 'dashboard:read'
@@ -395,6 +417,12 @@ async function deleteRequest(path: string): Promise<void> {
 }
 
 export const getSystemOverview = () => getJson<SystemOverview>('/api/v1/system/overview')
+
+export const getBootstrapSettings = () =>
+  getJson<BootstrapSettings>('/api/v1/system/settings')
+
+export const getTaskStatus = () =>
+  getJson<TaskStatus>('/api/v1/system/tasks/status')
 
 export const getAdminSession = () =>
   getJson<AdminSession>('/api/v1/administration/session')
