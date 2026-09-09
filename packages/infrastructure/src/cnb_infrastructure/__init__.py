@@ -22,7 +22,7 @@ from cnb_infrastructure.model_provider import (
     DevelopmentModelProvider,
     OpenAIResponsesProvider,
 )
-from cnb_infrastructure.object_storage import MemoryObjectStorage, S3ObjectStorage
+from cnb_infrastructure.object_storage import MemoryObjectStorage, MinioObjectStorage
 from cnb_infrastructure.secret_store import (
     AesGcmEnvelopeCipher,
     MemorySecretStore,
@@ -41,8 +41,8 @@ __all__ = [
     "MemoryConversationRepository",
     "MemoryObjectStorage",
     "MemorySecretStore",
+    "MinioObjectStorage",
     "OpenAIResponsesProvider",
-    "S3ObjectStorage",
     "Settings",
     "SqlAlchemyAdministrationRepository",
     "SqlAlchemyAttachmentRepository",

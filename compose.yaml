@@ -36,6 +36,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-cyber-netizen}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-this-development-secret}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_API_CORS_ALLOW_ORIGIN:-http://localhost:5173}
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -47,8 +48,23 @@ services:
       timeout: 3s
       retries: 10
 
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-cyber-netizen}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-this-development-secret}
+      MINIO_BUCKET: ${CNB_MINIO_BUCKET:-cyber-netizen}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
+        mc mb --ignore-existing "local/$${MINIO_BUCKET}"
+    restart: "no"
+
 volumes:
   postgres-data:
   redis-data:
   minio-data:
-

@@ -90,7 +90,7 @@ class AttachmentRepository(Protocol):
 
 
 class ObjectStorage(Protocol):
-    """S3 兼容对象存储所需的最小能力。"""
+    """MinIO 对象存储所需的最小能力。"""
 
     async def presign_upload(
         self,

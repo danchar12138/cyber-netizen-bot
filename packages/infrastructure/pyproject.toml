@@ -5,7 +5,6 @@ description = "赛博网友机器人的基础设施适配器"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "alembic>=1.16,<2",
-  "boto3>=1.40,<2",
   "cnb-application",
   "cnb-contracts",
   "cnb-domain",
@@ -17,6 +16,7 @@ dependencies = [
   "redis>=6.4,<7",
   "sqlalchemy>=2.0.43,<3",
   "openai>=2,<3",
+  "minio>=7.2,<8",
 ]
 
 [tool.uv.sources]

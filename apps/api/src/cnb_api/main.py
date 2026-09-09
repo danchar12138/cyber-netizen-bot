@@ -31,7 +31,7 @@ from cnb_infrastructure import (
     MemoryAttachmentRepository,
     MemoryObjectStorage,
     MemorySecretStore,
-    S3ObjectStorage,
+    MinioObjectStorage,
     Settings,
     SqlAlchemyAdministrationRepository,
     SqlAlchemyAttachmentRepository,
@@ -108,7 +108,7 @@ def create_app(
     elif conversation_repository is not None:
         application.state.object_storage = MemoryObjectStorage()
     else:
-        application.state.object_storage = S3ObjectStorage(resolved_settings)
+        application.state.object_storage = MinioObjectStorage(resolved_settings)
     if administration_repository is not None:
         application.state.administration_repository = administration_repository
     elif configuration_repository is not None or conversation_repository is not None:

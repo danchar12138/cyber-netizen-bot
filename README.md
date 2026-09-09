@@ -2,7 +2,7 @@
 
 以自研 Agent 认知运行时为核心的“赛博网友”项目。Web 首发形态是统一管理后台，其中包含内部全功能对话工作台；后续 IM 平台通过统一 Channel Adapter 接入。
 
-当前已完成 P0、P1，并正在推进 P2 管理后台。最新开发计划见 [`docs/plans/2026-09-09-v2.md`](docs/plans/2026-09-09-v2.md)。
+当前已完成 P1，并正在推进 P2 管理后台；P0 的代码基线已具备，Docker 实跑与分支保护仍待环境验证。最新开发计划见 [`docs/plans/2026-09-09-v3.md`](docs/plans/2026-09-09-v3.md)。
 
 ## 已建立的能力
 
@@ -11,7 +11,7 @@
 - 自研 Domain、Cognition、Application、Infrastructure、Contracts、Adapters 包边界。
 - Dramatiq Worker 骨架。
 - React 管理后台骨架，包含总览、配置中心、内部对话和其他管理入口。
-- PostgreSQL/pgvector、Redis、MinIO 本地基础设施定义。
+- PostgreSQL/pgvector、Redis、MinIO 本地基础设施定义，以及 MinIO 私有桶幂等初始化。
 - 配置注册表、全作用域编辑、不可变草稿、发布前重校验、安全差异、版本历史、回滚和逐项生效来源。
 - AES-256-GCM 自托管密钥存储，以及只返回掩码的写入、轮换、完整性测试、清除和审计接口。
 - 服务端 `admin`、`operator`、`viewer` 最小权限矩阵、开发管理会话和可搜索的访问控制页面。
@@ -19,7 +19,8 @@
 - 统一错误 Envelope、请求追踪 ID、稳定开发身份与游标分页。
 - 会话、消息、Agent Run、有序事件持久化，以及可取消、可断线恢复的 WebSocket 流式闭环。
 - 厂商无关的 `ModelProvider` 契约、无需密钥的本地 Provider 和 OpenAI 官方 SDK `Responses API` 适配器。
-- Alembic 配置、对话、加密密钥与审计迁移。
+- MinIO 官方 Python SDK 附件适配器、预签名浏览器直传、服务端摘要复核、私有预览和生命周期清理。
+- Alembic 配置、对话、附件、加密密钥与审计迁移。
 - Python/Web 测试、静态检查和 GitHub Actions。
 
 ## 环境要求
@@ -55,6 +56,8 @@ corepack pnpm --filter @cnb/web dev
 - OpenAPI：http://localhost:8000/docs
 - MinIO Console：http://localhost:9001
 
+MinIO 是项目唯一的附件与大对象存储。应用使用 `CNB_MINIO_ENDPOINT_URL`、`CNB_MINIO_ACCESS_KEY`、`CNB_MINIO_SECRET_KEY` 和 `CNB_MINIO_BUCKET` 启动设置；Compose 中的 `minio-init` 会在服务健康后幂等创建私有桶。浏览器上传来源通过 `MINIO_API_CORS_ALLOW_ORIGIN` 配置，默认允许本地 Web 开发地址。
+
 ## 常用检查
 
 ```powershell
@@ -65,7 +68,7 @@ uv run alembic heads
 
 ## 配置边界
 
-`.env` 只保存系统启动前必须知道的配置，例如数据库、Redis、对象存储连接和配置加密主密钥。模型、人格、Prompt、记忆、渠道、工具、策略等运行配置将由配置注册表、数据库版本和管理后台维护。
+`.env` 只保存系统启动前必须知道的配置，例如数据库、Redis、MinIO 连接和配置加密主密钥。模型、人格、Prompt、记忆、渠道、工具、策略等运行配置将由配置注册表、数据库版本和管理后台维护。
 
 配置中心已支持系统、租户、Agent、渠道和用户作用域编辑。普通运行配置使用完整不可变快照，可在发布前查看安全差异并重新按当前 Registry 校验；最终生效接口逐项返回来源作用域、作用域 ID 和版本。
 

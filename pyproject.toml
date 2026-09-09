@@ -11,7 +11,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-  "boto3-stubs[s3]>=1.40,<2",
   "httpx>=0.28,<1",
   "poethepoet>=0.37,<1",
   "pyright>=1.1.405,<2",

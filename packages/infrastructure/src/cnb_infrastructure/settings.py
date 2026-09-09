@@ -23,11 +23,10 @@ class Settings(BaseSettings):
         "postgresql+psycopg://cyber_netizen:cyber_netizen@localhost:5432/cyber_netizen"
     )
     redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
-    s3_endpoint_url: str = "http://localhost:9000"
-    s3_access_key: SecretStr = SecretStr("cyber-netizen")
-    s3_secret_key: SecretStr = SecretStr("change-this-development-secret")
-    s3_bucket: str = "cyber-netizen"
-    s3_region: str = "us-east-1"
+    minio_endpoint_url: str = "http://localhost:9000"
+    minio_access_key: SecretStr = SecretStr("cyber-netizen")
+    minio_secret_key: SecretStr = SecretStr("change-this-development-secret")
+    minio_bucket: str = "cyber-netizen"
     config_master_key: SecretStr = SecretStr("development-only-placeholder")
     cors_origins: tuple[str, ...] = ("http://localhost:5173",)
     readiness_deep_checks: bool = False

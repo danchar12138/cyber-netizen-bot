@@ -1,16 +1,13 @@
-"""S3/MinIO 对象存储与测试内存实现。"""
+"""MinIO 对象存储与测试内存实现。"""
 
 import asyncio
-from base64 import b64encode
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256 as calculate_sha256
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
-import boto3
-from botocore.client import Config
-from botocore.exceptions import ClientError
-from mypy_boto3_s3 import S3Client
-from mypy_boto3_s3.type_defs import HeadObjectOutputTypeDef
+from minio import Minio
+from minio.datatypes import Object as MinioObject
+from minio.error import S3Error as MinioProtocolError
 
 from cnb_application import ObjectNotFoundError, StoredObjectInfo, UploadGrant
 from cnb_infrastructure.settings import Settings
@@ -68,18 +65,21 @@ class MemoryObjectStorage:
         self._objects[object_key] = (content, content_type, digest)
 
 
-class S3ObjectStorage:
-    """通过 boto3 为兼容 S3 的私有桶签发短期 URL。"""
+class MinioObjectStorage:
+    """通过 MinIO 官方客户端管理私有桶并签发短期上传、预览地址。"""
 
-    def __init__(self, settings: Settings) -> None:
-        self._bucket = settings.s3_bucket
-        self._client: S3Client = boto3.client(  # pyright: ignore[reportUnknownMemberType]
-            "s3",
-            endpoint_url=settings.s3_endpoint_url,
-            aws_access_key_id=settings.s3_access_key.get_secret_value(),
-            aws_secret_access_key=settings.s3_secret_key.get_secret_value(),
-            region_name=settings.s3_region,
-            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+    def __init__(self, settings: Settings, *, client: Minio | None = None) -> None:
+        endpoint = urlsplit(settings.minio_endpoint_url)
+        if endpoint.scheme not in {"http", "https"} or not endpoint.netloc:
+            raise ValueError("MinIO 地址必须是完整的 http 或 https URL")
+        if endpoint.path not in {"", "/"} or endpoint.query or endpoint.fragment:
+            raise ValueError("MinIO 地址不能包含路径、查询参数或片段")
+        self._bucket = settings.minio_bucket
+        self._client = client or Minio(
+            endpoint.netloc,
+            access_key=settings.minio_access_key.get_secret_value(),
+            secret_key=settings.minio_secret_key.get_secret_value(),
+            secure=endpoint.scheme == "https",
         )
 
     async def presign_upload(
@@ -90,20 +90,11 @@ class S3ObjectStorage:
         sha256: str,
         expires_seconds: int,
     ) -> UploadGrant:
-        checksum = b64encode(bytes.fromhex(sha256)).decode("ascii")
-        parameters = {
-            "Bucket": self._bucket,
-            "Key": object_key,
-            "ContentType": content_type,
-            "Metadata": {"sha256": sha256},
-            "ChecksumSHA256": checksum,
-        }
         url = await asyncio.to_thread(
-            self._client.generate_presigned_url,
-            "put_object",
-            Params=parameters,
-            ExpiresIn=expires_seconds,
-            HttpMethod="PUT",
+            self._client.presigned_put_object,
+            self._bucket,
+            object_key,
+            expires=timedelta(seconds=expires_seconds),
         )
         return UploadGrant(
             url=url,
@@ -111,26 +102,31 @@ class S3ObjectStorage:
             headers={
                 "Content-Type": content_type,
                 "x-amz-meta-sha256": sha256,
-                "x-amz-checksum-sha256": checksum,
             },
             expires_at=datetime.now(UTC) + timedelta(seconds=expires_seconds),
         )
 
     async def stat_object(self, object_key: str) -> StoredObjectInfo:
         try:
-            raw: HeadObjectOutputTypeDef = await asyncio.to_thread(
-                self._client.head_object, Bucket=self._bucket, Key=object_key
+            raw: MinioObject = await asyncio.to_thread(
+                self._client.stat_object, self._bucket, object_key
             )
-        except ClientError as error:
-            code = str(error.response.get("Error", {}).get("Code", ""))
+        except MinioProtocolError as error:
+            code = error.code
             if code in {"404", "NoSuchKey", "NotFound"}:
                 raise ObjectNotFoundError(object_key) from error
             raise
-        metadata = raw.get("Metadata", {})
-        digest = metadata.get("sha256")
+        metadata = raw.metadata or {}
+        digest = (
+            metadata.get("x-amz-meta-sha256")
+            or metadata.get("X-Amz-Meta-Sha256")
+            or metadata.get("sha256")
+        )
+        if raw.size is None:
+            raise RuntimeError("MinIO 未返回对象大小")
         return StoredObjectInfo(
-            size_bytes=int(raw["ContentLength"]),
-            content_type=str(raw.get("ContentType", "application/octet-stream")),
+            size_bytes=raw.size,
+            content_type=raw.content_type or "application/octet-stream",
             sha256=str(digest) if digest else None,
         )
 
@@ -138,19 +134,17 @@ class S3ObjectStorage:
         self, *, object_key: str, download_name: str, expires_seconds: int
     ) -> str:
         return await asyncio.to_thread(
-            self._client.generate_presigned_url,
-            "get_object",
-            Params={
-                "Bucket": self._bucket,
-                "Key": object_key,
-                "ResponseContentDisposition": self._content_disposition(download_name),
+            self._client.presigned_get_object,
+            self._bucket,
+            object_key,
+            expires=timedelta(seconds=expires_seconds),
+            response_headers={
+                "response-content-disposition": self._content_disposition(download_name),
             },
-            ExpiresIn=expires_seconds,
-            HttpMethod="GET",
         )
 
     async def delete_object(self, object_key: str) -> None:
-        await asyncio.to_thread(self._client.delete_object, Bucket=self._bucket, Key=object_key)
+        await asyncio.to_thread(self._client.remove_object, self._bucket, object_key)
 
     @staticmethod
     def _content_disposition(name: str) -> str:

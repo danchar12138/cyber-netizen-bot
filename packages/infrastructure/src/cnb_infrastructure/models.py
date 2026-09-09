@@ -344,7 +344,7 @@ class MessageModel(Base):
 
 
 class AttachmentModel(Base):
-    """S3/MinIO 对象对应的上传与校验元数据。"""
+    """MinIO 对象对应的上传与校验元数据。"""
 
     __tablename__ = "attachments"
 

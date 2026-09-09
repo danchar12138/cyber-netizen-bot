@@ -54,7 +54,7 @@ async def _probe_redis(settings: Settings) -> None:
 
 
 async def _probe_object_storage(settings: Settings) -> None:
-    endpoint = settings.s3_endpoint_url.rstrip("/")
+    endpoint = settings.minio_endpoint_url.rstrip("/")
     async with httpx.AsyncClient(timeout=2) as client:
         response = await client.get(f"{endpoint}/minio/health/ready")
         response.raise_for_status()

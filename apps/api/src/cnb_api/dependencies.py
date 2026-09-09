@@ -139,7 +139,7 @@ def get_attachment_repository(request: HTTPConnection) -> AttachmentRepository:
 
 
 def get_object_storage(request: HTTPConnection) -> ObjectStorage:
-    """返回组合根选择的 S3 兼容对象存储。"""
+    """返回组合根选择的 MinIO 对象存储。"""
     storage: ObjectStorage = request.app.state.object_storage
     return storage
 
