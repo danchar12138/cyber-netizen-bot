@@ -20,6 +20,7 @@ from cnb_contracts.attachment import (
     AttachmentResponse,
     AttachmentUploadGrant,
 )
+from cnb_contracts.authentication import AuthenticationConfigResponse
 from cnb_contracts.channels import (
     ChannelCapabilitiesResponse,
     ChannelCatalogListResponse,
@@ -162,6 +163,7 @@ __all__ = [
     "AttachmentUploadGrant",
     "AuditRecordListResponse",
     "AuditRecordResponse",
+    "AuthenticationConfigResponse",
     "BackgroundJobDetailResponse",
     "BackgroundJobListResponse",
     "BackgroundJobResponse",

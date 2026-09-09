@@ -1,10 +1,22 @@
-"""与 Web 框架和身份厂商无关的管理权限策略。"""
+"""与 Web 框架和身份厂商无关的管理认证端口与权限策略。"""
+
+from typing import Protocol
 
 from cnb_domain import AdminPermission, AdminPrincipal, AdminRole
 
 
 class PermissionDeniedError(PermissionError):
     """当前管理主体不具备所需能力时抛出。"""
+
+
+class AuthenticationError(PermissionError):
+    """访问令牌缺失、无效或主体不可用时使用的安全认证错误。"""
+
+
+class AdminAuthenticator(Protocol):
+    """把厂商访问令牌验证为本地稳定管理主体。"""
+
+    async def authenticate(self, access_token: str) -> AdminPrincipal: ...
 
 
 _ROLE_PERMISSIONS: dict[AdminRole, frozenset[AdminPermission]] = {

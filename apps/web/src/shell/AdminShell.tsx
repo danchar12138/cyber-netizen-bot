@@ -11,6 +11,7 @@ import {
   KeyRound,
   LockKeyhole,
   ListChecks,
+  LogOut,
   MemoryStick,
   MessageCircleMore,
   MessagesSquare,
@@ -25,6 +26,7 @@ import {
 import type { ComponentType, ReactNode } from 'react'
 
 import { getAdminSession } from '../api'
+import { useAuthentication } from '../components/authentication-context'
 
 interface NavigationItem {
   label: string
@@ -87,6 +89,7 @@ function NavigationGroup({
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
+  const authentication = useAuthentication()
   const roleLabels = { admin: '管理员', operator: '运营者', viewer: '只读' }
 
   return (
@@ -145,6 +148,15 @@ export function AdminShell({ children }: { children: ReactNode }) {
               <ShieldCheck size={14} /> {session.data ? roleLabels[session.data.role] : '正在验证权限'}
             </div>
             <button className="icon-button" aria-label="凭证管理"><KeyRound size={17} /></button>
+            {authentication.mode === 'oidc' && (
+              <button
+                className="icon-button"
+                aria-label="退出登录"
+                onClick={() => void authentication.signOut()}
+              >
+                <LogOut size={17} />
+              </button>
+            )}
             <div className="avatar" title={session.data?.display_name}>CN</div>
           </div>
         </header>

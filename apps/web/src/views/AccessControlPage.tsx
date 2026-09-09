@@ -56,7 +56,7 @@ export function AccessControlPage() {
         <ShieldCheck size={17} />
         <div>
           <strong>当前会话：{session.data?.display_name ?? '读取中'} · {session.data?.role ?? '—'}</strong>
-          <span>认证模式：{session.data?.authentication_mode ?? '—'}；正式 OIDC 登录将在 P7 接入。</span>
+          <span>认证模式：{session.data?.authentication_mode ?? '—'}；OIDC 角色由可信签名 claim 映射并由服务端执行最小权限校验。</span>
         </div>
       </div>
 

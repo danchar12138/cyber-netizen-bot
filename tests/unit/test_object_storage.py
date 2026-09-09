@@ -1,13 +1,22 @@
 """MinIO 官方客户端适配器测试。"""
 
+from collections.abc import Iterator
 from datetime import timedelta
+from hashlib import sha256
+from io import BytesIO
 from typing import cast
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 from minio import Minio
 from minio.datatypes import Object as MinioObject
 
-from cnb_infrastructure import MinioObjectStorage, Settings
+from cnb_application import ObjectInspectionError
+from cnb_infrastructure import (
+    MemoryObjectStorage,
+    MinioObjectStorage,
+    Settings,
+)
 
 
 class FakeMinioClient:
@@ -32,6 +41,11 @@ class FakeMinioClient:
             metadata={"x-amz-meta-sha256": "a" * 64},
         )
 
+    def get_object(self, bucket_name: str, object_name: str) -> "FakeObjectResponse":
+        assert bucket_name == "cyber-netizen"
+        assert object_name == "tenants/tenant/attachments/file.txt"
+        return FakeObjectResponse(b"payload")
+
     def presigned_get_object(
         self,
         bucket_name: str,
@@ -50,6 +64,25 @@ class FakeMinioClient:
 
     def remove_object(self, bucket_name: str, object_name: str) -> None:
         self.removed = (bucket_name, object_name)
+
+
+class FakeObjectResponse:
+    """模拟 urllib3 流并记录资源释放。"""
+
+    def __init__(self, content: bytes) -> None:
+        self._content = content
+        self.closed = False
+
+    def stream(self, amt: int) -> Iterator[bytes]:
+        yield from (
+            self._content[index : index + amt] for index in range(0, len(self._content), amt)
+        )
+
+    def close(self) -> None:
+        self.closed = True
+
+    def release_conn(self) -> None:
+        self.closed = True
 
 
 async def test_minio_adapter_presigns_verifies_previews_and_deletes() -> None:
@@ -71,6 +104,7 @@ async def test_minio_adapter_presigns_verifies_previews_and_deletes() -> None:
         expires_seconds=600,
     )
     observed = await storage.stat_object(object_key)
+    inspected = await storage.inspect_object(object_key, max_bytes=7)
     preview = await storage.presign_download(
         object_key=object_key,
         download_name="资料.txt",
@@ -86,6 +120,9 @@ async def test_minio_adapter_presigns_verifies_previews_and_deletes() -> None:
     assert observed.size_bytes == 7
     assert observed.content_type == "text/plain"
     assert observed.sha256 == "a" * 64
+    assert inspected.sha256 == sha256(b"payload").hexdigest()
+    assert inspected.metadata_sha256 == "a" * 64
+    assert inspected.detected_content_type == "text/plain"
     assert preview == "http://minio.local/download-token"
     assert client.removed == ("cyber-netizen", object_key)
 
@@ -95,3 +132,50 @@ def test_minio_adapter_rejects_endpoint_with_path() -> None:
         MinioObjectStorage(
             Settings(environment="test", minio_endpoint_url="http://minio.local:9000/storage")
         )
+
+
+@pytest.mark.parametrize(
+    ("content_type", "content"),
+    (
+        ("application/json", b'{"unfinished":'),
+        ("text/plain", b"visible\x00binary"),
+        ("image/png", b"\x89PNG\r\n\x1a\nnot-an-image"),
+        ("application/pdf", b"%PDF-1.7\n1 0 obj << /Java#53cript 2 0 R >>"),
+    ),
+)
+async def test_object_inspection_rejects_spoofed_or_active_content(
+    content_type: str,
+    content: bytes,
+) -> None:
+    storage = MemoryObjectStorage()
+    storage.put_for_test(
+        object_key="unsafe-object",
+        content=content,
+        content_type=content_type,
+    )
+
+    with pytest.raises(ObjectInspectionError):
+        await storage.inspect_object("unsafe-object", max_bytes=len(content))
+
+
+async def test_docx_inspection_rejects_external_relationships() -> None:
+    output = BytesIO()
+    with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", "<Types />")
+        archive.writestr("word/document.xml", "<document />")
+        archive.writestr(
+            "word/_rels/document.xml.rels",
+            "<Relationships><Relationship TargetMode = 'External' "
+            "Target='https://evil.example.test/payload'/></Relationships>",
+        )
+    content = output.getvalue()
+    content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    storage = MemoryObjectStorage()
+    storage.put_for_test(
+        object_key="unsafe.docx",
+        content=content,
+        content_type=content_type,
+    )
+
+    with pytest.raises(ObjectInspectionError, match="外部关系"):
+        await storage.inspect_object("unsafe.docx", max_bytes=len(content))

@@ -1,5 +1,26 @@
 @import "tailwindcss";
 
+.authentication-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: radial-gradient(circle at top, #173256 0, #081323 48%, #050b14 100%);
+  color: #e8f1ff;
+}
+
+.authentication-card {
+  width: min(32rem, 100%);
+  padding: 2rem;
+  border: 1px solid #2f5077;
+  border-radius: 1.25rem;
+  background: rgb(8 20 36 / 92%);
+  box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 35%);
+}
+
+.authentication-card h1 { margin: 0.6rem 0; font-size: 1.75rem; }
+.authentication-card > p:not(.eyebrow) { margin: 0 0 1.5rem; color: #b7c9df; line-height: 1.65; }
+
 :root {
   color: #dce8e3;
   background: #07100e;

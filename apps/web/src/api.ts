@@ -19,6 +19,8 @@ export interface BootstrapSettings {
   log_level: string
   cors_origins: string[]
   readiness_deep_checks: boolean
+  authentication_mode: 'development' | 'oidc'
+  oidc_configured: boolean
   object_storage_provider: 'minio'
   minio_endpoint_url: string
   minio_bucket: string
@@ -27,6 +29,13 @@ export interface BootstrapSettings {
   minio_credentials_configured: boolean
   config_master_key_status: 'development_placeholder' | 'configured'
   requires_restart: boolean
+}
+
+export interface AuthenticationConfig {
+  mode: 'development' | 'oidc'
+  authority: string | null
+  client_id: string | null
+  scope: string | null
 }
 
 export interface TaskStatus {
@@ -759,9 +768,27 @@ interface SecretList {
   secrets: SecretMetadata[]
 }
 
+let accessToken: string | null = null
+
+export function setApiAccessToken(token: string | null) {
+  accessToken = token
+}
+
+export function getApiAccessToken() {
+  return accessToken
+}
+
+function requestHeaders(json = false): Record<string, string> {
+  return {
+    Accept: 'application/json',
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+  }
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path, {
-    headers: { Accept: 'application/json' },
+    headers: requestHeaders(),
   })
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as {
@@ -773,7 +800,7 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 async function getOptionalJson<T>(path: string): Promise<T | null> {
-  const response = await fetch(path, { headers: { Accept: 'application/json' } })
+  const response = await fetch(path, { headers: requestHeaders() })
   if (response.status === 404) return null
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as {
@@ -787,7 +814,7 @@ async function getOptionalJson<T>(path: string): Promise<T | null> {
 async function postJson<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    headers: requestHeaders(true),
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   if (!response.ok) {
@@ -802,7 +829,7 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
 async function patchJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: 'PATCH',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    headers: requestHeaders(true),
     body: JSON.stringify(body),
   })
   if (!response.ok) {
@@ -817,7 +844,7 @@ async function patchJson<T>(path: string, body: unknown): Promise<T> {
 async function putJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: 'PUT',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    headers: requestHeaders(true),
     body: JSON.stringify(body),
   })
   if (!response.ok) {
@@ -830,7 +857,7 @@ async function putJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function deleteJson<T>(path: string): Promise<T> {
-  const response = await fetch(path, { method: 'DELETE', headers: { Accept: 'application/json' } })
+  const response = await fetch(path, { method: 'DELETE', headers: requestHeaders() })
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as {
       error?: { message?: string }
@@ -841,7 +868,7 @@ async function deleteJson<T>(path: string): Promise<T> {
 }
 
 async function deleteRequest(path: string): Promise<void> {
-  const response = await fetch(path, { method: 'DELETE', headers: { Accept: 'application/json' } })
+  const response = await fetch(path, { method: 'DELETE', headers: requestHeaders() })
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as {
       error?: { message?: string }
@@ -851,6 +878,9 @@ async function deleteRequest(path: string): Promise<void> {
 }
 
 export const getSystemOverview = () => getJson<SystemOverview>('/api/v1/system/overview')
+
+export const getAuthenticationConfig = () =>
+  getJson<AuthenticationConfig>('/api/v1/auth/config')
 
 export const getBootstrapSettings = () =>
   getJson<BootstrapSettings>('/api/v1/system/settings')

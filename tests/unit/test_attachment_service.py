@@ -122,7 +122,7 @@ async def test_attachment_rejects_mismatched_object_and_removes_it() -> None:
         content_type="application/json",
     )
 
-    with pytest.raises(AttachmentValidationError, match="SHA-256"):
+    with pytest.raises(AttachmentValidationError, match="安全检查"):
         await service.complete(reservation.attachment.id)
     with pytest.raises(LookupError):
         await storage.stat_object(reservation.attachment.object_key)
@@ -140,6 +140,16 @@ async def test_attachment_policy_rejects_unlisted_type_and_cleanup_is_idempotent
             client_message_id=uuid5(NAMESPACE_DNS, "attachment.executable"),
             original_name="危险程序.exe",
             content_type="application/x-msdownload",
+            size_bytes=10,
+            sha256="0" * 64,
+        )
+
+    with pytest.raises(AttachmentValidationError, match="扩展名"):
+        await service.reserve(
+            conversation_id=conversation.id,
+            client_message_id=uuid5(NAMESPACE_DNS, "attachment.spoofed-extension"),
+            original_name="伪装文件.pdf",
+            content_type="text/plain",
             size_bytes=10,
             sha256="0" * 64,
         )

@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './fixtures'
 
 const tenantId = '44444444-4444-4444-8444-444444444444'
 const userId = '22222222-2222-4222-8222-222222222222'

@@ -13,12 +13,14 @@ from cnb_application import (
     build_default_registry,
 )
 from cnb_cognition import (
+    UNTRUSTED_CONTEXT_POLICY,
     MinimalCognitiveRuntime,
     ModelCapabilities,
     ModelProvider,
     ModelRequest,
     ModelStreamEvent,
     ModelUsage,
+    read_untrusted_content,
 )
 from cnb_domain import (
     AgentRunStatus,
@@ -55,7 +57,9 @@ class StubModelProvider:
         return ModelCapabilities(True, False, False, False)
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
-        assert request.messages[-1].content.startswith("你好")
+        assert request.messages[-1].content.startswith("<untrusted_context>")
+        assert read_untrusted_content(request.messages[-1].content).startswith("你好")
+        assert request.instructions.startswith(UNTRUSTED_CONTEXT_POLICY)
         yield ModelStreamEvent(delta="你")
         yield ModelStreamEvent(delta="好呀")
         yield ModelStreamEvent(usage=ModelUsage(input_tokens=2, output_tokens=3))

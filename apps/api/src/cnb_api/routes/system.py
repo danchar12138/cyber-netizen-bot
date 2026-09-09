@@ -67,6 +67,13 @@ async def bootstrap_settings(request: Request) -> BootstrapSettingsResponse:
         log_level=settings.log_level,
         cors_origins=settings.cors_origins,
         readiness_deep_checks=settings.readiness_deep_checks,
+        authentication_mode=settings.authentication_mode,
+        oidc_configured=bool(
+            settings.oidc_issuer_url
+            and settings.oidc_client_id
+            and settings.oidc_tenant_id
+            and settings.oidc_agent_id
+        ),
         minio_endpoint_url=settings.minio_endpoint_url,
         minio_bucket=settings.minio_bucket,
         database_configured=bool(settings.database_url.get_secret_value()),

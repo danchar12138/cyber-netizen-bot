@@ -18,6 +18,8 @@ dependencies = [
   "openai>=2,<3",
   "minio>=7.2,<8",
   "pgvector>=0.4,<1",
+  "PyJWT[crypto]>=2.10,<3",
+  "pillow>=11,<13",
 ]
 
 [tool.uv.sources]

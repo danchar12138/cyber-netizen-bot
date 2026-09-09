@@ -45,6 +45,8 @@ class BootstrapSettingsResponse(BaseModel):
     log_level: str
     cors_origins: tuple[str, ...]
     readiness_deep_checks: bool
+    authentication_mode: Literal["development", "oidc"]
+    oidc_configured: bool
     object_storage_provider: Literal["minio"] = "minio"
     minio_endpoint_url: str
     minio_bucket: str

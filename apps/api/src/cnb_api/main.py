@@ -10,10 +10,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from cnb_adapters import ChannelAdapterRegistry, build_default_channel_registry
 from cnb_api import __version__
-from cnb_api.errors import RequestIdMiddleware, install_error_handlers
+from cnb_api.errors import RequestIdMiddleware, SecurityHeadersMiddleware, install_error_handlers
 from cnb_api.routes import (
     administration,
     attachment,
+    authentication,
     channels,
     cognition,
     configuration,
@@ -24,6 +25,7 @@ from cnb_api.routes import (
     tasks,
 )
 from cnb_application import (
+    AdminAuthenticator,
     AdministrationRepository,
     AttachmentRepository,
     ChannelRepository,
@@ -53,6 +55,7 @@ from cnb_infrastructure import (
     MemoryObjectStorage,
     MemorySecretStore,
     MinioObjectStorage,
+    OidcAuthenticator,
     Settings,
     SqlAlchemyAdministrationRepository,
     SqlAlchemyAttachmentRepository,
@@ -87,6 +90,7 @@ def create_app(
     model_provider: ModelProvider | None = None,
     model_provider_resolver: ModelProviderResolver | None = None,
     dependency_probe: DependencyProbe | None = None,
+    admin_authenticator: AdminAuthenticator | None = None,
 ) -> FastAPI:
     """创建可用于生产或测试的独立应用实例。"""
     resolved_settings = settings or get_settings()
@@ -121,6 +125,13 @@ def create_app(
     )
     application.state.development_identity = development_identity
     session_factory = create_session_factory(resolved_settings)
+    application.state.admin_authenticator = (
+        admin_authenticator
+        if admin_authenticator is not None
+        else OidcAuthenticator(resolved_settings, session_factory)
+        if resolved_settings.authentication_mode == "oidc"
+        else None
+    )
     application.state.configuration_repository = (
         configuration_repository or SqlAlchemyConfigurationRepository(session_factory)
     )
@@ -199,6 +210,7 @@ def create_app(
     application.state.agent_run_tasks = agent_run_tasks
     install_error_handlers(application)
     application.add_middleware(RequestIdMiddleware)
+    application.add_middleware(SecurityHeadersMiddleware)
     application.state.dependency_probe = dependency_probe or probe_dependencies
     application.add_middleware(
         CORSMiddleware,
@@ -215,6 +227,7 @@ def create_app(
         expose_headers=["X-Request-ID"],
     )
     application.include_router(health.router)
+    application.include_router(authentication.router, prefix="/api/v1")
     application.include_router(system.router, prefix="/api/v1")
     application.include_router(administration.router, prefix="/api/v1")
     application.include_router(configuration.router, prefix="/api/v1")

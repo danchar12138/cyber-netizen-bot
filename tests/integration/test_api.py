@@ -11,6 +11,7 @@ from httpx import ASGITransport, AsyncClient, Response
 from pydantic import SecretStr
 
 from cnb_api.main import create_app
+from cnb_application import AuthenticationError, permissions_for_role
 from cnb_contracts import (
     AdminRoleListResponse,
     AdminSessionResponse,
@@ -34,7 +35,7 @@ from cnb_contracts import (
     SystemOverviewResponse,
     TaskStatusResponse,
 )
-from cnb_domain import JsonValue
+from cnb_domain import AdminPrincipal, AdminRole, JsonValue
 from cnb_infrastructure import (
     InMemoryMemoryRepository,
     MemoryAttachmentRepository,
@@ -43,6 +44,18 @@ from cnb_infrastructure import (
     MemoryObjectStorage,
     Settings,
 )
+
+
+class FakeOidcAuthenticator:
+    """API 认证边界桩，不在集成测试中发起发现请求。"""
+
+    def __init__(self, principal: AdminPrincipal) -> None:
+        self._principal = principal
+
+    async def authenticate(self, access_token: str) -> AdminPrincipal:
+        if access_token != "signed-test-token":
+            raise AuthenticationError("访问令牌无效或已过期")
+        return self._principal
 
 
 def _transport(
@@ -86,6 +99,101 @@ async def test_admin_session_and_role_matrix_expose_server_permissions() -> None
     assert "configuration:read" in session.permissions
     assert "configuration:write" not in session.permissions
     assert [item.role for item in roles.roles] == ["admin", "operator", "viewer"]
+
+
+async def test_oidc_mode_requires_bearer_token_and_exposes_safe_browser_config() -> None:
+    tenant_id, user_id, agent_id = uuid4(), uuid4(), uuid4()
+    principal = AdminPrincipal(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        display_name="OIDC 只读用户",
+        role=AdminRole.VIEWER,
+        permissions=permissions_for_role(AdminRole.VIEWER),
+        authentication_mode="oidc",
+    )
+    settings = Settings(
+        environment="test",
+        authentication_mode="oidc",
+        oidc_issuer_url="https://identity.example.test/realms/cnb",
+        oidc_client_id="cyber-netizen-web",
+        oidc_audience="cyber-netizen-api",
+        oidc_tenant_id=tenant_id,
+        oidc_agent_id=agent_id,
+    )
+    app = create_app(
+        settings,
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+        admin_authenticator=FakeOidcAuthenticator(principal),
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        config = await client.get("/api/v1/auth/config")
+        missing = await client.get("/api/v1/administration/session")
+        invalid = await client.get(
+            "/api/v1/administration/session",
+            headers={"Authorization": "Basic invalid"},
+        )
+        authenticated = await client.get(
+            "/api/v1/administration/session",
+            headers={"Authorization": "Bearer signed-test-token"},
+        )
+
+    assert config.status_code == 200
+    assert config.json() == {
+        "mode": "oidc",
+        "authority": "https://identity.example.test/realms/cnb",
+        "client_id": "cyber-netizen-web",
+        "scope": "openid profile email",
+    }
+    assert missing.status_code == invalid.status_code == 401
+    assert missing.headers["www-authenticate"] == "Bearer"
+    assert authenticated.status_code == 200
+    assert authenticated.json()["user_id"] == str(user_id)
+    assert authenticated.json()["authentication_mode"] == "oidc"
+
+
+def test_oidc_websocket_uses_bearer_subprotocol_without_echoing_token() -> None:
+    tenant_id, user_id, agent_id = uuid4(), uuid4(), uuid4()
+    principal = AdminPrincipal(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        display_name="OIDC WebSocket 用户",
+        role=AdminRole.ADMIN,
+        permissions=permissions_for_role(AdminRole.ADMIN),
+        authentication_mode="oidc",
+    )
+    app = create_app(
+        Settings(
+            environment="test",
+            authentication_mode="oidc",
+            oidc_issuer_url="https://identity.example.test/realms/cnb",
+            oidc_client_id="cyber-netizen-web",
+            oidc_tenant_id=tenant_id,
+            oidc_agent_id=agent_id,
+        ),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+        admin_authenticator=FakeOidcAuthenticator(principal),
+    )
+
+    with TestClient(app) as client:
+        response = cast(
+            Response,
+            client.post(  # pyright: ignore[reportUnknownMemberType]
+                "/api/v1/chat/conversations",
+                json={"title": "OIDC WebSocket 验证"},
+                headers={"Authorization": "Bearer signed-test-token"},
+            ),
+        )
+        conversation = ConversationResponse.model_validate(response.json())
+        with client.websocket_connect(
+            f"/api/v1/chat/conversations/{conversation.id}/events?after=0",
+            subprotocols=["cnb.bearer", "signed-test-token"],
+        ) as websocket:
+            assert websocket.accepted_subprotocol == "cnb.bearer"
+            event = websocket.receive_json()
+
+    assert event["event_type"] == "conversation.created"
 
 
 async def test_cognition_resource_publish_rollback_and_evaluation_api() -> None:

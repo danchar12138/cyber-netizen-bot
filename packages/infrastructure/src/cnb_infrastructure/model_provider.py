@@ -19,6 +19,7 @@ from cnb_cognition import (
     ModelRequest,
     ModelStreamEvent,
     ModelUsage,
+    read_untrusted_content,
 )
 
 
@@ -44,7 +45,9 @@ class DevelopmentModelProvider:
         )
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
-        last_message = request.messages[-1].content if request.messages else ""
+        last_message = (
+            read_untrusted_content(request.messages[-1].content) if request.messages else ""
+        )
         response = f"收到啦。你刚才说：“{last_message}” 我们可以从这里继续聊。"
         for start in range(0, len(response), 4):
             await asyncio.sleep(0)

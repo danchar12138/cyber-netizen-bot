@@ -37,6 +37,7 @@ export function SystemSettingsPage() {
             <div><dt>环境</dt><dd>{data?.environment ?? '读取中'}</dd></div>
             <div><dt>日志级别</dt><dd>{data?.log_level ?? '读取中'}</dd></div>
             <div><dt>深度就绪探测</dt><dd>{data ? (data.readiness_deep_checks ? '已开启' : '未开启') : '读取中'}</dd></div>
+            <div><dt>认证模式</dt><dd>{data?.authentication_mode === 'oidc' ? 'OIDC' : '开发身份'}</dd></div>
             <div><dt>变更生效</dt><dd><RotateCcw size={13} /> 需要重启进程</dd></div>
           </dl>
         </article>
@@ -57,6 +58,7 @@ export function SystemSettingsPage() {
           <div className="panel-heading"><div><p className="eyebrow">安全</p><h2>凭证保护</h2></div><KeyRound size={20} /></div>
           <dl className="settings-list">
             <div><dt>配置主密钥</dt><dd>{data?.config_master_key_status === 'configured' ? '已安全配置' : '开发占位值'}</dd></div>
+            <div><dt>OIDC 引导</dt><dd>{configuredLabel(data?.oidc_configured ?? false)}</dd></div>
             <div><dt>允许的 Web 来源</dt><dd>{data?.cors_origins.join('、') || '读取中'}</dd></div>
           </dl>
           <p className="settings-help"><ShieldCheck size={14} /> 页面永不返回数据库、Redis、MinIO 或配置主密钥明文。</p>

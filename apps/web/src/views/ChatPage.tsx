@@ -10,7 +10,7 @@ import {
   type ChatAttachment, type ChatMessage, type ConversationEvent, type MessageAccepted,
   cancelAgentRun, clearMessageFeedback, completeAttachment, createConversation,
   deleteAttachment, deleteConversation, editChatMessage, getAdminSession,
-  getAttachmentPreview, getAttachments, getConversations, getDevelopmentIdentity,
+  getApiAccessToken, getAttachmentPreview, getAttachments, getConversations, getDevelopmentIdentity,
   getMessageFeedback, getMessages, getRelationship, recallMemories,
   regenerateChatMessage, reserveAttachment,
   searchChatMessages, sendChatMessage, setMessageFeedback, updateConversation,
@@ -135,8 +135,10 @@ export function ChatPage() {
     let reconnectTimer: number | undefined
     const connect = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const accessToken = getApiAccessToken()
       socket = new WebSocket(
         `${protocol}//${window.location.host}/api/v1/chat/conversations/${selectedId}/events?after=${lastSequence.current}`,
+        accessToken ? ['cnb.bearer', accessToken] : undefined,
       )
       setConnection(lastSequence.current === 0 ? '连接中' : '正在重连')
       socket.onopen = () => setConnection('已连接')

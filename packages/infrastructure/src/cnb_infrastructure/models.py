@@ -224,6 +224,81 @@ class User(Base):
     )
 
 
+class ExternalIdentity(Base):
+    """经 OIDC 验证并绑定到本地用户的稳定外部主体。"""
+
+    __tablename__ = "external_identities"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    issuer: Mapped[str] = mapped_column(String(500), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_authenticated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("issuer", "subject", name="uq_external_identities_issuer_subject"),
+        Index("ix_external_identities_tenant_user", "tenant_id", "user_id"),
+    )
+
+
+class RoleAssignment(Base):
+    """由可信 OIDC claim 同步的租户级管理角色。"""
+
+    __tablename__ = "role_assignments"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(24), nullable=False)
+    source: Mapped[str] = mapped_column(String(24), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("role IN ('admin', 'operator', 'viewer')", name="ck_role_assignments_role"),
+        CheckConstraint("source IN ('oidc')", name="ck_role_assignments_source"),
+        UniqueConstraint("tenant_id", "user_id", name="uq_role_assignments_tenant_user"),
+        Index("ix_role_assignments_tenant_role", "tenant_id", "role"),
+    )
+
+
+class AdminSession(Base):
+    """只保存令牌不可逆摘要的 OIDC 管理会话观测记录。"""
+
+    __tablename__ = "admin_sessions"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    external_identity_id: Mapped[UUID] = mapped_column(
+        ForeignKey("external_identities.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("ix_admin_sessions_tenant_user_seen", "tenant_id", "user_id", "last_seen_at"),
+        Index("ix_admin_sessions_expires", "expires_at"),
+    )
+
+
 class ConversationModel(Base):
     """内部 Web Channel 使用的持久化会话。"""
 

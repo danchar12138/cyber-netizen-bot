@@ -17,12 +17,15 @@ from cnb_application.attachment_service import (
     AttachmentReservation,
     AttachmentService,
     AttachmentValidationError,
+    ObjectInspectionError,
     ObjectNotFoundError,
     ObjectStorage,
     StoredObjectInfo,
     UploadGrant,
 )
 from cnb_application.authorization import (
+    AdminAuthenticator,
+    AuthenticationError,
     PermissionDeniedError,
     permissions_for_role,
     require_admin_permission,
@@ -111,6 +114,7 @@ from cnb_application.task_service import (
 )
 
 __all__ = [
+    "AdminAuthenticator",
     "AdministrationNotFoundError",
     "AdministrationRepository",
     "AdministrationService",
@@ -123,6 +127,7 @@ __all__ = [
     "AttachmentService",
     "AttachmentValidationError",
     "AuditCursor",
+    "AuthenticationError",
     "BackgroundJobHandler",
     "BackgroundTaskService",
     "ChannelCatalogItem",
@@ -168,6 +173,7 @@ __all__ = [
     "ModelProviderResolver",
     "ModelReliabilityGuard",
     "ModelRoutePlan",
+    "ObjectInspectionError",
     "ObjectNotFoundError",
     "ObjectStorage",
     "PermanentTaskError",

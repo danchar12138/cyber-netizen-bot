@@ -35,6 +35,7 @@ from cnb_infrastructure.model_provider import (
     OpenAIResponsesProvider,
 )
 from cnb_infrastructure.object_storage import MemoryObjectStorage, MinioObjectStorage
+from cnb_infrastructure.oidc import OidcAuthenticator
 from cnb_infrastructure.secret_store import (
     AesGcmEnvelopeCipher,
     MemorySecretStore,
@@ -62,6 +63,7 @@ __all__ = [
     "MemoryObjectStorage",
     "MemorySecretStore",
     "MinioObjectStorage",
+    "OidcAuthenticator",
     "OpenAIResponsesProvider",
     "Settings",
     "SqlAlchemyAdministrationRepository",

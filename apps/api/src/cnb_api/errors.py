@@ -1,6 +1,6 @@
 """统一 HTTP 错误响应与请求追踪 ID。"""
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import cast
 from uuid import uuid4
 
@@ -29,6 +29,29 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """为管理 API 添加浏览器侧纵深防御头，并禁止敏感响应缓存。"""
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+            )
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+
+
 def _request_id(request: Request) -> str:
     value = getattr(request.state, "request_id", None)
     return value if isinstance(value, str) else str(uuid4())
@@ -41,6 +64,7 @@ def _response(
     code: str,
     message: str,
     details: tuple[ApiErrorDetail, ...] = (),
+    headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
     payload = ApiErrorResponse(
         error=ApiError(
@@ -50,7 +74,11 @@ def _response(
             details=details,
         )
     )
-    return JSONResponse(status_code=status_code, content=payload.model_dump(mode="json"))
+    return JSONResponse(
+        status_code=status_code,
+        content=payload.model_dump(mode="json"),
+        headers=headers,
+    )
 
 
 def install_error_handlers(application: FastAPI) -> None:
@@ -59,6 +87,7 @@ def install_error_handlers(application: FastAPI) -> None:
     async def handle_http_exception(request: Request, error: HTTPException) -> JSONResponse:
         message = error.detail
         codes = {
+            401: "unauthorized",
             403: "forbidden",
             404: "not_found",
             409: "conflict",
@@ -70,6 +99,7 @@ def install_error_handlers(application: FastAPI) -> None:
             status_code=error.status_code,
             code=codes.get(error.status_code, "request_failed"),
             message=message,
+            headers=error.headers,
         )
 
     async def handle_validation_exception(

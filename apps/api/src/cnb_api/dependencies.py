@@ -1,6 +1,6 @@
 """FastAPI 依赖提供器与进程内单例。"""
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from functools import lru_cache
 from typing import Annotated
 from uuid import UUID
@@ -10,10 +10,12 @@ from starlette.requests import HTTPConnection
 
 from cnb_adapters import ChannelAdapterRegistry
 from cnb_application import (
+    AdminAuthenticator,
     AdministrationRepository,
     AdministrationService,
     AttachmentRepository,
     AttachmentService,
+    AuthenticationError,
     BackgroundTaskService,
     ChannelRepository,
     ChannelService,
@@ -37,7 +39,7 @@ from cnb_application import (
     require_admin_permission,
 )
 from cnb_cognition import CognitiveRuntime
-from cnb_domain import AdminPermission, AdminPrincipal, AdminRole
+from cnb_domain import AdminPermission, AdminPrincipal, AdminRole, DevelopmentIdentity
 
 
 @lru_cache(maxsize=1)
@@ -91,14 +93,6 @@ def get_cognition_repository(request: HTTPConnection) -> CognitionRepository:
     return repository
 
 
-def get_cognition_service(
-    request: HTTPConnection,
-    repository: Annotated[CognitionRepository, Depends(get_cognition_repository)],
-) -> CognitionService:
-    """构建绑定当前开发 Agent 的请求级认知服务。"""
-    return CognitionService(repository, agent_id=request.app.state.development_identity.agent_id)
-
-
 def get_secret_store(request: HTTPConnection) -> SecretStore:
     """返回组合根选择的密钥安全存储。"""
     store: SecretStore = request.app.state.secret_store
@@ -122,13 +116,29 @@ def get_secret_management_service(
     return SecretManagementService(registry, store)
 
 
-def get_admin_principal(request: HTTPConnection) -> AdminPrincipal:
-    """解析开发期管理主体；非开发环境等待 P7 正式认证，不静默放行。"""
+async def get_admin_principal(request: HTTPConnection) -> AdminPrincipal:
+    """开发模式显式使用本地身份；OIDC 模式只接受已验证 Bearer JWT。"""
     settings = request.app.state.settings
+    if settings.authentication_mode == "oidc":
+        token = _bearer_token(request)
+        authenticator: AdminAuthenticator | None = request.app.state.admin_authenticator
+        if authenticator is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OIDC 认证服务尚未就绪",
+            )
+        try:
+            return await authenticator.authenticate(token)
+        except AuthenticationError as error:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=str(error),
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from error
     if settings.environment not in {"development", "test"}:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="正式管理身份认证尚未配置",
+            detail="当前环境禁止开发身份认证",
         )
     role_value = request.headers.get("X-CNB-Development-Role", AdminRole.ADMIN.value)
     try:
@@ -151,17 +161,77 @@ def get_admin_principal(request: HTTPConnection) -> AdminPrincipal:
 
 def require_permission(
     permission: AdminPermission,
-) -> Callable[[HTTPConnection], AdminPrincipal]:
+) -> Callable[..., Awaitable[AdminPrincipal]]:
     """创建由 FastAPI 注入的服务端权限守卫。"""
 
-    def enforce(request: HTTPConnection) -> AdminPrincipal:
-        principal = get_admin_principal(request)
+    async def enforce(
+        principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    ) -> AdminPrincipal:
         try:
             return require_admin_permission(principal, permission)
         except PermissionError as error:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
 
     return enforce
+
+
+def _bearer_token(request: HTTPConnection) -> str:
+    authorization = request.headers.get("Authorization")
+    if authorization is not None:
+        scheme, separator, token = authorization.partition(" ")
+        if separator and scheme.casefold() == "bearer" and token.strip():
+            return token.strip()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization 必须使用 Bearer 访问令牌",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    protocols = tuple(
+        item.strip()
+        for item in request.headers.get("Sec-WebSocket-Protocol", "").split(",")
+        if item.strip()
+    )
+    if "cnb.bearer" in protocols:
+        index = protocols.index("cnb.bearer")
+        if index + 1 < len(protocols):
+            return protocols[index + 1]
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="缺少 Bearer 访问令牌",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+async def get_request_identity(
+    request: HTTPConnection,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+) -> DevelopmentIdentity:
+    """把开发或 OIDC 管理主体映射到当前固定 Agent 的请求身份。"""
+    settings = request.app.state.settings
+    if principal.authentication_mode == "development":
+        identity: DevelopmentIdentity = request.app.state.development_identity
+        return identity
+    agent_id = settings.oidc_agent_id
+    if agent_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OIDC Agent 映射尚未配置",
+        )
+    return DevelopmentIdentity(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        agent_id=agent_id,
+        user_name=principal.display_name,
+        agent_name=settings.oidc_agent_name,
+    )
+
+
+async def get_cognition_service(
+    repository: Annotated[CognitionRepository, Depends(get_cognition_repository)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+) -> CognitionService:
+    """构建绑定当前认证主体所选 Agent 的请求级认知服务。"""
+    return CognitionService(repository, agent_id=identity.agent_id)
 
 
 def get_current_actor_id(
@@ -231,6 +301,7 @@ def get_attachment_service(
         ConversationRepository, Depends(get_conversation_repository)
     ],
     configuration_service: Annotated[ConfigurationService, Depends(get_configuration_service)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
 ) -> AttachmentService:
     """构建请求级附件生命周期服务。"""
     return AttachmentService(
@@ -238,7 +309,7 @@ def get_attachment_service(
         object_storage=object_storage,
         conversation_repository=conversation_repository,
         configuration_service=configuration_service,
-        identity=request.app.state.development_identity,
+        identity=identity,
     )
 
 
@@ -249,6 +320,7 @@ def get_conversation_service(
     cognition_service: Annotated[CognitionService, Depends(get_cognition_service)],
     memory_service: Annotated[MemoryService, Depends(get_memory_service)],
     task_service: Annotated[BackgroundTaskService, Depends(get_task_service)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
 ) -> ConversationService:
     """使用进程级端口和开发身份构建请求级对话服务。"""
     runtime: CognitiveRuntime = request.app.state.cognitive_runtime
@@ -261,6 +333,6 @@ def get_conversation_service(
         cognition_service=cognition_service,
         memory_service=memory_service,
         task_service=task_service,
-        identity=request.app.state.development_identity,
+        identity=identity,
         reliability_guard=request.app.state.model_reliability_guard,
     )

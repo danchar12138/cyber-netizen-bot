@@ -48,6 +48,12 @@ from cnb_cognition.proactive import (
     ProactivePolicy,
     ProactivePolicyEvaluator,
 )
+from cnb_cognition.prompt_security import (
+    UNTRUSTED_CONTEXT_POLICY,
+    UntrustedContentSource,
+    read_untrusted_content,
+    serialize_untrusted_content,
+)
 from cnb_cognition.reflection import DeterministicReflectionEngine, ReflectionPlan
 from cnb_cognition.runtime import (
     AgentDecision,
@@ -64,6 +70,7 @@ from cnb_cognition.runtime import (
 )
 
 __all__ = [
+    "UNTRUSTED_CONTEXT_POLICY",
     "ActionCandidate",
     "AffectState",
     "AgentDecision",
@@ -112,5 +119,8 @@ __all__ = [
     "ToolResult",
     "ToolRiskLevel",
     "ToolSpecification",
+    "UntrustedContentSource",
     "estimate_tokens",
+    "read_untrusted_content",
+    "serialize_untrusted_content",
 ]

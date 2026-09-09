@@ -477,7 +477,12 @@ async def conversation_events(
     after: Annotated[int, Query(ge=0)] = 0,
 ) -> None:
     """从指定序号重放事件，并持续推送新事件和心跳。"""
-    await websocket.accept()
+    offered_protocols = {
+        item.strip()
+        for item in websocket.headers.get("Sec-WebSocket-Protocol", "").split(",")
+        if item.strip()
+    }
+    await websocket.accept(subprotocol="cnb.bearer" if "cnb.bearer" in offered_protocols else None)
     sequence = after
     last_heartbeat = monotonic()
     try:

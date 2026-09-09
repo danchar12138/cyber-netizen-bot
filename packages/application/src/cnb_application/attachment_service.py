@@ -32,6 +32,10 @@ class ObjectNotFoundError(LookupError):
     """预留对象尚未上传到对象存储时抛出。"""
 
 
+class ObjectInspectionError(ValueError):
+    """对象内容无法在安全限制内完成类型、摘要或结构检查。"""
+
+
 @dataclass(frozen=True, slots=True)
 class StoredObjectInfo:
     """完成上传校验所需的可信对象元数据。"""
@@ -39,6 +43,8 @@ class StoredObjectInfo:
     size_bytes: int
     content_type: str
     sha256: str | None
+    metadata_sha256: str | None = None
+    detected_content_type: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +109,13 @@ class ObjectStorage(Protocol):
 
     async def stat_object(self, object_key: str) -> StoredObjectInfo: ...
 
+    async def inspect_object(
+        self,
+        object_key: str,
+        *,
+        max_bytes: int,
+    ) -> StoredObjectInfo: ...
+
     async def presign_download(
         self, *, object_key: str, download_name: str, expires_seconds: int
     ) -> str: ...
@@ -149,6 +162,7 @@ class AttachmentService:
             raise AttachmentValidationError(f"附件不能超过 {max_size} 字节")
         if mime not in allowed_types:
             raise AttachmentValidationError(f"不支持附件类型：{mime or '未声明'}")
+        self._validate_extension(name, mime)
         if not _SHA256_PATTERN.fullmatch(digest):
             raise AttachmentValidationError("附件 SHA-256 必须是 64 位十六进制字符串")
 
@@ -199,9 +213,15 @@ class AttachmentService:
             await self._reject_and_delete(attachment, "上传授权已过期")
             raise AttachmentValidationError("上传授权已过期，请重新选择文件")
         try:
-            observed = await self._object_storage.stat_object(attachment.object_key)
+            observed = await self._object_storage.inspect_object(
+                attachment.object_key,
+                max_bytes=attachment.size_bytes,
+            )
         except ObjectNotFoundError as error:
             raise AttachmentValidationError("对象尚未上传完成") from error
+        except ObjectInspectionError as error:
+            await self._reject_and_delete(attachment, "对象内容未通过安全检查")
+            raise AttachmentValidationError("对象内容未通过安全检查") from error
         mismatch: str | None = None
         if observed.size_bytes != attachment.size_bytes:
             mismatch = "对象大小与预留声明不一致"
@@ -209,6 +229,10 @@ class AttachmentService:
             mismatch = "对象媒体类型与预留声明不一致"
         elif observed.sha256 != attachment.sha256:
             mismatch = "对象 SHA-256 与预留声明不一致"
+        elif observed.metadata_sha256 is not None and observed.metadata_sha256 != attachment.sha256:
+            mismatch = "对象摘要元数据与预留声明不一致"
+        elif observed.detected_content_type != attachment.content_type:
+            mismatch = "对象真实类型与预留声明不一致"
         if mismatch is not None:
             await self._reject_and_delete(attachment, mismatch)
             raise AttachmentValidationError(mismatch)
@@ -333,3 +357,21 @@ class AttachmentService:
         suffix = PurePosixPath(name).suffix.lower()
         safe_suffix = suffix if re.fullmatch(r"\.[a-z0-9]{1,16}", suffix) else ""
         return f"content{safe_suffix}"
+
+    @staticmethod
+    def _validate_extension(name: str, content_type: str) -> None:
+        allowed_extensions = {
+            "image/png": {".png"},
+            "image/jpeg": {".jpg", ".jpeg"},
+            "image/webp": {".webp"},
+            "image/gif": {".gif"},
+            "text/plain": {".txt", ".log"},
+            "text/markdown": {".md", ".markdown"},
+            "text/csv": {".csv"},
+            "application/json": {".json"},
+            "application/pdf": {".pdf"},
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {".docx"},
+        }
+        suffix = PurePosixPath(name).suffix.casefold()
+        if suffix not in allowed_extensions.get(content_type, set()):
+            raise AttachmentValidationError("附件扩展名与声明媒体类型不匹配")
