@@ -1,0 +1,101 @@
+[project]
+name = "cyber-netizen-bot"
+version = "0.1.0"
+description = "Agent-first cyber netizen with a Web administration console"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "cnb-api",
+  "cnb-worker",
+]
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28,<1",
+  "poethepoet>=0.37,<1",
+  "pyright>=1.1.405,<2",
+  "pytest>=8.4,<10",
+  "pytest-asyncio>=1.1,<2",
+  "pytest-cov>=6.2,<8",
+  "ruff>=0.12,<1",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = [
+  "apps/api",
+  "apps/worker",
+  "packages/adapters",
+  "packages/application",
+  "packages/cognition",
+  "packages/contracts",
+  "packages/domain",
+  "packages/infrastructure",
+]
+
+[tool.uv.sources]
+cnb-api = { workspace = true }
+cnb-worker = { workspace = true }
+
+[tool.poe.tasks]
+format = "ruff format ."
+format-check = "ruff format --check ."
+lint = "ruff check ."
+typecheck = "pyright"
+test = "pytest"
+check = ["format-check", "lint", "typecheck", "test"]
+dev-api = "uvicorn cnb_api.main:app --reload --host 127.0.0.1 --port 8000"
+dev-worker = "dramatiq cnb_worker.tasks"
+migrate = "alembic upgrade head"
+migration-heads = "alembic heads"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["apps/*/src", "packages/*/src"]
+
+[tool.ruff.lint]
+select = ["ASYNC", "B", "E", "F", "I", "RUF", "SIM", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+  "cnb_adapters",
+  "cnb_api",
+  "cnb_application",
+  "cnb_cognition",
+  "cnb_contracts",
+  "cnb_domain",
+  "cnb_infrastructure",
+  "cnb_worker",
+]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+include = ["apps", "packages", "tests", "migrations"]
+exclude = ["apps/web", ".venv"]
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers --cov --cov-report=term-missing"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = [
+  "cnb_adapters",
+  "cnb_api",
+  "cnb_application",
+  "cnb_cognition",
+  "cnb_contracts",
+  "cnb_domain",
+  "cnb_infrastructure",
+  "cnb_worker",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true

@@ -1,0 +1,23 @@
+[project]
+name = "cnb-application"
+version = "0.1.0"
+description = "Application use cases for Cyber Netizen Bot"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "cnb-cognition",
+  "cnb-contracts",
+  "cnb-domain",
+]
+
+[tool.uv.sources]
+cnb-cognition = { workspace = true }
+cnb-contracts = { workspace = true }
+cnb-domain = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cnb_application"]
+

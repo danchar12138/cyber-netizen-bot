@@ -1,0 +1,10 @@
+{
+  "name": "cyber-netizen-bot",
+  "private": true,
+  "packageManager": "pnpm@12.3.4",
+  "scripts": {
+    "web:dev": "pnpm --filter @cnb/web dev",
+    "web:check": "pnpm --filter @cnb/web check",
+    "web:build": "pnpm --filter @cnb/web build"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "name": "@cnb/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint . --max-warnings=0",
+    "test": "vitest run",
+    "typecheck": "tsc -b --pretty false",
+    "check": "eslint . --max-warnings=0 && tsc -b --pretty false && vitest run && vite build"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.102.8",
+    "@tanstack/react-router": "^1.170.33",
+    "lucide-react": "^0.543.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.35.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/jest-dom": "^6.8.0",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.4",
+    "eslint": "^9.35.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.3.0",
+    "jsdom": "^30.0.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.44.1",
+    "vite": "^7.1.5",
+    "vitest": "^3.2.4"
+  }
+}

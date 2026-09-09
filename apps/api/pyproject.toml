@@ -1,0 +1,27 @@
+[project]
+name = "cnb-api"
+version = "0.1.0"
+description = "FastAPI administration and messaging gateway"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "cnb-adapters",
+  "cnb-application",
+  "cnb-contracts",
+  "cnb-infrastructure",
+  "fastapi>=0.116,<1",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[tool.uv.sources]
+cnb-adapters = { workspace = true }
+cnb-application = { workspace = true }
+cnb-contracts = { workspace = true }
+cnb-infrastructure = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cnb_api"]
+
