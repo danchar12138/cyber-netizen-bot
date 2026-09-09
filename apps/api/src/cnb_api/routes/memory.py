@@ -10,9 +10,11 @@ from cnb_api.dependencies import (
     get_admin_principal,
     get_configuration_service,
     get_memory_service,
+    get_task_service,
     require_permission,
 )
 from cnb_application import (
+    BackgroundTaskService,
     ConfigurationService,
     MemoryConflictError,
     MemoryNotFoundError,
@@ -50,6 +52,7 @@ from cnb_contracts import (
 from cnb_domain import (
     AdminPermission,
     AdminPrincipal,
+    BackgroundJobKind,
     JsonValue,
     MemoryDetail,
     MemoryKind,
@@ -494,18 +497,40 @@ async def rebuild_index(
     request: Request,
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
     service: Annotated[MemoryService, Depends(get_memory_service)],
+    tasks: Annotated[BackgroundTaskService, Depends(get_task_service)],
+    configuration: Annotated[ConfigurationService, Depends(get_configuration_service)],
 ) -> MemoryIndexJobResponse:
-    """同步启动可追踪重建；P5 将把相同端口迁移至 Dramatiq。"""
+    """建立索引进度和 Outbox 任务，由 Dramatiq Worker 异步执行。"""
     if not command.confirmed:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="索引重建必须显式确认",
         )
-    item = await service.rebuild_embeddings(
+    item = await service.request_embedding_rebuild(
         tenant_id=principal.tenant_id,
         agent_id=_agent_id(request),
         user_id=command.user_id,
         actor_id=principal.user_id,
+    )
+    snapshot = await configuration.resolve_effective(
+        tenant_id=principal.tenant_id,
+        agent_id=_agent_id(request),
+        user_id=command.user_id,
+    )
+    await tasks.enqueue(
+        tenant_id=principal.tenant_id,
+        kind=BackgroundJobKind.EMBEDDING_REBUILD,
+        payload={
+            "index_job_id": str(item.id),
+            "agent_id": str(item.agent_id),
+            "actor_id": str(principal.user_id),
+        },
+        deduplication_key=f"memory-index:{item.id}",
+        created_by=principal.user_id,
+        max_attempts=_integer(snapshot.values, "tasks.max_attempts"),
+        lease_seconds=_integer(snapshot.values, "tasks.lease_seconds"),
+        retry_base_seconds=_integer(snapshot.values, "tasks.retry_base_seconds"),
+        correlation_id=str(item.id),
     )
     return MemoryIndexJobResponse.model_validate(item, from_attributes=True)
 

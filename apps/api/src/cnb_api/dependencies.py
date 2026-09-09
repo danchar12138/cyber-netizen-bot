@@ -13,6 +13,7 @@ from cnb_application import (
     AdministrationService,
     AttachmentRepository,
     AttachmentService,
+    BackgroundTaskService,
     CognitionRepository,
     CognitionService,
     ConfigurationRegistry,
@@ -24,8 +25,10 @@ from cnb_application import (
     MemoryService,
     ModelProviderResolver,
     ObjectStorage,
+    ScheduledActionService,
     SecretManagementService,
     SecretStore,
+    TaskRepository,
     build_default_registry,
     permissions_for_role,
     require_admin_permission,
@@ -163,6 +166,27 @@ def get_memory_service(
     return MemoryService(repository)
 
 
+def get_task_repository(request: HTTPConnection) -> TaskRepository:
+    """返回组合根选择的异步任务真相仓储。"""
+    repository: TaskRepository = request.app.state.task_repository
+    return repository
+
+
+def get_task_service(
+    repository: Annotated[TaskRepository, Depends(get_task_repository)],
+) -> BackgroundTaskService:
+    """构建请求级后台任务治理服务。"""
+    return BackgroundTaskService(repository)
+
+
+def get_scheduled_action_service(
+    repository: Annotated[TaskRepository, Depends(get_task_repository)],
+    task_service: Annotated[BackgroundTaskService, Depends(get_task_service)],
+) -> ScheduledActionService:
+    """构建请求级主动行为调度服务。"""
+    return ScheduledActionService(repository, task_service)
+
+
 def get_attachment_repository(request: HTTPConnection) -> AttachmentRepository:
     """返回组合根选择的附件元数据仓储。"""
     repository: AttachmentRepository = request.app.state.attachment_repository
@@ -200,6 +224,7 @@ def get_conversation_service(
     configuration_service: Annotated[ConfigurationService, Depends(get_configuration_service)],
     cognition_service: Annotated[CognitionService, Depends(get_cognition_service)],
     memory_service: Annotated[MemoryService, Depends(get_memory_service)],
+    task_service: Annotated[BackgroundTaskService, Depends(get_task_service)],
 ) -> ConversationService:
     """使用进程级端口和开发身份构建请求级对话服务。"""
     runtime: CognitiveRuntime = request.app.state.cognitive_runtime
@@ -211,6 +236,7 @@ def get_conversation_service(
         configuration_service=configuration_service,
         cognition_service=cognition_service,
         memory_service=memory_service,
+        task_service=task_service,
         identity=request.app.state.development_identity,
         reliability_guard=request.app.state.model_reliability_guard,
     )

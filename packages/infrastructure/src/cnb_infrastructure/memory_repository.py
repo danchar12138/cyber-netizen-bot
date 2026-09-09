@@ -334,6 +334,16 @@ class InMemoryMemoryRepository:
         event: RelationshipEvent,
     ) -> RelationshipDetail:
         async with self._lock:
+            for events in self.relationship_events.values():
+                if any(item.id == event.id for item in events):
+                    current = self.relationships.get(
+                        (relationship.tenant_id, relationship.agent_id, relationship.user_id)
+                    )
+                    if current is not None:
+                        return RelationshipDetail(
+                            current,
+                            tuple(self.relationship_events.get(current.id, ())),
+                        )
             self.relationships[
                 (relationship.tenant_id, relationship.agent_id, relationship.user_id)
             ] = relationship
@@ -363,6 +373,15 @@ class InMemoryMemoryRepository:
         async with self._lock:
             self.index_jobs[job.id] = job
             return job
+
+    async def get_index_job(
+        self, *, tenant_id: UUID, agent_id: UUID, job_id: UUID
+    ) -> MemoryIndexJob | None:
+        async with self._lock:
+            item = self.index_jobs.get(job_id)
+            if item is None or item.tenant_id != tenant_id or item.agent_id != agent_id:
+                return None
+            return item
 
     async def update_index_job(self, job: MemoryIndexJob) -> MemoryIndexJob:
         async with self._lock:
@@ -478,6 +497,11 @@ class SqlAlchemyMemoryRepository:
 
     async def create_episode(self, episode: Episode) -> Episode:
         async with self._session_factory.begin() as session:
+            existing = await session.get(EpisodeModel, episode.id)
+            if existing is not None:
+                if existing.tenant_id != episode.tenant_id or existing.agent_id != episode.agent_id:
+                    raise ValueError("Episode 幂等 ID 已被其他作用域占用")
+                return self._episode(existing)
             session.add(self._episode_model(episode))
             self._audit(
                 session,
@@ -615,6 +639,20 @@ class SqlAlchemyMemoryRepository:
         embedding: MemoryEmbedding,
     ) -> MemoryDetail:
         async with self._session_factory.begin() as session:
+            existing = await session.get(MemoryModel, memory.id)
+            if existing is not None:
+                if existing.tenant_id != memory.tenant_id or existing.agent_id != memory.agent_id:
+                    raise ValueError("记忆幂等 ID 已被其他作用域占用")
+                source_rows = (
+                    await session.scalars(
+                        select(MemorySourceModel).where(MemorySourceModel.memory_id == memory.id)
+                    )
+                ).all()
+                return MemoryDetail(
+                    self._memory(existing),
+                    tuple(self._source(row) for row in source_rows),
+                    (),
+                )
             session.add(self._memory_model(memory))
             session.add_all(self._source_model(source) for source in sources)
             session.add(self._embedding_model(embedding))
@@ -906,6 +944,16 @@ class SqlAlchemyMemoryRepository:
         relationship: Relationship,
         event: RelationshipEvent,
     ) -> RelationshipDetail:
+        async with self._session_factory() as session:
+            duplicate = await session.get(RelationshipEventModel, event.id)
+        if duplicate is not None:
+            detail = await self.get_relationship_detail(
+                tenant_id=relationship.tenant_id,
+                agent_id=relationship.agent_id,
+                user_id=relationship.user_id,
+            )
+            if detail is not None:
+                return detail
         async with self._session_factory.begin() as session:
             row = await session.scalar(
                 select(RelationshipModel)
@@ -980,6 +1028,19 @@ class SqlAlchemyMemoryRepository:
                 },
             )
         return job
+
+    async def get_index_job(
+        self, *, tenant_id: UUID, agent_id: UUID, job_id: UUID
+    ) -> MemoryIndexJob | None:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(MemoryIndexJobModel).where(
+                    MemoryIndexJobModel.id == job_id,
+                    MemoryIndexJobModel.tenant_id == tenant_id,
+                    MemoryIndexJobModel.agent_id == agent_id,
+                )
+            )
+        return self._index_job(row) if row is not None else None
 
     async def update_index_job(self, job: MemoryIndexJob) -> MemoryIndexJob:
         async with self._session_factory.begin() as session:

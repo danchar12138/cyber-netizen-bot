@@ -56,9 +56,13 @@ class BootstrapSettingsResponse(BaseModel):
 
 
 class TaskStatusResponse(BaseModel):
-    """异步任务后台在 P2 可展示的安全基础状态。"""
+    """异步任务真相计数与 Worker 心跳摘要。"""
 
     broker: Literal["dramatiq-redis"] = "dramatiq-redis"
-    queues: tuple[str, ...] = ("system",)
+    queues: tuple[str, ...] = ("system", "memory", "reflection", "proactive")
     pending_jobs: int = Field(ge=0)
+    running_jobs: int = Field(default=0, ge=0)
+    retrying_jobs: int = Field(default=0, ge=0)
+    dead_letter_jobs: int = Field(default=0, ge=0)
+    scheduled_actions: int = Field(default=0, ge=0)
     worker: ComponentHealth

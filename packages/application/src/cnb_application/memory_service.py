@@ -3,7 +3,7 @@
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Protocol
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 from cnb_cognition import (
     DeterministicHashEmbedding,
@@ -185,6 +185,10 @@ class MemoryRepository(Protocol):
 
     async def create_index_job(self, job: MemoryIndexJob) -> MemoryIndexJob: ...
 
+    async def get_index_job(
+        self, *, tenant_id: UUID, agent_id: UUID, job_id: UUID
+    ) -> MemoryIndexJob | None: ...
+
     async def update_index_job(self, job: MemoryIndexJob) -> MemoryIndexJob: ...
 
     async def replace_embedding(
@@ -236,6 +240,7 @@ class MemoryService:
         ended_at: datetime | None,
         source_message_ids: tuple[UUID, ...],
         actor_id: UUID,
+        entity_id: UUID | None = None,
     ) -> Episode:
         normalized_title = self._required_text(title, "Episode 标题", maximum=200)
         normalized_summary = self._required_text(summary, "Episode 摘要", maximum=4000)
@@ -249,7 +254,7 @@ class MemoryService:
         now = datetime.now(UTC)
         return await self._repository.create_episode(
             Episode(
-                id=uuid4(),
+                id=entity_id or uuid4(),
                 tenant_id=tenant_id,
                 agent_id=agent_id,
                 user_id=user_id,
@@ -321,6 +326,7 @@ class MemoryService:
         confirmation: MemoryConfirmation,
         sources: tuple[MemorySourceDraft, ...],
         actor_id: UUID,
+        entity_id: UUID | None = None,
     ) -> MemoryDetail:
         normalized = self._required_text(content, "记忆内容", maximum=8000)
         self._validate_memory_values(
@@ -333,7 +339,7 @@ class MemoryService:
             sources=sources,
         )
         now = datetime.now(UTC)
-        memory_id = uuid4()
+        memory_id = entity_id or uuid4()
         memory = Memory(
             id=memory_id,
             lineage_id=memory_id,
@@ -364,8 +370,9 @@ class MemoryService:
                 tenant_id=tenant_id,
                 memory_id=memory_id,
                 created_at=now,
+                record_id=uuid5(memory_id, f"source:{index}"),
             )
-            for draft in sources
+            for index, draft in enumerate(sources)
         )
         embedding = self._embedding(memory, normalized, now=now)
         return await self._repository.create_memory(
@@ -627,6 +634,7 @@ class MemoryService:
         boundaries: tuple[str, ...] | None,
         evidence_memory_id: UUID | None,
         actor_id: UUID,
+        event_id: UUID | None = None,
     ) -> RelationshipDetail:
         for name, value in (
             ("亲和度变化", affinity_delta),
@@ -653,7 +661,7 @@ class MemoryService:
             existing.relationship
             if existing
             else Relationship(
-                id=uuid4(),
+                id=uuid5(agent_id, str(user_id)),
                 tenant_id=tenant_id,
                 agent_id=agent_id,
                 user_id=user_id,
@@ -689,7 +697,7 @@ class MemoryService:
             updated_at=now,
         )
         event = RelationshipEvent(
-            id=uuid4(),
+            id=event_id or uuid4(),
             tenant_id=tenant_id,
             relationship_id=updated.id,
             event_type=normalized_type,
@@ -714,13 +722,34 @@ class MemoryService:
         user_id: UUID | None,
         actor_id: UUID,
     ) -> MemoryIndexJob:
+        job = await self.request_embedding_rebuild(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            user_id=user_id,
+            actor_id=actor_id,
+        )
+        return await self.run_embedding_rebuild(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            job_id=job.id,
+        )
+
+    async def request_embedding_rebuild(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        user_id: UUID | None,
+        actor_id: UUID,
+    ) -> MemoryIndexJob:
+        """只建立持久化进度记录，实际向量计算由 Worker 执行。"""
         memories = await self._repository.list_memories_for_embedding(
             tenant_id=tenant_id,
             agent_id=agent_id,
             user_id=user_id,
         )
         now = datetime.now(UTC)
-        job = await self._repository.create_index_job(
+        return await self._repository.create_index_job(
             MemoryIndexJob(
                 id=uuid4(),
                 tenant_id=tenant_id,
@@ -737,7 +766,38 @@ class MemoryService:
                 completed_at=None,
             )
         )
-        running = replace(job, status=MemoryIndexJobStatus.RUNNING, started_at=datetime.now(UTC))
+
+    async def run_embedding_rebuild(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        job_id: UUID,
+    ) -> MemoryIndexJob:
+        """恢复或执行一个既有索引任务；已完成任务重复投递时直接返回。"""
+        job = await self._repository.get_index_job(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            job_id=job_id,
+        )
+        if job is None:
+            raise MemoryNotFoundError(f"记忆索引任务不存在：{job_id}")
+        if job.status is MemoryIndexJobStatus.COMPLETED:
+            return job
+        memories = await self._repository.list_memories_for_embedding(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            user_id=job.user_id,
+        )
+        running = replace(
+            job,
+            status=MemoryIndexJobStatus.RUNNING,
+            total_items=len(memories),
+            processed_items=0,
+            error_code=None,
+            started_at=datetime.now(UTC),
+            completed_at=None,
+        )
         await self._repository.update_index_job(running)
         try:
             processed = 0
@@ -786,7 +846,7 @@ class MemoryService:
     def _embedding(self, memory: Memory, content: str, *, now: datetime) -> MemoryEmbedding:
         vector = self._embedding_encoder.encode(content)
         return MemoryEmbedding(
-            id=uuid4(),
+            id=uuid5(memory.id, f"embedding:{self._embedding_encoder.version}"),
             tenant_id=memory.tenant_id,
             memory_id=memory.id,
             embedding_version=self._embedding_encoder.version,
@@ -803,6 +863,7 @@ class MemoryService:
         tenant_id: UUID,
         memory_id: UUID,
         created_at: datetime,
+        record_id: UUID | None = None,
     ) -> MemorySource:
         source_id = MemoryService._required_text(draft.source_id, "来源 ID", maximum=255)
         MemoryService._aware(draft.occurred_at, "来源发生时间")
@@ -810,7 +871,7 @@ class MemoryService:
         if draft.is_verbatim and excerpt is None:
             raise MemoryValidationError("逐字来源必须提供来源摘录")
         return MemorySource(
-            id=uuid4(),
+            id=record_id or uuid4(),
             tenant_id=tenant_id,
             memory_id=memory_id,
             kind=draft.kind,

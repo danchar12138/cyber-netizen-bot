@@ -33,7 +33,94 @@ export interface TaskStatus {
   broker: 'dramatiq-redis'
   queues: string[]
   pending_jobs: number
+  running_jobs: number
+  retrying_jobs: number
+  dead_letter_jobs: number
+  scheduled_actions: number
   worker: ComponentHealth
+}
+
+export type BackgroundJobKind = 'reflection' | 'episode_consolidation' | 'memory_extraction' | 'embedding_rebuild' | 'relationship_update' | 'scheduled_action'
+export type BackgroundJobStatus = 'pending' | 'running' | 'retrying' | 'succeeded' | 'failed' | 'dead_letter' | 'canceled'
+
+export interface BackgroundJob {
+  id: string
+  tenant_id: string
+  kind: BackgroundJobKind
+  queue: string
+  status: BackgroundJobStatus
+  payload_keys: string[]
+  deduplication_key: string
+  correlation_id: string | null
+  attempt_count: number
+  max_attempts: number
+  lease_seconds: number
+  retry_base_seconds: number
+  available_at: string
+  lease_owner: string | null
+  lease_expires_at: string | null
+  cancel_requested_at: string | null
+  last_error_code: string | null
+  last_error_summary: string | null
+  result_summary: Record<string, ConfigValue>
+  replayed_from_id: string | null
+  created_by: string | null
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  updated_at: string
+}
+
+export interface JobAttempt {
+  id: string
+  job_id: string
+  attempt_number: number
+  status: 'running' | 'succeeded' | 'failed' | 'timed_out' | 'canceled'
+  worker_id: string
+  started_at: string
+  completed_at: string | null
+  error_code: string | null
+  error_summary: string | null
+}
+
+export interface TaskDashboard {
+  pending: number
+  running: number
+  retrying: number
+  dead_letters: number
+  scheduled: number
+  workers: Array<{
+    worker_id: string
+    queues: string[]
+    current_job_id: string | null
+    started_at: string
+    last_seen_at: string
+  }>
+}
+
+export type ScheduledActionStatus = 'pending' | 'dispatched' | 'completed' | 'suppressed' | 'canceled' | 'expired' | 'failed'
+
+export interface ScheduledAction {
+  id: string
+  tenant_id: string
+  agent_id: string
+  user_id: string
+  conversation_id: string | null
+  kind: 'follow_up' | 'proactive_message' | 'reflection'
+  status: ScheduledActionStatus
+  scheduled_for: string
+  expires_at: string | null
+  idempotency_key: string
+  reason: string
+  payload_keys: string[]
+  score: number | null
+  social_cost: number
+  decision_reasons: string[]
+  job_id: string | null
+  created_by: string
+  created_at: string
+  updated_at: string
+  completed_at: string | null
 }
 
 export type AdminRole = 'admin' | 'operator' | 'viewer'
@@ -53,6 +140,9 @@ export type AdminPermission =
   | 'memory:read'
   | 'memory:write'
   | 'memory:rebuild'
+  | 'task:read'
+  | 'task:manage'
+  | 'proactive:manage'
   | 'trace:read'
   | 'user:read'
   | 'user:write'
@@ -668,6 +758,54 @@ export const getBootstrapSettings = () =>
 
 export const getTaskStatus = () =>
   getJson<TaskStatus>('/api/v1/system/tasks/status')
+
+export const getTaskDashboard = () =>
+  getJson<TaskDashboard>('/api/v1/tasks/dashboard')
+
+export const getBackgroundJobs = (filters: {
+  status?: BackgroundJobStatus
+  kind?: BackgroundJobKind
+} = {}) => {
+  const query = new URLSearchParams({ limit: '200' })
+  if (filters.status) query.set('job_status', filters.status)
+  if (filters.kind) query.set('kind', filters.kind)
+  return getJson<{ items: BackgroundJob[] }>(`/api/v1/tasks/jobs?${query}`)
+}
+
+export const getBackgroundJob = (jobId: string) =>
+  getJson<{ job: BackgroundJob; attempts: JobAttempt[] }>(`/api/v1/tasks/jobs/${jobId}`)
+
+export const cancelBackgroundJob = (jobId: string) =>
+  postJson<BackgroundJob>(`/api/v1/tasks/jobs/${jobId}/cancel`, { confirmed: true })
+
+export const replayBackgroundJob = (jobId: string, reason: string) =>
+  postJson<BackgroundJob>(`/api/v1/tasks/jobs/${jobId}/replay`, {
+    confirmed: true,
+    reason,
+  })
+
+export const getScheduledActions = (status?: ScheduledActionStatus) => {
+  const query = new URLSearchParams({ limit: '200' })
+  if (status) query.set('action_status', status)
+  return getJson<{ items: ScheduledAction[] }>(`/api/v1/tasks/scheduled-actions?${query}`)
+}
+
+export const createScheduledAction = (command: {
+  user_id: string
+  conversation_id: string | null
+  kind: ScheduledAction['kind']
+  scheduled_for: string
+  expires_at: string | null
+  idempotency_key: string
+  reason: string
+  payload: Record<string, ConfigValue>
+  social_cost: number
+}) => postJson<ScheduledAction>('/api/v1/tasks/scheduled-actions', command)
+
+export const cancelScheduledAction = (actionId: string) =>
+  postJson<ScheduledAction>(`/api/v1/tasks/scheduled-actions/${actionId}/cancel`, {
+    confirmed: true,
+  })
 
 export const getAdminSession = () =>
   getJson<AdminSession>('/api/v1/administration/session')

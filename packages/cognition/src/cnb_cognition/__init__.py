@@ -42,6 +42,13 @@ from cnb_cognition.policy import (
     ToolRiskLevel,
     ToolSpecification,
 )
+from cnb_cognition.proactive import (
+    ProactiveContext,
+    ProactiveDecision,
+    ProactivePolicy,
+    ProactivePolicyEvaluator,
+)
+from cnb_cognition.reflection import DeterministicReflectionEngine, ReflectionPlan
 from cnb_cognition.runtime import (
     AgentDecision,
     AgentEvent,
@@ -74,6 +81,7 @@ __all__ = [
     "ContextRole",
     "DeterministicHashEmbedding",
     "DeterministicPolicyGate",
+    "DeterministicReflectionEngine",
     "EmbeddingEncoder",
     "HybridMemoryRanker",
     "HybridRecallWeights",
@@ -93,6 +101,11 @@ __all__ = [
     "PersonaTraits",
     "PolicyEvaluation",
     "PolicyRuleSet",
+    "ProactiveContext",
+    "ProactiveDecision",
+    "ProactivePolicy",
+    "ProactivePolicyEvaluator",
+    "ReflectionPlan",
     "SocialMindState",
     "Tool",
     "ToolPolicyContext",

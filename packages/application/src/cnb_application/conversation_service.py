@@ -1,6 +1,7 @@
 """持久化最小对话闭环的应用服务与仓储端口。"""
 
 import asyncio
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -11,6 +12,7 @@ from cnb_application.cognition_service import CognitionService
 from cnb_application.configuration_service import ConfigurationService
 from cnb_application.memory_service import MemoryService
 from cnb_application.pagination import EntityCursor, decode_cursor, encode_cursor
+from cnb_application.task_service import BackgroundTaskService
 from cnb_cognition import (
     AgentDecision,
     AgentEvent,
@@ -30,6 +32,7 @@ from cnb_cognition import (
 )
 from cnb_domain import (
     AgentRun,
+    BackgroundJobKind,
     Conversation,
     ConversationEvent,
     ConversationStatus,
@@ -45,6 +48,8 @@ from cnb_domain import (
     MessageStatus,
     PendingAgentRun,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationNotFoundError(LookupError):
@@ -299,6 +304,7 @@ class ConversationService:
         configuration_service: ConfigurationService,
         cognition_service: CognitionService,
         memory_service: MemoryService | None = None,
+        task_service: BackgroundTaskService | None = None,
         identity: DevelopmentIdentity,
         reliability_guard: ModelReliabilityGuard | None = None,
     ) -> None:
@@ -308,6 +314,7 @@ class ConversationService:
         self._configuration_service = configuration_service
         self._cognition_service = cognition_service
         self._memory_service = memory_service
+        self._task_service = task_service
         self._identity = identity
         self._reliability_guard = reliability_guard or ModelReliabilityGuard()
 
@@ -570,6 +577,7 @@ class ConversationService:
                     usage=None,
                     suppress_response=True,
                 )
+                await self._schedule_reflection_safely(pending, configuration.values)
                 return
 
             system_prompt = configuration.values["persona.system_prompt"]
@@ -618,6 +626,7 @@ class ConversationService:
                 ),
             )
             await self._repository.complete_run(pending.run.id, usage)
+            await self._schedule_reflection_safely(pending, configuration.values)
         except asyncio.CancelledError:
             await self._repository.cancel_run(pending.run.id, user_id=self._identity.user_id)
             raise
@@ -918,6 +927,53 @@ class ConversationService:
                 )
             )
         return tuple(fragments), tuple(trace), relationship_version
+
+    async def _schedule_reflection_safely(
+        self,
+        pending: PendingAgentRun,
+        configuration: Mapping[str, object],
+    ) -> None:
+        """响应完成后写入反思真相任务；失败只记录安全元数据，不回退已发送响应。"""
+        if (
+            self._task_service is None
+            or configuration.get("cognition.reflection.enabled") is not True
+        ):
+            return
+        try:
+            delay = self._integer_setting(configuration, "cognition.reflection.delay_seconds")
+            minimum_importance = self._number_setting(
+                configuration, "cognition.reflection.minimum_importance"
+            )
+            max_attempts = self._integer_setting(configuration, "tasks.max_attempts")
+            lease_seconds = self._integer_setting(configuration, "tasks.lease_seconds")
+            retry_base_seconds = self._integer_setting(configuration, "tasks.retry_base_seconds")
+            await self._task_service.enqueue(
+                tenant_id=pending.run.tenant_id,
+                kind=BackgroundJobKind.REFLECTION,
+                payload={
+                    "agent_id": str(pending.run.agent_id),
+                    "user_id": str(self._identity.user_id),
+                    "conversation_id": str(pending.run.conversation_id),
+                    "trigger_message_id": str(pending.trigger_message.id),
+                    "response_message_id": str(pending.response_message.id),
+                    "trigger_text": pending.trigger_message.content,
+                    "occurred_at": pending.trigger_message.created_at.isoformat(),
+                    "actor_id": str(self._identity.user_id),
+                    "minimum_importance": minimum_importance,
+                },
+                deduplication_key=f"reflection:run:{pending.run.id}",
+                created_by=self._identity.user_id,
+                max_attempts=max_attempts,
+                lease_seconds=lease_seconds,
+                retry_base_seconds=retry_base_seconds,
+                available_at=datetime.now(UTC) + timedelta(seconds=delay),
+                correlation_id=str(pending.run.id),
+            )
+        except Exception:
+            logger.exception(
+                "异步反思任务入队失败",
+                extra={"run_id": str(pending.run.id), "tenant_id": str(pending.run.tenant_id)},
+            )
 
     @staticmethod
     def _page[T](

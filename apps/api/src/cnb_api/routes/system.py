@@ -9,9 +9,10 @@ from cnb_api.dependencies import (
     get_admin_principal,
     get_administration_service,
     get_configuration_registry,
+    get_task_service,
     require_permission,
 )
-from cnb_application import AdministrationService, ConfigurationRegistry
+from cnb_application import AdministrationService, BackgroundTaskService, ConfigurationRegistry
 from cnb_contracts import (
     BootstrapSettingsResponse,
     ComponentHealth,
@@ -34,16 +35,18 @@ async def overview(
     registry: Annotated[ConfigurationRegistry, Depends(get_configuration_registry)],
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
     administration: Annotated[AdministrationService, Depends(get_administration_service)],
+    tasks: Annotated[BackgroundTaskService, Depends(get_task_service)],
 ) -> SystemOverviewResponse:
     """返回首版管理总览所需的安全聚合数据。"""
     settings: Settings = request.app.state.settings
     counts = await administration.get_overview(tenant_id=principal.tenant_id)
+    task_counts = await tasks.counts(tenant_id=principal.tenant_id)
     return SystemOverviewResponse(
         environment=settings.environment,
         version=__version__,
         active_agents=counts.active_agents,
         active_conversations=counts.active_conversations,
-        pending_jobs=counts.pending_jobs,
+        pending_jobs=task_counts.pending + task_counts.retrying,
         configuration_definitions=len(registry),
         components=(
             ComponentHealth(name="api", status="healthy"),
@@ -83,15 +86,24 @@ async def bootstrap_settings(request: Request) -> BootstrapSettingsResponse:
 @router.get("/tasks/status", response_model=TaskStatusResponse)
 async def task_status(
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
-    administration: Annotated[AdministrationService, Depends(get_administration_service)],
+    tasks: Annotated[BackgroundTaskService, Depends(get_task_service)],
 ) -> TaskStatusResponse:
-    """返回基础任务计数；Worker 心跳与任务明细将在 P5 接入持久化追踪。"""
-    counts = await administration.get_overview(tenant_id=principal.tenant_id)
+    """返回 PostgreSQL 任务真相计数和可验证的 Worker 心跳。"""
+    counts = await tasks.counts(tenant_id=principal.tenant_id)
+    workers = await tasks.active_workers()
     return TaskStatusResponse(
-        pending_jobs=counts.pending_jobs,
+        pending_jobs=counts.pending,
+        running_jobs=counts.running,
+        retrying_jobs=counts.retrying,
+        dead_letter_jobs=counts.dead_letters,
+        scheduled_actions=counts.scheduled,
         worker=ComponentHealth(
             name="worker",
-            status="not_checked",
-            detail="尚未建立 Worker 心跳；P5 将接入任务明细与重放能力。",
+            status="healthy" if workers else "not_checked",
+            detail=(
+                f"{len(workers)} 个 Worker 心跳正常。"
+                if workers
+                else "最近 45 秒没有收到 Worker 心跳。"
+            ),
         ),
     )

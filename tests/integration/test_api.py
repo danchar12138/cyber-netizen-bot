@@ -1,7 +1,7 @@
 """无需外部基础设施的 API 契约冒烟测试。"""
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import cast
 from uuid import UUID, uuid4
@@ -985,9 +985,86 @@ async def test_memory_relationship_episode_and_index_management_api() -> None:
             json={"user_id": user_id, "confirmed": True},
         )
         jobs = await client.get("/api/v1/memory/index-jobs")
+        background_jobs = await client.get(
+            "/api/v1/tasks/jobs", params={"kind": "embedding_rebuild"}
+        )
         assert rebuild.status_code == 201
-        assert rebuild.json()["status"] == "completed"
+        assert rebuild.json()["status"] == "pending"
         assert jobs.json()["items"][0]["id"] == rebuild.json()["id"]
+        assert background_jobs.json()["items"][0]["kind"] == "embedding_rebuild"
+        assert background_jobs.json()["items"][0]["payload_keys"] == [
+            "actor_id",
+            "agent_id",
+            "index_job_id",
+        ]
+
+
+async def test_task_dashboard_and_scheduled_action_management_api() -> None:
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        identity = (await client.get("/api/v1/chat/identity")).json()
+        scheduled_for = datetime.now(UTC)
+        create_response = await client.post(
+            "/api/v1/tasks/scheduled-actions",
+            json={
+                "user_id": identity["user_id"],
+                "kind": "proactive_message",
+                "scheduled_for": scheduled_for.isoformat(),
+                "expires_at": (
+                    scheduled_for.replace(microsecond=0) + timedelta(days=1)
+                ).isoformat(),
+                "idempotency_key": "api:proactive:first",
+                "reason": "跟进用户明确要求稍后提醒的事项",
+                "payload": {"importance": 0.8, "confidence": 0.9},
+                "social_cost": 1,
+            },
+        )
+        duplicate = await client.post(
+            "/api/v1/tasks/scheduled-actions",
+            json={
+                "user_id": identity["user_id"],
+                "kind": "proactive_message",
+                "scheduled_for": scheduled_for.isoformat(),
+                "expires_at": (
+                    scheduled_for.replace(microsecond=0) + timedelta(days=1)
+                ).isoformat(),
+                "idempotency_key": "api:proactive:first",
+                "reason": "重复请求不应创建第二个行为",
+                "payload": {},
+                "social_cost": 1,
+            },
+        )
+        viewer_create = await client.post(
+            "/api/v1/tasks/scheduled-actions",
+            headers={"X-CNB-Development-Role": "viewer"},
+            json={
+                "user_id": identity["user_id"],
+                "kind": "proactive_message",
+                "scheduled_for": scheduled_for.isoformat(),
+                "idempotency_key": "api:proactive:viewer",
+                "reason": "无权创建",
+            },
+        )
+        dashboard = await client.get("/api/v1/tasks/dashboard")
+        listed = await client.get("/api/v1/tasks/scheduled-actions")
+        action_id = create_response.json()["id"]
+        canceled = await client.post(
+            f"/api/v1/tasks/scheduled-actions/{action_id}/cancel",
+            json={"confirmed": True},
+        )
+        task_status = await client.get("/api/v1/system/tasks/status")
+
+    assert create_response.status_code == duplicate.status_code == 201
+    assert duplicate.json()["id"] == action_id
+    assert viewer_create.status_code == 403
+    assert dashboard.json()["scheduled"] == 1
+    assert len(listed.json()["items"]) == 1
+    assert canceled.json()["status"] == "canceled"
+    assert task_status.json()["worker"]["status"] == "not_checked"
 
 
 def test_internal_chat_websocket_replays_from_sequence_and_responds_to_ping() -> None:

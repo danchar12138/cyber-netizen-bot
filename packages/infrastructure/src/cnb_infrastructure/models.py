@@ -1,6 +1,6 @@
 """版本化运行配置与审计的初始持久化模型。"""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -8,6 +8,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -1120,3 +1121,296 @@ class MemoryIndexJobModel(Base):
         ),
         Index("ix_memory_index_jobs_scope", "tenant_id", "agent_id", "created_at"),
     )
+
+
+class InboxEventModel(Base):
+    """Adapter/API 入站事件的租户级幂等真相。"""
+
+    __tablename__ = "inbox_events"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    event_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    job_id: Mapped[UUID] = mapped_column(
+        ForeignKey(
+            "background_jobs.id",
+            name="fk_inbox_events_job",
+            use_alter=True,
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        nullable=False,
+    )
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_code: Mapped[str | None] = mapped_column(String(120))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'completed', 'dead_letter', 'canceled')",
+            name="ck_inbox_events_status",
+        ),
+        UniqueConstraint("tenant_id", "event_key", name="uq_inbox_events_tenant_key"),
+        UniqueConstraint("job_id", name="uq_inbox_events_job"),
+        Index("ix_inbox_events_status", "tenant_id", "status", "received_at"),
+    )
+
+
+class BackgroundJobModel(Base):
+    """独立于 Redis 生命周期的可恢复后台任务。"""
+
+    __tablename__ = "background_jobs"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    queue: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    deduplication_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_inbox_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("inbox_events.id", ondelete="SET NULL")
+    )
+    correlation_id: Mapped[str | None] = mapped_column(String(255))
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False)
+    lease_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    retry_base_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lease_owner: Mapped[str | None] = mapped_column(String(160))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_code: Mapped[str | None] = mapped_column(String(120))
+    last_error_summary: Mapped[str | None] = mapped_column(String(500))
+    result_summary: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    replayed_from_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("background_jobs.id", ondelete="SET NULL")
+    )
+    created_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('reflection', 'episode_consolidation', 'memory_extraction', "
+            "'embedding_rebuild', 'relationship_update', 'scheduled_action')",
+            name="ck_background_jobs_kind",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'retrying', 'succeeded', 'failed', "
+            "'dead_letter', 'canceled')",
+            name="ck_background_jobs_status",
+        ),
+        CheckConstraint(
+            "attempt_count >= 0 AND max_attempts BETWEEN 1 AND 20 "
+            "AND attempt_count <= max_attempts",
+            name="ck_background_jobs_attempts",
+        ),
+        CheckConstraint(
+            "lease_seconds BETWEEN 1 AND 86400 AND retry_base_seconds BETWEEN 1 AND 86400",
+            name="ck_background_jobs_timing",
+        ),
+        CheckConstraint(
+            "(lease_owner IS NULL) = (lease_expires_at IS NULL)",
+            name="ck_background_jobs_lease",
+        ),
+        UniqueConstraint("tenant_id", "deduplication_key", name="uq_background_jobs_deduplication"),
+        UniqueConstraint("source_inbox_id", name="uq_background_jobs_source_inbox"),
+        Index("ix_background_jobs_queue_due", "status", "queue", "available_at"),
+        Index("ix_background_jobs_tenant_created", "tenant_id", "created_at"),
+        Index("ix_background_jobs_lease", "status", "lease_expires_at"),
+    )
+
+
+class OutboxEventModel(Base):
+    """后台任务的事务投递记录。"""
+
+    __tablename__ = "outbox_events"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    job_id: Mapped[UUID] = mapped_column(
+        ForeignKey("background_jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    event_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lease_owner: Mapped[str | None] = mapped_column(String(160))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_code: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'publishing', 'published', 'retrying', "
+            "'dead_letter', 'canceled')",
+            name="ck_outbox_events_status",
+        ),
+        CheckConstraint(
+            "attempt_count >= 0 AND max_attempts >= 1 AND attempt_count <= max_attempts",
+            name="ck_outbox_events_attempts",
+        ),
+        CheckConstraint(
+            "(lease_owner IS NULL) = (lease_expires_at IS NULL)",
+            name="ck_outbox_events_lease",
+        ),
+        Index("ix_outbox_events_due", "status", "available_at"),
+        Index("ix_outbox_events_job", "tenant_id", "job_id", "created_at"),
+    )
+
+
+class JobAttemptModel(Base):
+    """后台任务每次租约执行的安全审计。"""
+
+    __tablename__ = "job_attempts"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    job_id: Mapped[UUID] = mapped_column(
+        ForeignKey("background_jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    worker_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(120))
+    error_summary: Mapped[str | None] = mapped_column(String(500))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('running', 'succeeded', 'failed', 'timed_out', 'canceled')",
+            name="ck_job_attempts_status",
+        ),
+        CheckConstraint("attempt_number >= 1", name="ck_job_attempts_number"),
+        UniqueConstraint("job_id", "attempt_number", name="uq_job_attempts_number"),
+        Index("ix_job_attempts_tenant_job", "tenant_id", "job_id", "started_at"),
+    )
+
+
+class ScheduledActionModel(Base):
+    """等待策略门评估或等待 P6 渠道发送的主动行为。"""
+
+    __tablename__ = "scheduled_actions"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    conversation_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL")
+    )
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    score: Mapped[float | None] = mapped_column()
+    social_cost: Mapped[int] = mapped_column(Integer, nullable=False)
+    decision_reasons: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    job_id: Mapped[UUID] = mapped_column(
+        ForeignKey("background_jobs.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('follow_up', 'proactive_message', 'reflection')",
+            name="ck_scheduled_actions_kind",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'dispatched', 'completed', 'suppressed', "
+            "'canceled', 'expired', 'failed')",
+            name="ck_scheduled_actions_status",
+        ),
+        CheckConstraint(
+            "score IS NULL OR score BETWEEN 0 AND 1", name="ck_scheduled_actions_score"
+        ),
+        CheckConstraint("social_cost BETWEEN 0 AND 20", name="ck_scheduled_actions_social_cost"),
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_scheduled_actions_idempotency"),
+        UniqueConstraint("job_id", name="uq_scheduled_actions_job"),
+        Index("ix_scheduled_actions_due", "tenant_id", "status", "scheduled_for"),
+        Index("ix_scheduled_actions_user", "tenant_id", "agent_id", "user_id", "created_at"),
+    )
+
+
+class SocialBudgetUsageModel(Base):
+    """主动行为每日社交预算的幂等占用。"""
+
+    __tablename__ = "social_budget_usages"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    budget_date: Mapped[date] = mapped_column(Date, nullable=False)
+    scheduled_action_id: Mapped[UUID] = mapped_column(
+        ForeignKey("scheduled_actions.id", ondelete="CASCADE"), nullable=False
+    )
+    cost: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("cost BETWEEN 0 AND 20", name="ck_social_budget_usages_cost"),
+        UniqueConstraint("scheduled_action_id", name="uq_social_budget_usages_action"),
+        Index(
+            "ix_social_budget_usages_daily",
+            "tenant_id",
+            "agent_id",
+            "user_id",
+            "budget_date",
+        ),
+    )
+
+
+class WorkerHeartbeatModel(Base):
+    """Worker 最近一次进程心跳。"""
+
+    __tablename__ = "worker_heartbeats"
+
+    worker_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    queues: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    current_job_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("background_jobs.id", ondelete="SET NULL")
+    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("ix_worker_heartbeats_seen", "last_seen_at"),)

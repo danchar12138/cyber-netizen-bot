@@ -37,6 +37,10 @@ from cnb_infrastructure.secret_store import (
     SqlAlchemySecretStore,
 )
 from cnb_infrastructure.settings import Settings, get_settings
+from cnb_infrastructure.task_repository import (
+    InMemoryTaskRepository,
+    SqlAlchemyTaskRepository,
+)
 
 __all__ = [
     "AesGcmEnvelopeCipher",
@@ -44,6 +48,7 @@ __all__ = [
     "DependencyProbe",
     "DevelopmentModelProvider",
     "InMemoryMemoryRepository",
+    "InMemoryTaskRepository",
     "MemoryAdministrationRepository",
     "MemoryAttachmentRepository",
     "MemoryCognitionRepository",
@@ -61,6 +66,7 @@ __all__ = [
     "SqlAlchemyConversationRepository",
     "SqlAlchemyMemoryRepository",
     "SqlAlchemySecretStore",
+    "SqlAlchemyTaskRepository",
     "get_settings",
     "probe_dependencies",
 ]

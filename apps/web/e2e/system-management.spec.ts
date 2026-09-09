@@ -12,7 +12,7 @@ test('可以查看安全启动设置和真实任务基础状态', async ({ page 
         user_id: userId,
         display_name: '本地开发者',
         role: 'admin',
-        permissions: ['dashboard:read'],
+        permissions: ['dashboard:read', 'task:read', 'task:manage', 'proactive:manage'],
         authentication_mode: 'development',
       },
     })
@@ -41,6 +41,10 @@ test('可以查看安全启动设置和真实任务基础状态', async ({ page 
         broker: 'dramatiq-redis',
         queues: ['system'],
         pending_jobs: 0,
+        running_jobs: 0,
+        retrying_jobs: 0,
+        dead_letter_jobs: 0,
+        scheduled_actions: 0,
         worker: {
           name: 'worker',
           status: 'not_checked',
@@ -48,6 +52,18 @@ test('可以查看安全启动设置和真实任务基础状态', async ({ page 
         },
       },
     })
+  })
+  await page.route('**/api/v1/chat/identity', async (route) => {
+    await route.fulfill({ json: { tenant_id: tenantId, user_id: userId, agent_id: '33333333-3333-4333-8333-333333333333', user_name: '本地开发者', agent_name: '赛博网友' } })
+  })
+  await page.route('**/api/v1/tasks/dashboard', async (route) => {
+    await route.fulfill({ json: { pending: 1, running: 0, retrying: 0, dead_letters: 0, scheduled: 0, workers: [] } })
+  })
+  await page.route('**/api/v1/tasks/jobs?*', async (route) => {
+    await route.fulfill({ json: { items: [] } })
+  })
+  await page.route('**/api/v1/tasks/scheduled-actions?*', async (route) => {
+    await route.fulfill({ json: { items: [] } })
   })
 
   await page.goto('/settings')
@@ -63,7 +79,7 @@ test('可以查看安全启动设置和真实任务基础状态', async ({ page 
 
   await page.goto('/tasks')
   await expect(page.getByRole('heading', { name: '任务与主动行为' })).toBeVisible()
-  await expect(page.getByText('Dramatiq', { exact: true })).toBeVisible()
-  await expect(page.getByText('当前页面不伪造工作进程在线状态')).toBeVisible()
+  await expect(page.getByText('PostgreSQL 保存任务真相；Dramatiq/Redis 负责投递，重复消息由租约、去重键和尝试记录吸收。')).toBeVisible()
+  await expect(page.getByText('主动消息默认关闭，当前只分发到安全边界')).toBeVisible()
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
 })
