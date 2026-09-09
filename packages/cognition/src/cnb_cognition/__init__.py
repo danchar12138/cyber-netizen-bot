@@ -8,6 +8,12 @@ from cnb_cognition.context import (
     ContextRole,
     estimate_tokens,
 )
+from cnb_cognition.memory import (
+    DeterministicHashEmbedding,
+    EmbeddingEncoder,
+    HybridMemoryRanker,
+    HybridRecallWeights,
+)
 from cnb_cognition.model import (
     ModelCapabilities,
     ModelMessage,
@@ -44,6 +50,7 @@ from cnb_cognition.runtime import (
     CognitiveRuntime,
     CognitiveStage,
     CognitiveStep,
+    MemoryRecallTraceItem,
     MinimalCognitiveRuntime,
     Perception,
     SocialMindState,
@@ -65,7 +72,12 @@ __all__ = [
     "ContextFragment",
     "ContextFragmentKind",
     "ContextRole",
+    "DeterministicHashEmbedding",
     "DeterministicPolicyGate",
+    "EmbeddingEncoder",
+    "HybridMemoryRanker",
+    "HybridRecallWeights",
+    "MemoryRecallTraceItem",
     "MinimalCognitiveRuntime",
     "ModelCapabilities",
     "ModelMessage",

@@ -133,7 +133,7 @@ test('可以按 Run ID 查看安全认知轨迹', async ({ page }) => {
           social_energy: 0.7,
           created_at: timestamp,
         },
-        steps: ['perception', 'context_assembly', 'social_mind', 'deliberation', 'policy_gate', 'realizer'].map((stage, index) => ({
+        steps: ['perception', 'context_assembly', 'memory_recall', 'social_mind', 'deliberation', 'policy_gate', 'realizer'].map((stage, index) => ({
           sequence: index + 1,
           stage,
           summary: `${stage} 安全摘要`,
@@ -171,7 +171,7 @@ test('可以按 Run ID 查看安全认知轨迹', async ({ page }) => {
   await page.goto('/observability')
   await page.getByRole('textbox', { name: 'Agent Run ID' }).fill(runId)
   await page.getByRole('button', { name: '查询轨迹' }).click()
-  await expect(page.getByText('6 步')).toBeVisible()
+  await expect(page.getByText('7 步')).toBeVisible()
   await expect(page.getByText('策略已选')).toBeVisible()
   await expect(page.getByText('development / friendly-echo-v1')).toBeVisible()
   await expect(page.getByText('隐藏思维链或请求正文')).toBeVisible()

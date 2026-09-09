@@ -1,6 +1,7 @@
 """无需外部基础设施的 API 契约冒烟测试。"""
 
 import asyncio
+from datetime import UTC, datetime
 from hashlib import sha256
 from typing import cast
 from uuid import UUID, uuid4
@@ -35,6 +36,7 @@ from cnb_contracts import (
 )
 from cnb_domain import JsonValue
 from cnb_infrastructure import (
+    InMemoryMemoryRepository,
     MemoryAttachmentRepository,
     MemoryConfigurationRepository,
     MemoryConversationRepository,
@@ -536,6 +538,7 @@ async def test_internal_chat_persists_and_completes_a_streamed_turn() -> None:
     assert [item.stage for item in trace.steps] == [
         "perception",
         "context_assembly",
+        "memory_recall",
         "social_mind",
         "deliberation",
         "policy_gate",
@@ -790,6 +793,201 @@ async def test_api_validation_errors_use_versioned_envelope_and_request_id() -> 
     assert payload.error.code == "validation_error"
     assert payload.error.request_id == "test-request-id"
     assert payload.error.details[0].field == "body.title"
+
+
+async def test_memory_relationship_episode_and_index_management_api() -> None:
+    memory_repository = InMemoryMemoryRepository()
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+        memory_repository=memory_repository,
+    )
+    now = datetime.now(UTC).isoformat()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        identity = (await client.get("/api/v1/chat/identity")).json()
+        user_id = identity["user_id"]
+        viewer_write = await client.post(
+            "/api/v1/memory/memories",
+            headers={"X-CNB-Development-Role": "viewer"},
+            json={
+                "kind": "semantic",
+                "content": "只读角色不能创建",
+                "event_at": now,
+                "sources": [
+                    {
+                        "kind": "import",
+                        "source_id": "viewer-attempt",
+                        "occurred_at": now,
+                    }
+                ],
+            },
+        )
+        assert viewer_write.status_code == 403
+
+        first_response = await client.post(
+            "/api/v1/memory/memories",
+            json={
+                "user_id": user_id,
+                "kind": "semantic",
+                "visibility": "user",
+                "content": "用户的猫叫月饼",
+                "event_at": now,
+                "confidence": 0.7,
+                "importance": 0.9,
+                "emotional_weight": 0.2,
+                "sensitivity": "normal",
+                "confirmation": "unconfirmed",
+                "sources": [
+                    {
+                        "kind": "user_statement",
+                        "source_id": "message:cat-name",
+                        "excerpt": "我的猫叫月饼",
+                        "is_verbatim": True,
+                        "occurred_at": now,
+                    }
+                ],
+            },
+        )
+        second_response = await client.post(
+            "/api/v1/memory/memories",
+            json={
+                "user_id": user_id,
+                "kind": "episodic",
+                "content": "一起聊过猫咪的饮食",
+                "event_at": now,
+                "sources": [
+                    {
+                        "kind": "message",
+                        "source_id": "message:cat-food",
+                        "excerpt": "猫最近不爱吃饭",
+                        "is_verbatim": True,
+                        "occurred_at": now,
+                    }
+                ],
+            },
+        )
+        assert first_response.status_code == 201
+        assert second_response.status_code == 201
+        first = first_response.json()["memory"]
+        second = second_response.json()["memory"]
+
+        listed = await client.get(f"/api/v1/memory/memories?user_id={user_id}&status=active")
+        viewer_listed = await client.get(
+            "/api/v1/memory/memories",
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        recalled = await client.post(
+            "/api/v1/memory/recall",
+            json={"user_id": user_id, "query": "我的猫叫什么", "limit": 5},
+        )
+        assert listed.status_code == viewer_listed.status_code == 200
+        assert len(listed.json()["items"]) == 2
+        assert recalled.status_code == 200
+        assert recalled.json()["items"][0]["memory"]["id"] == first["id"]
+
+        confirmed = await client.post(
+            f"/api/v1/memory/memories/{first['id']}/confirmation",
+            json={"confirmation": "confirmed"},
+        )
+        corrected = await client.post(
+            f"/api/v1/memory/memories/{first['id']}/corrections",
+            json={
+                "content": "用户的猫叫月饼，生日在春天",
+                "event_at": now,
+                "note": "用户补充",
+            },
+        )
+        corrected_memory = corrected.json()["memory"]
+        conflict = await client.post(
+            f"/api/v1/memory/memories/{corrected_memory['id']}/conflicts",
+            json={"target_memory_id": second["id"], "note": "时间描述有冲突"},
+        )
+        assert confirmed.json()["confirmation"] == "confirmed"
+        assert corrected.status_code == 201
+        assert corrected_memory["version"] == 2
+        assert conflict.status_code == 201
+
+        relationship = await client.post(
+            "/api/v1/memory/relationship/events",
+            json={
+                "user_id": user_id,
+                "event_type": "memory_confirmed",
+                "affinity_delta": 0.8,
+                "trust_delta": 0.8,
+                "familiarity_delta": 0.8,
+                "summary": "已形成稳定信任。",
+                "boundaries": ["不主动追问敏感信息"],
+                "evidence_memory_id": corrected_memory["id"],
+            },
+        )
+        relationship_read = await client.get(f"/api/v1/memory/relationship?user_id={user_id}")
+        assert relationship.status_code == 201
+        assert relationship_read.json()["relationship"]["stage"] == "trusted"
+
+        conversation = await client.post(
+            "/api/v1/chat/conversations", json={"title": "跨会话记忆验证"}
+        )
+        accepted = await client.post(
+            f"/api/v1/chat/conversations/{conversation.json()['id']}/messages",
+            json={"client_message_id": str(uuid4()), "content": "你还记得我的猫吗？"},
+        )
+        trace_payload: dict[str, object] = {}
+        for _ in range(50):
+            trace_response = await client.get(
+                f"/api/v1/cognition/runs/{accepted.json()['run']['id']}/trace"
+            )
+            trace_payload = trace_response.json()
+            if trace_payload.get("steps"):
+                break
+            await asyncio.sleep(0.01)
+        memory_step = next(
+            item
+            for item in cast(list[dict[str, object]], trace_payload["steps"])
+            if item["stage"] == "memory_recall"
+        )
+        memory_detail = cast(dict[str, object], memory_step["detail"])
+        assert corrected_memory["id"] in cast(list[str], memory_detail["memory_ids"])
+        assert memory_detail["relationship_version"] == 1
+
+        conversation_id = str(uuid4())
+        message_id = str(uuid4())
+        episode = await client.post(
+            "/api/v1/memory/episodes",
+            json={
+                "user_id": user_id,
+                "conversation_id": conversation_id,
+                "title": "关于月饼的对话",
+                "summary": "用户介绍了猫咪月饼。",
+                "started_at": now,
+                "ended_at": now,
+                "source_message_ids": [message_id],
+            },
+        )
+        closed_episode = await client.post(
+            f"/api/v1/memory/episodes/{episode.json()['id']}/close",
+            json={"consolidate": True},
+        )
+        assert episode.status_code == 201
+        assert closed_episode.json()["status"] == "consolidated"
+
+        forgotten = await client.post(
+            f"/api/v1/memory/memories/{second['id']}/forget",
+            json={"confirmed": True},
+        )
+        forgotten_detail = await client.get(f"/api/v1/memory/memories/{second['id']}")
+        assert forgotten.json()["content"] is None
+        assert forgotten_detail.json()["sources"][0]["excerpt"] is None
+        assert second["id"] not in memory_repository.embeddings
+
+        rebuild = await client.post(
+            "/api/v1/memory/index-jobs",
+            json={"user_id": user_id, "confirmed": True},
+        )
+        jobs = await client.get("/api/v1/memory/index-jobs")
+        assert rebuild.status_code == 201
+        assert rebuild.json()["status"] == "completed"
+        assert jobs.json()["items"][0]["id"] == rebuild.json()["id"]
 
 
 def test_internal_chat_websocket_replays_from_sequence_and_responds_to_ping() -> None:

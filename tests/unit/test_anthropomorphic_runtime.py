@@ -10,11 +10,13 @@ from cnb_cognition import (
     AnthropomorphicCognitiveRuntime,
     CognitiveAction,
     CognitiveContext,
+    CognitiveStage,
     ContextAssembler,
     ContextFragment,
     ContextFragmentKind,
     ContextRole,
     DeterministicPolicyGate,
+    MemoryRecallTraceItem,
     PolicyRuleSet,
     ToolPolicyContext,
     ToolRiskLevel,
@@ -176,8 +178,40 @@ async def test_runtime_can_ask_wait_not_reply_and_block_tool_candidate() -> None
     assert external.action is CognitiveAction.REPLY
     assert external.policy_evaluation is not None
     assert external.policy_evaluation.rejected_reasons
-    assert [step.sequence for step in external.steps] == list(range(1, 7))
+    assert [step.sequence for step in external.steps] == list(range(1, 8))
     assert "隐藏推理" not in external.rationale_summary
+
+
+async def test_runtime_trace_records_memory_references_without_plaintext() -> None:
+    runtime = AnthropomorphicCognitiveRuntime()
+    memory_id = uuid4()
+    context = _context()
+    context = CognitiveContext(
+        run_id=context.run_id,
+        configuration_version=context.configuration_version,
+        persona_version=context.persona_version,
+        prompt_version=context.prompt_version,
+        context_fragments=(
+            ContextFragment(
+                fragment_id=f"memory-{memory_id}",
+                kind=ContextFragmentKind.LONG_TERM_MEMORY,
+                role=ContextRole.SYSTEM,
+                content="一段不应写入轨迹的记忆正文",
+                priority=80,
+            ),
+        ),
+        memory_recall_trace=(MemoryRecallTraceItem(memory_id, 0.8123456, 3),),
+        relationship_version=4,
+    )
+
+    decision = await runtime.run(_event("还记得吗？"), context)
+    step = next(item for item in decision.steps if item.stage is CognitiveStage.MEMORY_RECALL)
+
+    assert step.detail["memory_ids"] == [str(memory_id)]
+    assert step.detail["scores"] == [0.812346]
+    assert step.detail["versions"] == [3]
+    assert step.detail["relationship_version"] == 4
+    assert "记忆正文" not in str(step.detail)
 
 
 async def test_runtime_is_deterministic_for_same_state_and_event() -> None:

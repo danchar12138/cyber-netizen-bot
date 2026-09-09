@@ -64,6 +64,14 @@ from cnb_application.conversation_service import (
     ModelReliabilityGuard,
     StaticModelProviderResolver,
 )
+from cnb_application.memory_service import (
+    MemoryConflictError,
+    MemoryNotFoundError,
+    MemoryRepository,
+    MemoryService,
+    MemorySourceDraft,
+    MemoryValidationError,
+)
 from cnb_application.pagination import (
     EntityCursor,
     InvalidCursorError,
@@ -104,6 +112,12 @@ __all__ = [
     "EntityCursor",
     "InvalidCursorError",
     "ManagementPage",
+    "MemoryConflictError",
+    "MemoryNotFoundError",
+    "MemoryRepository",
+    "MemoryService",
+    "MemorySourceDraft",
+    "MemoryValidationError",
     "ModelProviderConfigurationError",
     "ModelProviderResolver",
     "ModelReliabilityGuard",

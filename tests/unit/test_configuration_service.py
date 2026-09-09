@@ -44,6 +44,40 @@ async def test_unknown_keys_are_rejected(service: ConfigurationService) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        (
+            (
+                ConfigEntry("memory.recall.limit", ConfigScope.SYSTEM, 20),
+                ConfigEntry("memory.recall.candidate_pool", ConfigScope.SYSTEM, 10),
+            ),
+            "候选池不能小于",
+        ),
+        (
+            tuple(
+                ConfigEntry(key, ConfigScope.SYSTEM, 0.0)
+                for key in (
+                    "memory.recall.full_text_weight",
+                    "memory.recall.semantic_weight",
+                    "memory.recall.recency_weight",
+                    "memory.recall.importance_weight",
+                    "memory.recall.relationship_weight",
+                )
+            ),
+            "权重不能全部为 0",
+        ),
+    ],
+)
+async def test_memory_recall_settings_are_cross_validated(
+    service: ConfigurationService,
+    values: tuple[ConfigEntry, ...],
+    message: str,
+) -> None:
+    with pytest.raises(ConfigurationValidationError, match=message):
+        await service.create_draft(note=None, values=values)
+
+
 async def test_only_drafts_can_be_published(service: ConfigurationService) -> None:
     draft = await service.create_draft(note=None, values=())
     published = await service.publish(draft.id)

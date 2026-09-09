@@ -10,6 +10,7 @@ class ContextFragmentKind(StrEnum):
     SYSTEM = "system"
     PERSONA = "persona"
     WORKING_MEMORY = "working_memory"
+    LONG_TERM_MEMORY = "long_term_memory"
     RECENT_MESSAGE = "recent_message"
     USER_CONTEXT = "user_context"
 

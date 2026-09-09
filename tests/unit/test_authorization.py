@@ -27,6 +27,7 @@ def test_operator_can_publish_configuration_but_cannot_manage_secrets() -> None:
     principal = _principal(AdminRole.OPERATOR)
 
     assert require_admin_permission(principal, AdminPermission.CONFIGURATION_WRITE) is principal
+    assert require_admin_permission(principal, AdminPermission.MEMORY_REBUILD) is principal
     with pytest.raises(PermissionDeniedError, match="secret:manage"):
         require_admin_permission(principal, AdminPermission.SECRET_MANAGE)
 
@@ -36,5 +37,8 @@ def test_viewer_is_strictly_read_only() -> None:
 
     assert AdminPermission.CONFIGURATION_READ in permissions
     assert AdminPermission.CONVERSATION_READ in permissions
+    assert AdminPermission.MEMORY_READ in permissions
     assert AdminPermission.CONFIGURATION_WRITE not in permissions
     assert AdminPermission.CONVERSATION_USE not in permissions
+    assert AdminPermission.MEMORY_WRITE not in permissions
+    assert AdminPermission.MEMORY_REBUILD not in permissions

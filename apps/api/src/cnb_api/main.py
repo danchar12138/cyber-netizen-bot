@@ -17,6 +17,7 @@ from cnb_api.routes import (
     configuration,
     conversation,
     health,
+    memory,
     system,
 )
 from cnb_application import (
@@ -25,6 +26,7 @@ from cnb_application import (
     CognitionRepository,
     ConfigurationRepository,
     ConversationRepository,
+    MemoryRepository,
     ModelProviderResolver,
     ModelReliabilityGuard,
     ObjectStorage,
@@ -37,6 +39,7 @@ from cnb_infrastructure import (
     AesGcmEnvelopeCipher,
     ConfiguredModelProviderResolver,
     DependencyProbe,
+    InMemoryMemoryRepository,
     MemoryAdministrationRepository,
     MemoryAttachmentRepository,
     MemoryCognitionRepository,
@@ -49,6 +52,7 @@ from cnb_infrastructure import (
     SqlAlchemyCognitionRepository,
     SqlAlchemyConfigurationRepository,
     SqlAlchemyConversationRepository,
+    SqlAlchemyMemoryRepository,
     SqlAlchemySecretStore,
     get_settings,
     probe_dependencies,
@@ -62,6 +66,7 @@ def create_app(
     configuration_repository: ConfigurationRepository | None = None,
     cognition_repository: CognitionRepository | None = None,
     conversation_repository: ConversationRepository | None = None,
+    memory_repository: MemoryRepository | None = None,
     administration_repository: AdministrationRepository | None = None,
     attachment_repository: AttachmentRepository | None = None,
     object_storage: ObjectStorage | None = None,
@@ -110,6 +115,12 @@ def create_app(
     application.state.conversation_repository = (
         conversation_repository or SqlAlchemyConversationRepository(session_factory)
     )
+    if memory_repository is not None:
+        application.state.memory_repository = memory_repository
+    elif configuration_repository is not None or conversation_repository is not None:
+        application.state.memory_repository = InMemoryMemoryRepository()
+    else:
+        application.state.memory_repository = SqlAlchemyMemoryRepository(session_factory)
     if cognition_repository is not None:
         application.state.cognition_repository = cognition_repository
     elif configuration_repository is not None or conversation_repository is not None:
@@ -181,6 +192,7 @@ def create_app(
     application.include_router(administration.router, prefix="/api/v1")
     application.include_router(configuration.router, prefix="/api/v1")
     application.include_router(cognition.router, prefix="/api/v1")
+    application.include_router(memory.router, prefix="/api/v1")
     application.include_router(attachment.router, prefix="/api/v1")
     application.include_router(conversation.router, prefix="/api/v1")
     return application

@@ -21,6 +21,10 @@ from cnb_infrastructure.conversation_repository import (
     SqlAlchemyConversationRepository,
 )
 from cnb_infrastructure.health import DependencyProbe, probe_dependencies
+from cnb_infrastructure.memory_repository import (
+    InMemoryMemoryRepository,
+    SqlAlchemyMemoryRepository,
+)
 from cnb_infrastructure.model_provider import (
     ConfiguredModelProviderResolver,
     DevelopmentModelProvider,
@@ -39,6 +43,7 @@ __all__ = [
     "ConfiguredModelProviderResolver",
     "DependencyProbe",
     "DevelopmentModelProvider",
+    "InMemoryMemoryRepository",
     "MemoryAdministrationRepository",
     "MemoryAttachmentRepository",
     "MemoryCognitionRepository",
@@ -54,6 +59,7 @@ __all__ = [
     "SqlAlchemyCognitionRepository",
     "SqlAlchemyConfigurationRepository",
     "SqlAlchemyConversationRepository",
+    "SqlAlchemyMemoryRepository",
     "SqlAlchemySecretStore",
     "get_settings",
     "probe_dependencies",

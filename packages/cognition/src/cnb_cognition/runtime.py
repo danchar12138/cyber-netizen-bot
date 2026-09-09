@@ -30,6 +30,7 @@ class CognitiveStage(StrEnum):
 
     PERCEPTION = "perception"
     CONTEXT_ASSEMBLY = "context_assembly"
+    MEMORY_RECALL = "memory_recall"
     SOCIAL_MIND = "social_mind"
     DELIBERATION = "deliberation"
     POLICY_GATE = "policy_gate"
@@ -51,6 +52,15 @@ class AgentEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class MemoryRecallTraceItem:
+    """进入运行轨迹的记忆引用；不包含记忆正文或来源摘录。"""
+
+    memory_id: UUID
+    score: float
+    version: int
+
+
+@dataclass(frozen=True, slots=True)
 class CognitiveContext:
     """为单次运行固定的版本、状态和可追溯上下文来源。"""
 
@@ -64,6 +74,8 @@ class CognitiveContext:
     policy: PolicyRuleSet = field(default_factory=PolicyRuleSet)
     context_token_budget: int = 24000
     affect_half_life_seconds: int = 21600
+    memory_recall_trace: tuple[MemoryRecallTraceItem, ...] = ()
+    relationship_version: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +172,15 @@ class AnthropomorphicCognitiveRuntime:
             evaluation,
             perception,
         )
-        steps = self._steps(perception, assembly, social_mind, candidates, evaluation)
+        steps = self._steps(
+            perception,
+            assembly,
+            context.memory_recall_trace,
+            context.relationship_version,
+            social_mind,
+            candidates,
+            evaluation,
+        )
         return AgentDecision(
             action=evaluation.selected.action,
             rationale_summary=evaluation.selected.reason_summary,
@@ -392,6 +412,8 @@ class AnthropomorphicCognitiveRuntime:
     def _steps(
         perception: Perception,
         assembly: ContextAssembly,
+        memory_recall_trace: tuple[MemoryRecallTraceItem, ...],
+        relationship_version: int | None,
         social_mind: SocialMindState,
         candidates: tuple[ActionCandidate, ...],
         evaluation: PolicyEvaluation,
@@ -423,6 +445,18 @@ class AnthropomorphicCognitiveRuntime:
             ),
             CognitiveStep(
                 3,
+                CognitiveStage.MEMORY_RECALL,
+                "已按冻结配置召回长期记忆并应用用户、租户和敏感级别边界。",
+                {
+                    "memory_ids": [str(item.memory_id) for item in memory_recall_trace],
+                    "scores": [round(item.score, 6) for item in memory_recall_trace],
+                    "versions": [item.version for item in memory_recall_trace],
+                    "recalled_count": len(memory_recall_trace),
+                    "relationship_version": relationship_version,
+                },
+            ),
+            CognitiveStep(
+                4,
                 CognitiveStage.SOCIAL_MIND,
                 "已结合人格与短期情绪确定本轮社交姿态。",
                 {
@@ -432,13 +466,13 @@ class AnthropomorphicCognitiveRuntime:
                 },
             ),
             CognitiveStep(
-                4,
+                5,
                 CognitiveStage.DELIBERATION,
                 "已生成结构化行动候选。",
                 {"candidate_actions": [item.action.value for item in candidates]},
             ),
             CognitiveStep(
-                5,
+                6,
                 CognitiveStage.POLICY_GATE,
                 "已由确定性策略门选择允许的行动。",
                 {
@@ -448,7 +482,7 @@ class AnthropomorphicCognitiveRuntime:
                 },
             ),
             CognitiveStep(
-                6,
+                7,
                 CognitiveStage.REALIZER,
                 "已生成不包含隐藏推理的表达约束。",
                 {

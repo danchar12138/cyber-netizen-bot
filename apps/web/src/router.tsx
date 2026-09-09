@@ -15,6 +15,7 @@ import { CognitionResourcesPage } from './views/CognitionResourcesPage'
 import { DashboardPage } from './views/DashboardPage'
 import { EntityManagementPage } from './views/EntityManagementPage'
 import { EvaluationsPage } from './views/EvaluationsPage'
+import { MemoryPage } from './views/MemoryPage'
 import { ObservabilityPage } from './views/ObservabilityPage'
 import { SectionRoutePage } from './views/SectionRoutePage'
 import { SystemSettingsPage } from './views/SystemSettingsPage'
@@ -82,6 +83,12 @@ const promptsRoute = createRoute({
   component: () => <CognitionResourcesPage title="Prompt 与上下文" kinds={['prompt']} description="版本化管理表达 Prompt；上下文选择由可回放的来源、优先级和 Token 预算控制。" />,
 })
 
+const memoriesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/memories',
+  component: MemoryPage,
+})
+
 const toolsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/tools',
@@ -140,6 +147,7 @@ const routeTree = rootRoute.addChildren([
   personasRoute,
   modelsRoute,
   promptsRoute,
+  memoriesRoute,
   usersRoute,
   auditRoute,
   toolsRoute,

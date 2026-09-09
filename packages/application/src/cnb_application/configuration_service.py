@@ -143,6 +143,7 @@ class ConfigurationService:
                 raise ConfigurationConflictError(f"同一作用域存在重复配置值：{entry.key}")
             seen.add(identity)
             self._registry.validate_entry(entry)
+        self._validate_memory_recall_entries(values)
         return await self._repository.create_draft(
             note=note.strip() if note and note.strip() else None,
             values=values,
@@ -272,6 +273,36 @@ class ConfigurationService:
                 raise ConfigurationConflictError(f"同一作用域存在重复配置值：{entry.key}")
             seen.add(identity)
             self._registry.validate_entry(entry)
+        self._validate_memory_recall_entries(version.values)
+
+    def _validate_memory_recall_entries(self, entries: tuple[ConfigEntry, ...]) -> None:
+        """阻止发布不可执行的记忆候选池和全零混合权重。"""
+        grouped: dict[tuple[ConfigScope, UUID | None], dict[str, JsonValue]] = {}
+        for entry in entries:
+            grouped.setdefault((entry.scope_type, entry.scope_id), {})[entry.key] = entry.value
+        defaults = {item.key: item.default for item in self._registry.all()}
+        weight_keys = (
+            "memory.recall.full_text_weight",
+            "memory.recall.semantic_weight",
+            "memory.recall.recency_weight",
+            "memory.recall.importance_weight",
+            "memory.recall.relationship_weight",
+        )
+        for values in grouped.values():
+            limit = values.get("memory.recall.limit", defaults["memory.recall.limit"])
+            candidate_pool = values.get(
+                "memory.recall.candidate_pool",
+                defaults["memory.recall.candidate_pool"],
+            )
+            if (
+                isinstance(limit, int)
+                and isinstance(candidate_pool, int)
+                and candidate_pool < limit
+            ):
+                raise ConfigurationValidationError("记忆候选池不能小于召回数量")
+            weights = [values.get(key, defaults[key]) for key in weight_keys]
+            if all(isinstance(value, (int, float)) for value in weights) and not any(weights):
+                raise ConfigurationValidationError("记忆混合召回权重不能全部为 0")
 
     @staticmethod
     def _entry_map(

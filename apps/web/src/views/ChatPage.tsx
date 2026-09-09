@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Archive, Bot, CircleStop, Copy, CornerDownLeft, ImagePlus, LoaderCircle,
-  FileText, Menu, Paperclip, Pencil, Pin, RotateCcw, Search, SendHorizontal, Sparkles,
-  ThumbsDown, ThumbsUp, Trash2, UserRound, X,
+  FileText, MemoryStick, Menu, Paperclip, Pencil, Pin, RotateCcw, Search,
+  SendHorizontal, Sparkles, ThumbsDown, ThumbsUp, Trash2, UserRound, UsersRound, X,
 } from 'lucide-react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -11,7 +11,8 @@ import {
   cancelAgentRun, clearMessageFeedback, completeAttachment, createConversation,
   deleteAttachment, deleteConversation, editChatMessage, getAdminSession,
   getAttachmentPreview, getAttachments, getConversations, getDevelopmentIdentity,
-  getMessageFeedback, getMessages, regenerateChatMessage, reserveAttachment,
+  getMessageFeedback, getMessages, getRelationship, recallMemories,
+  regenerateChatMessage, reserveAttachment,
   searchChatMessages, sendChatMessage, setMessageFeedback, updateConversation,
   uploadReservedAttachment,
 } from '../api'
@@ -73,6 +74,7 @@ export function ChatPage() {
   const identity = useQuery({ queryKey: ['chat-identity'], queryFn: getDevelopmentIdentity })
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const canUseConversation = session.data?.permissions.includes('conversation:use') ?? false
+  const canReadMemory = session.data?.permissions.includes('memory:read') ?? false
   const conversations = useQuery({
     queryKey: ['conversations', 'chat', searchText],
     queryFn: () => getConversations(searchText),
@@ -96,6 +98,20 @@ export function ChatPage() {
     queryKey: ['attachments', selectedId],
     queryFn: () => getAttachments(selectedId!),
     enabled: selectedId !== null,
+  })
+  const lastUserText = useMemo(
+    () => [...messages].reverse().find((item) => item.sender_type === 'user')?.content ?? '',
+    [messages],
+  )
+  const relationship = useQuery({
+    queryKey: ['relationship', identity.data?.user_id],
+    queryFn: () => getRelationship(identity.data!.user_id),
+    enabled: Boolean(identity.data?.user_id && canReadMemory),
+  })
+  const recalledMemories = useQuery({
+    queryKey: ['chat-memory-recall', identity.data?.user_id, lastUserText],
+    queryFn: () => recallMemories(identity.data!.user_id, lastUserText, 5),
+    enabled: Boolean(identity.data?.user_id && lastUserText.trim() && canReadMemory),
   })
 
   useEffect(() => {
@@ -480,6 +496,25 @@ export function ChatPage() {
             </div>
           </div>
         </div>
+        <aside className="chat-context-panel" aria-label="关系与召回记忆">
+          <section>
+            <h2><UsersRound size={14} /> 关系摘要</h2>
+            {relationship.data ? <>
+              <strong>{relationship.data.relationship.stage} · v{relationship.data.relationship.version}</strong>
+              <p>{relationship.data.relationship.summary}</p>
+              {relationship.data.relationship.boundaries.map((item) => <span key={item}>{item}</span>)}
+            </> : <p>尚未形成稳定关系摘要。</p>}
+          </section>
+          <section>
+            <h2><MemoryStick size={14} /> 本轮召回</h2>
+            {!lastUserText && <p>发送消息后显示按当前配置召回的长期记忆。</p>}
+            {recalledMemories.data?.items.map((item) => <article key={item.memory.id}>
+              <strong>{item.memory.kind} · {item.score.toFixed(2)}</strong>
+              <p>{item.memory.content}</p>
+            </article>)}
+            {lastUserText && !recalledMemories.isLoading && !recalledMemories.data?.items.length && <p>本轮没有匹配的长期记忆。</p>}
+          </section>
+        </aside>
       </section>
     </div>
   )

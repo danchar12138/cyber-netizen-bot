@@ -50,6 +50,9 @@ export type AdminPermission =
   | 'cognition:read'
   | 'cognition:write'
   | 'cognition:evaluate'
+  | 'memory:read'
+  | 'memory:write'
+  | 'memory:rebuild'
   | 'trace:read'
   | 'user:read'
   | 'user:write'
@@ -364,6 +367,147 @@ export interface EvaluationSuite {
   }>
 }
 
+export type MemoryKind =
+  | 'working'
+  | 'episodic'
+  | 'semantic'
+  | 'relational'
+  | 'autobiographical'
+  | 'procedural'
+export type MemoryVisibility = 'user' | 'agent' | 'tenant'
+export type MemorySensitivity = 'normal' | 'personal' | 'sensitive' | 'restricted'
+export type MemoryConfirmation = 'unconfirmed' | 'confirmed' | 'disputed'
+export type MemoryStatus = 'active' | 'superseded' | 'forgotten'
+
+export interface LongTermMemory {
+  id: string
+  lineage_id: string
+  tenant_id: string
+  agent_id: string
+  user_id: string | null
+  conversation_id: string | null
+  episode_id: string | null
+  kind: MemoryKind
+  visibility: MemoryVisibility
+  content: string | null
+  event_at: string
+  confidence: number
+  importance: number
+  emotional_weight: number
+  sensitivity: MemorySensitivity
+  confirmation: MemoryConfirmation
+  status: MemoryStatus
+  version: number
+  embedding_version: string | null
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+export interface MemorySource {
+  id: string
+  tenant_id: string
+  memory_id: string
+  kind: 'message' | 'episode' | 'user_statement' | 'admin_correction' | 'reflection' | 'import'
+  source_id: string
+  excerpt: string | null
+  is_verbatim: boolean
+  occurred_at: string
+  created_at: string
+}
+
+export interface MemoryLink {
+  id: string
+  tenant_id: string
+  source_memory_id: string
+  target_memory_id: string
+  kind: 'related_to' | 'conflicts_with' | 'supersedes' | 'derived_from'
+  note: string | null
+  created_by: string
+  created_at: string
+}
+
+export interface MemoryDetail {
+  memory: LongTermMemory
+  sources: MemorySource[]
+  links: MemoryLink[]
+}
+
+export interface MemoryRecallItem {
+  memory: LongTermMemory
+  score: number
+  components: Record<string, ConfigValue>
+}
+
+export interface Relationship {
+  id: string
+  tenant_id: string
+  agent_id: string
+  user_id: string
+  stage: 'stranger' | 'acquaintance' | 'familiar' | 'trusted'
+  affinity: number
+  trust: number
+  familiarity: number
+  interaction_count: number
+  summary: string
+  boundaries: string[]
+  version: number
+  created_at: string
+  updated_at: string
+}
+
+export interface RelationshipEvent {
+  id: string
+  tenant_id: string
+  relationship_id: string
+  event_type: string
+  affinity_delta: number
+  trust_delta: number
+  familiarity_delta: number
+  evidence_memory_id: string | null
+  summary: string
+  created_by: string
+  created_at: string
+}
+
+export interface RelationshipDetail {
+  relationship: Relationship
+  events: RelationshipEvent[]
+}
+
+export interface MemoryIndexJob {
+  id: string
+  tenant_id: string
+  agent_id: string
+  user_id: string | null
+  target_embedding_version: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  total_items: number
+  processed_items: number
+  error_code: string | null
+  created_by: string
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface Episode {
+  id: string
+  tenant_id: string
+  agent_id: string
+  user_id: string
+  conversation_id: string
+  title: string
+  summary: string
+  status: 'open' | 'closed' | 'consolidated'
+  started_at: string
+  ended_at: string | null
+  source_message_ids: string[]
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
 interface ConfigVersionList {
   versions: ConfigVersion[]
 }
@@ -430,6 +574,18 @@ async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path, {
     headers: { Accept: 'application/json' },
   })
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: { message?: string }
+    } | null
+    throw new Error(payload?.error?.message ?? `请求失败，状态码 ${response.status}`)
+  }
+  return response.json() as Promise<T>
+}
+
+async function getOptionalJson<T>(path: string): Promise<T | null> {
+  const response = await fetch(path, { headers: { Accept: 'application/json' } })
+  if (response.status === 404) return null
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as {
       error?: { message?: string }
@@ -591,6 +747,119 @@ export const getCognitiveRunTrace = (runId: string) =>
 
 export const runCognitionEvaluationSuite = () =>
   postJson<EvaluationSuite>('/api/v1/cognition/evaluations/run')
+
+export const getMemories = (filters: {
+  userId?: string
+  query?: string
+  status?: MemoryStatus
+  kind?: MemoryKind
+} = {}) => {
+  const query = new URLSearchParams({ limit: '200' })
+  if (filters.userId) query.set('user_id', filters.userId)
+  if (filters.query?.trim()) query.set('query', filters.query.trim())
+  if (filters.status) query.set('status', filters.status)
+  if (filters.kind) query.set('kind', filters.kind)
+  return getJson<{ items: LongTermMemory[] }>(`/api/v1/memory/memories?${query}`)
+}
+
+export const getMemoryDetail = (memoryId: string) =>
+  getJson<MemoryDetail>(`/api/v1/memory/memories/${memoryId}`)
+
+export const createMemory = (command: {
+  user_id: string | null
+  conversation_id: string | null
+  episode_id: string | null
+  kind: MemoryKind
+  visibility: MemoryVisibility
+  content: string
+  event_at: string
+  confidence: number
+  importance: number
+  emotional_weight: number
+  sensitivity: MemorySensitivity
+  confirmation: MemoryConfirmation
+  sources: Array<{
+    kind: MemorySource['kind']
+    source_id: string
+    excerpt: string | null
+    is_verbatim: boolean
+    occurred_at: string
+  }>
+}) => postJson<MemoryDetail>('/api/v1/memory/memories', command)
+
+export const setMemoryConfirmation = (
+  memoryId: string,
+  confirmation: MemoryConfirmation,
+) => postJson<LongTermMemory>(`/api/v1/memory/memories/${memoryId}/confirmation`, {
+  confirmation,
+})
+
+export const correctMemory = (
+  memoryId: string,
+  command: { content: string; event_at: string; note: string | null },
+) => postJson<MemoryDetail>(`/api/v1/memory/memories/${memoryId}/corrections`, command)
+
+export const linkMemoryConflict = (
+  memoryId: string,
+  targetMemoryId: string,
+  note: string | null,
+) => postJson<MemoryLink>(`/api/v1/memory/memories/${memoryId}/conflicts`, {
+  target_memory_id: targetMemoryId,
+  note,
+})
+
+export const forgetMemory = (memoryId: string) =>
+  postJson<LongTermMemory>(`/api/v1/memory/memories/${memoryId}/forget`, {
+    confirmed: true,
+  })
+
+export const recallMemories = (userId: string, query: string, limit?: number) =>
+  postJson<{ items: MemoryRecallItem[]; embedding_version: string }>(
+    '/api/v1/memory/recall',
+    { user_id: userId, query, limit },
+  )
+
+export const getRelationship = (userId: string) =>
+  getOptionalJson<RelationshipDetail>(`/api/v1/memory/relationship?user_id=${userId}`)
+
+export const createRelationshipEvent = (command: {
+  user_id: string
+  event_type: string
+  affinity_delta: number
+  trust_delta: number
+  familiarity_delta: number
+  summary: string
+  boundaries: string[] | null
+  evidence_memory_id: string | null
+}) => postJson<RelationshipDetail>('/api/v1/memory/relationship/events', command)
+
+export const getMemoryIndexJobs = () =>
+  getJson<{ items: MemoryIndexJob[] }>('/api/v1/memory/index-jobs')
+
+export const rebuildMemoryIndex = (userId?: string) =>
+  postJson<MemoryIndexJob>('/api/v1/memory/index-jobs', {
+    user_id: userId ?? null,
+    confirmed: true,
+  })
+
+export const getEpisodes = (userId?: string) => {
+  const query = new URLSearchParams({ limit: '200' })
+  if (userId) query.set('user_id', userId)
+  return getJson<{ items: Episode[] }>(`/api/v1/memory/episodes?${query}`)
+}
+
+export const createEpisode = (command: {
+  user_id: string
+  conversation_id: string
+  title: string
+  summary: string
+  started_at: string
+  ended_at: string | null
+  source_message_ids: string[]
+}) => postJson<Episode>('/api/v1/memory/episodes', command)
+
+export const closeEpisode = (episodeId: string, consolidate: boolean) =>
+  postJson<Episode>(`/api/v1/memory/episodes/${episodeId}/close`, { consolidate })
 
 export const getConfigRegistry = () =>
   getJson<ConfigRegistry>('/api/v1/configuration/definitions')

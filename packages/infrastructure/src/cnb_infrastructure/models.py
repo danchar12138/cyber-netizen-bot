@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
@@ -704,4 +705,418 @@ class MessageFeedbackModel(Base):
         CheckConstraint("rating IN ('positive', 'negative')", name="ck_message_feedback_rating"),
         UniqueConstraint("message_id", "user_id", name="uq_message_feedback_user"),
         Index("ix_message_feedback_conversation", "conversation_id", "created_at"),
+    )
+
+
+class EpisodeModel(Base):
+    """连续消息形成的可追溯情景单元。"""
+
+    __tablename__ = "episodes"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    conversation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_message_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('open', 'closed', 'consolidated')",
+            name="ck_episodes_status",
+        ),
+        Index("ix_episodes_scope_started", "tenant_id", "agent_id", "user_id", "started_at"),
+    )
+
+
+class MemoryModel(Base):
+    """长期记忆真相记录；遗忘后正文置空。"""
+
+    __tablename__ = "memories"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    lineage_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    conversation_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL")
+    )
+    episode_id: Mapped[UUID | None] = mapped_column(ForeignKey("episodes.id", ondelete="SET NULL"))
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    visibility: Mapped[str] = mapped_column(String(24), nullable=False)
+    content: Mapped[str | None] = mapped_column(Text)
+    event_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    importance: Mapped[float] = mapped_column(nullable=False)
+    emotional_weight: Mapped[float] = mapped_column(nullable=False)
+    sensitivity: Mapped[str] = mapped_column(String(24), nullable=False)
+    confirmation: Mapped[str] = mapped_column(String(24), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding_version: Mapped[str | None] = mapped_column(String(120))
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('working', 'episodic', 'semantic', 'relational', "
+            "'autobiographical', 'procedural')",
+            name="ck_memories_kind",
+        ),
+        CheckConstraint(
+            "visibility IN ('user', 'agent', 'tenant')",
+            name="ck_memories_visibility",
+        ),
+        CheckConstraint(
+            "sensitivity IN ('normal', 'personal', 'sensitive', 'restricted')",
+            name="ck_memories_sensitivity",
+        ),
+        CheckConstraint(
+            "confirmation IN ('unconfirmed', 'confirmed', 'disputed')",
+            name="ck_memories_confirmation",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'superseded', 'forgotten')",
+            name="ck_memories_status",
+        ),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_memories_confidence"),
+        CheckConstraint("importance BETWEEN 0 AND 1", name="ck_memories_importance"),
+        CheckConstraint(
+            "emotional_weight BETWEEN -1 AND 1",
+            name="ck_memories_emotional_weight",
+        ),
+        CheckConstraint(
+            "(visibility <> 'user') OR user_id IS NOT NULL",
+            name="ck_memories_user_visibility",
+        ),
+        CheckConstraint(
+            "(status = 'forgotten' AND content IS NULL) OR "
+            "(status <> 'forgotten' AND content IS NOT NULL)",
+            name="ck_memories_forgotten_content",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "lineage_id",
+            "version",
+            name="uq_memories_lineage_version",
+        ),
+        Index(
+            "ix_memories_scope_event",
+            "tenant_id",
+            "agent_id",
+            "user_id",
+            "status",
+            "event_at",
+        ),
+        Index("ix_memories_episode", "episode_id"),
+        Index(
+            "ix_memories_content_fts",
+            text("to_tsvector('simple', coalesce(content, ''))"),
+            postgresql_using="gin",
+        ),
+        Index(
+            "ix_memories_content_trgm",
+            "content",
+            postgresql_using="gin",
+            postgresql_ops={"content": "gin_trgm_ops"},
+        ),
+    )
+
+
+class MemorySourceModel(Base):
+    """记忆来源与是否逐字摘录的明确证据。"""
+
+    __tablename__ = "memory_sources"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    memory_id: Mapped[UUID] = mapped_column(
+        ForeignKey("memories.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    excerpt: Mapped[str | None] = mapped_column(Text)
+    is_verbatim: Mapped[bool] = mapped_column(nullable=False, default=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('message', 'episode', 'user_statement', 'admin_correction', "
+            "'reflection', 'import')",
+            name="ck_memory_sources_kind",
+        ),
+        CheckConstraint(
+            "(NOT is_verbatim) OR excerpt IS NOT NULL",
+            name="ck_memory_sources_verbatim_excerpt",
+        ),
+        Index("ix_memory_sources_memory", "tenant_id", "memory_id", "created_at"),
+    )
+
+
+class MemoryLinkModel(Base):
+    """记忆冲突、替代、派生与普通关联。"""
+
+    __tablename__ = "memory_links"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    source_memory_id: Mapped[UUID] = mapped_column(
+        ForeignKey("memories.id", ondelete="CASCADE"), nullable=False
+    )
+    target_memory_id: Mapped[UUID] = mapped_column(
+        ForeignKey("memories.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('related_to', 'conflicts_with', 'supersedes', 'derived_from')",
+            name="ck_memory_links_kind",
+        ),
+        CheckConstraint(
+            "source_memory_id <> target_memory_id",
+            name="ck_memory_links_distinct",
+        ),
+        UniqueConstraint(
+            "source_memory_id",
+            "target_memory_id",
+            "kind",
+            name="uq_memory_links_direction",
+        ),
+        Index("ix_memory_links_source", "tenant_id", "source_memory_id"),
+        Index("ix_memory_links_target", "tenant_id", "target_memory_id"),
+    )
+
+
+class MemoryEmbeddingModel(Base):
+    """支持渐进版本切换的 pgvector 向量。"""
+
+    __tablename__ = "memory_embeddings"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    memory_id: Mapped[UUID] = mapped_column(
+        ForeignKey("memories.id", ondelete="CASCADE"), nullable=False
+    )
+    embedding_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    dimensions: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(256), nullable=False)
+    active: Mapped[bool] = mapped_column(nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("dimensions = 256", name="ck_memory_embeddings_dimensions"),
+        UniqueConstraint(
+            "memory_id",
+            "embedding_version",
+            name="uq_memory_embeddings_version",
+        ),
+        Index(
+            "uq_memory_embeddings_active",
+            "memory_id",
+            unique=True,
+            postgresql_where=text("active"),
+        ),
+        Index(
+            "ix_memory_embeddings_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
+
+
+class RelationshipModel(Base):
+    """Agent 与单个用户的当前关系快照。"""
+
+    __tablename__ = "relationships"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    stage: Mapped[str] = mapped_column(String(24), nullable=False)
+    affinity: Mapped[float] = mapped_column(nullable=False)
+    trust: Mapped[float] = mapped_column(nullable=False)
+    familiarity: Mapped[float] = mapped_column(nullable=False)
+    interaction_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    boundaries: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "stage IN ('stranger', 'acquaintance', 'familiar', 'trusted')",
+            name="ck_relationships_stage",
+        ),
+        CheckConstraint("affinity BETWEEN 0 AND 1", name="ck_relationships_affinity"),
+        CheckConstraint("trust BETWEEN 0 AND 1", name="ck_relationships_trust"),
+        CheckConstraint(
+            "familiarity BETWEEN 0 AND 1",
+            name="ck_relationships_familiarity",
+        ),
+        CheckConstraint(
+            "interaction_count >= 0",
+            name="ck_relationships_interaction_count",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "agent_id",
+            "user_id",
+            name="uq_relationships_scope",
+        ),
+    )
+
+
+class RelationshipEventModel(Base):
+    """关系变化的只追加安全摘要。"""
+
+    __tablename__ = "relationship_events"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    relationship_id: Mapped[UUID] = mapped_column(
+        ForeignKey("relationships.id", ondelete="CASCADE"), nullable=False
+    )
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    affinity_delta: Mapped[float] = mapped_column(nullable=False)
+    trust_delta: Mapped[float] = mapped_column(nullable=False)
+    familiarity_delta: Mapped[float] = mapped_column(nullable=False)
+    evidence_memory_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("memories.id", ondelete="SET NULL")
+    )
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "affinity_delta BETWEEN -1 AND 1",
+            name="ck_relationship_events_affinity",
+        ),
+        CheckConstraint(
+            "trust_delta BETWEEN -1 AND 1",
+            name="ck_relationship_events_trust",
+        ),
+        CheckConstraint(
+            "familiarity_delta BETWEEN -1 AND 1",
+            name="ck_relationship_events_familiarity",
+        ),
+        Index(
+            "ix_relationship_events_timeline",
+            "tenant_id",
+            "relationship_id",
+            "created_at",
+        ),
+    )
+
+
+class MemoryIndexJobModel(Base):
+    """embedding 重建进度和失败状态。"""
+
+    __tablename__ = "memory_index_jobs"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    target_embedding_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    total_items: Mapped[int] = mapped_column(Integer, nullable=False)
+    processed_items: Mapped[int] = mapped_column(Integer, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(120))
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'completed', 'failed')",
+            name="ck_memory_index_jobs_status",
+        ),
+        CheckConstraint(
+            "total_items >= 0 AND processed_items >= 0 AND processed_items <= total_items",
+            name="ck_memory_index_jobs_progress",
+        ),
+        Index("ix_memory_index_jobs_scope", "tenant_id", "agent_id", "created_at"),
     )

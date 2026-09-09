@@ -20,6 +20,8 @@ from cnb_application import (
     ConfigurationService,
     ConversationRepository,
     ConversationService,
+    MemoryRepository,
+    MemoryService,
     ModelProviderResolver,
     ObjectStorage,
     SecretManagementService,
@@ -148,6 +150,19 @@ def get_conversation_repository(request: HTTPConnection) -> ConversationReposito
     return repository
 
 
+def get_memory_repository(request: HTTPConnection) -> MemoryRepository:
+    """返回组合根选择的长期记忆与关系仓储。"""
+    repository: MemoryRepository = request.app.state.memory_repository
+    return repository
+
+
+def get_memory_service(
+    repository: Annotated[MemoryRepository, Depends(get_memory_repository)],
+) -> MemoryService:
+    """构建请求级长期记忆与关系治理服务。"""
+    return MemoryService(repository)
+
+
 def get_attachment_repository(request: HTTPConnection) -> AttachmentRepository:
     """返回组合根选择的附件元数据仓储。"""
     repository: AttachmentRepository = request.app.state.attachment_repository
@@ -184,6 +199,7 @@ def get_conversation_service(
     repository: Annotated[ConversationRepository, Depends(get_conversation_repository)],
     configuration_service: Annotated[ConfigurationService, Depends(get_configuration_service)],
     cognition_service: Annotated[CognitionService, Depends(get_cognition_service)],
+    memory_service: Annotated[MemoryService, Depends(get_memory_service)],
 ) -> ConversationService:
     """使用进程级端口和开发身份构建请求级对话服务。"""
     runtime: CognitiveRuntime = request.app.state.cognitive_runtime
@@ -194,6 +210,7 @@ def get_conversation_service(
         model_provider_resolver=model_provider_resolver,
         configuration_service=configuration_service,
         cognition_service=cognition_service,
+        memory_service=memory_service,
         identity=request.app.state.development_identity,
         reliability_guard=request.app.state.model_reliability_guard,
     )
