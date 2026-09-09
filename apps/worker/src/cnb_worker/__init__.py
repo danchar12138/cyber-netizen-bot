@@ -1,1 +1,1 @@
-"""Asynchronous worker package."""
+"""异步 Worker 包。"""

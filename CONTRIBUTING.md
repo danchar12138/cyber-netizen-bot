@@ -1,16 +1,15 @@
-# Contributing
+# 参与开发
 
-## Development workflow
+## 开发流程
 
-1. Read `AGENTS.md` and the newest plan in `docs/plans/`.
-2. Create a short-lived branch from `main`.
-3. Keep API schemas, database migrations, generated client types, tests, and documentation aligned.
-4. Run both backend and Web checks before opening a pull request.
-5. Remove temporary files and describe migrations or operational impact in the pull request.
+1. 开始前阅读 `AGENTS.md` 和 `docs/plans/` 中的最新计划。
+2. 从 `main` 创建短生命周期分支。
+3. 始终保持 API Schema、数据库迁移、生成的客户端类型、测试和文档一致。
+4. 发起拉取请求前运行后端和 Web 的全部检查。
+5. 删除临时文件，并在拉取请求中说明迁移或运维影响。
 
-## Commits
+## 提交规范
 
-Use Conventional Commits, for example `feat(config): add effective value resolver`.
+使用 Conventional Commits，类型和作用域保留行业通用英文，描述使用中文，例如 `feat(config): 增加最终生效值解析器`。
 
-Do not commit secrets, local databases, uploads, generated logs, build output, or editor state.
-
+不得提交密钥、本地数据库、上传文件、生成日志、构建产物或编辑器状态。

@@ -1,4 +1,4 @@
-"""Worker actor wiring tests."""
+"""Worker Actor 连接测试。"""
 
 from cnb_worker.tasks import ping
 

@@ -1,4 +1,4 @@
-"""Aggregate administration dashboard routes."""
+"""管理后台聚合总览接口。"""
 
 from typing import Annotated
 
@@ -18,7 +18,7 @@ async def overview(
     request: Request,
     registry: Annotated[ConfigurationRegistry, Depends(get_configuration_registry)],
 ) -> SystemOverviewResponse:
-    """Return safe aggregate data for the first management dashboard."""
+    """返回首版管理总览所需的安全聚合数据。"""
     settings: Settings = request.app.state.settings
     return SystemOverviewResponse(
         environment=settings.environment,

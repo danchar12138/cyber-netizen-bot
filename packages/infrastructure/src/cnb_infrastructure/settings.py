@@ -1,4 +1,4 @@
-"""Bootstrap settings required before persisted runtime configuration is available."""
+"""持久化运行配置可用前所需的启动设置。"""
 
 from functools import lru_cache
 from typing import Literal
@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Minimal process bootstrap configuration loaded from the environment."""
+    """从环境变量读取的最小进程启动配置。"""
 
     model_config = SettingsConfigDict(
         env_prefix="CNB_",
@@ -34,5 +34,5 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Return one immutable-by-convention settings object per process."""
+    """为每个进程返回一个约定不可变的设置对象。"""
     return Settings()

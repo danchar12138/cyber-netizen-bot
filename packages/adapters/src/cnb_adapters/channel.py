@@ -1,11 +1,11 @@
-"""Vendor-neutral channel capability declarations."""
+"""与平台厂商无关的渠道能力声明。"""
 
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
 class ChannelCapabilities:
-    """Features a channel implementation can faithfully provide."""
+    """渠道实现能够可靠提供的功能。"""
 
     text: bool = True
     markdown: bool = False
@@ -20,7 +20,7 @@ class ChannelCapabilities:
 
 @dataclass(frozen=True, slots=True)
 class PlaceholderAdapter:
-    """Non-networking descriptor for an adapter planned for later delivery."""
+    """为后续交付的 Adapter 提供不访问网络的占位描述。"""
 
     key: str
     display_name: str

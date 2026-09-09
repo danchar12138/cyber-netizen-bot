@@ -1,4 +1,4 @@
-"""Stable boundary of the self-developed cognitive runtime."""
+"""自研认知运行时的稳定边界。"""
 
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -8,7 +8,7 @@ from uuid import UUID
 
 @dataclass(frozen=True, slots=True)
 class AgentEvent:
-    """Normalized event entering cognition."""
+    """进入认知流程的标准化事件。"""
 
     event_id: UUID
     tenant_id: UUID
@@ -22,7 +22,7 @@ class AgentEvent:
 
 @dataclass(frozen=True, slots=True)
 class CognitiveContext:
-    """Immutable, source-traceable context selected for one run."""
+    """为单次运行选择的不可变且可追溯来源的上下文。"""
 
     run_id: UUID
     configuration_version: int
@@ -33,7 +33,7 @@ class CognitiveContext:
 
 @dataclass(frozen=True, slots=True)
 class AgentDecision:
-    """Structured decision awaiting policy approval and realization."""
+    """等待策略批准与表达实现的结构化决策。"""
 
     action: str
     rationale_summary: str
@@ -41,8 +41,8 @@ class AgentDecision:
 
 
 class CognitiveRuntime(Protocol):
-    """Port implemented by the future multi-stage cognition engine."""
+    """供后续多阶段认知引擎实现的端口。"""
 
     async def run(self, event: AgentEvent, context: CognitiveContext) -> AgentDecision:
-        """Produce a structured candidate action without external side effects."""
+        """生成不带外部副作用的结构化候选行动。"""
         ...

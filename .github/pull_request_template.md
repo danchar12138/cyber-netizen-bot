@@ -1,15 +1,14 @@
-## Summary
+## 变更摘要
 
-Describe the user-visible and architectural outcome.
+说明用户可见结果和架构影响。
 
-## Alignment
+## 一致性检查
 
-- [ ] Configuration definitions, API schemas, database migrations, client types, tests, and documentation are aligned.
-- [ ] Runtime settings have management API/UI coverage or are explicitly bootstrap-only.
-- [ ] No secret or sensitive content is logged or returned.
-- [ ] Temporary files and intermediate work products were removed.
+- [ ] 配置定义、API Schema、数据库迁移、客户端类型、测试和文档保持一致。
+- [ ] 运行配置具有管理 API/界面，或已明确标记为仅限启动阶段。
+- [ ] 日志和接口响应不包含密钥或敏感内容。
+- [ ] 已删除临时文件和中间工作产物。
 
-## Verification
+## 验证
 
-List the commands and scenarios used to verify this change.
-
+列出用于验证本次变更的命令和场景。

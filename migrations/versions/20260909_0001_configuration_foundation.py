@@ -1,8 +1,8 @@
-"""Create versioned configuration and audit foundations.
+"""创建版本化配置与审计基础。
 
 Revision ID: 20260909_0001
 Revises:
-Create Date: 2026-09-09
+创建日期：2026-09-09
 """
 
 from collections.abc import Sequence
@@ -18,7 +18,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """Create the initial management-plane persistence model."""
+    """创建管理平面的初始持久化模型。"""
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     op.create_table(
         "configuration_versions",
@@ -113,7 +113,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Remove the initial management-plane model but preserve shared extensions."""
+    """移除初始管理平面模型，但保留共享数据库扩展。"""
     op.drop_index("ix_audit_logs_resource", table_name="audit_logs")
     op.drop_table("audit_logs")
     op.drop_index("ix_configuration_values_key", table_name="configuration_values")

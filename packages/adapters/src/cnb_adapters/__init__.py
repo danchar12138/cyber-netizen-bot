@@ -1,4 +1,4 @@
-"""Channel adapter capability contracts."""
+"""渠道 Adapter 能力契约。"""
 
 from cnb_adapters.channel import ChannelCapabilities, PlaceholderAdapter
 

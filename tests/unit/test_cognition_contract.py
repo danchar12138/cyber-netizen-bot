@@ -1,4 +1,4 @@
-"""Tests for the framework-independent cognition contract."""
+"""与框架无关的认知契约测试。"""
 
 from cnb_cognition import AgentDecision
 

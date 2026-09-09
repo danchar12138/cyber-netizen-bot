@@ -1,4 +1,4 @@
-"""SQLAlchemy metadata and session construction."""
+"""SQLAlchemy 元数据与会话构造。"""
 
 from collections.abc import AsyncIterator
 
@@ -11,7 +11,7 @@ __all__ = ["Base", "create_session_factory", "session_scope"]
 
 
 def create_session_factory(settings: Settings) -> async_sessionmaker[AsyncSession]:
-    """Create a process-local async session factory without opening a connection."""
+    """创建进程内异步会话工厂，但不立即建立连接。"""
     engine = create_async_engine(
         settings.database_url.get_secret_value(),
         pool_pre_ping=True,
@@ -22,6 +22,6 @@ def create_session_factory(settings: Settings) -> async_sessionmaker[AsyncSessio
 async def session_scope(
     factory: async_sessionmaker[AsyncSession],
 ) -> AsyncIterator[AsyncSession]:
-    """Yield a transactional session and roll back failures."""
+    """提供事务会话，并在失败时回滚。"""
     async with factory() as session, session.begin():
         yield session

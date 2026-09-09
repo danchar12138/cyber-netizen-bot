@@ -1,4 +1,4 @@
-"""Worker composition root and first diagnostic task."""
+"""Worker 组合根及首个诊断任务。"""
 
 import dramatiq
 from dramatiq.brokers.redis import RedisBroker
@@ -14,5 +14,5 @@ dramatiq.set_broker(broker)
     queue_name="system", max_retries=2
 )
 def ping(value: str = "pong") -> dict[str, str]:
-    """Diagnostic actor used to verify broker and worker wiring."""
+    """用于验证 Broker 与 Worker 连接的诊断 Actor。"""
     return {"status": value}

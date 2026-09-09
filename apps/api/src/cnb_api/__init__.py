@@ -1,3 +1,3 @@
-"""Cyber Netizen Bot administration API."""
+"""赛博网友机器人管理 API。"""
 
 __version__ = "0.1.0"

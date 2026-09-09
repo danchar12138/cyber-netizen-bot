@@ -1,4 +1,4 @@
-"""Health and administration overview contracts."""
+"""健康检查与管理总览契约。"""
 
 from datetime import datetime
 from typing import Literal
@@ -9,7 +9,7 @@ HealthStatus = Literal["healthy", "ready", "degraded", "not_checked", "not_confi
 
 
 class ComponentHealth(BaseModel):
-    """Health summary for one runtime dependency or module."""
+    """单个运行依赖或模块的健康摘要。"""
 
     name: str
     status: HealthStatus
@@ -17,7 +17,7 @@ class ComponentHealth(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    """Service health response."""
+    """服务健康检查响应。"""
 
     service: str
     status: HealthStatus
@@ -27,7 +27,7 @@ class HealthResponse(BaseModel):
 
 
 class SystemOverviewResponse(BaseModel):
-    """Initial dashboard payload kept intentionally aggregate-only."""
+    """首版总览使用的聚合数据，不包含业务明细。"""
 
     environment: str
     version: str

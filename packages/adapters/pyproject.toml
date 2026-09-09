@@ -1,7 +1,7 @@
 [project]
 name = "cnb-adapters"
 version = "0.1.0"
-description = "Channel adapter contracts and placeholders"
+description = "渠道 Adapter 契约与占位实现"
 requires-python = ">=3.12,<3.14"
 dependencies = []
 
@@ -11,4 +11,3 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cnb_adapters"]
-

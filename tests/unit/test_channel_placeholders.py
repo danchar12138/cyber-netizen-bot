@@ -1,4 +1,4 @@
-"""Channel capability tests."""
+"""渠道能力测试。"""
 
 from cnb_adapters import ChannelCapabilities, PlaceholderAdapter
 

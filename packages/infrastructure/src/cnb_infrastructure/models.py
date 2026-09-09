@@ -1,4 +1,4 @@
-"""Initial persistence model for versioned runtime configuration and audit."""
+"""版本化运行配置与审计的初始持久化模型。"""
 
 from datetime import datetime
 from typing import Any
@@ -22,11 +22,11 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
-    """Shared declarative metadata."""
+    """共享声明式元数据。"""
 
 
 class ConfigurationVersion(Base):
-    """Immutable configuration draft or published snapshot."""
+    """不可变的配置草稿或已发布快照。"""
 
     __tablename__ = "configuration_versions"
 
@@ -49,7 +49,7 @@ class ConfigurationVersion(Base):
 
 
 class SecretReference(Base):
-    """Opaque pointer to encrypted or external secret material."""
+    """指向加密或外部密钥材料的不透明引用。"""
 
     __tablename__ = "secret_references"
 
@@ -63,7 +63,7 @@ class SecretReference(Base):
 
 
 class ConfigurationValue(Base):
-    """One scoped value in an immutable configuration version."""
+    """不可变配置版本中的单个作用域值。"""
 
     __tablename__ = "configuration_values"
 
@@ -106,7 +106,7 @@ class ConfigurationValue(Base):
 
 
 class AuditLog(Base):
-    """Append-only administration and policy audit entry."""
+    """仅追加的管理与策略审计记录。"""
 
     __tablename__ = "audit_logs"
 

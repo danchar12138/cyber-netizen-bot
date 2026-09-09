@@ -1,7 +1,7 @@
 [project]
 name = "cnb-domain"
 version = "0.1.0"
-description = "Pure domain model for Cyber Netizen Bot"
+description = "赛博网友机器人的纯领域模型"
 requires-python = ">=3.12,<3.14"
 dependencies = []
 
@@ -11,4 +11,3 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cnb_domain"]
-
