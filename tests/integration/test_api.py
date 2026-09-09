@@ -1067,6 +1067,121 @@ async def test_task_dashboard_and_scheduled_action_management_api() -> None:
     assert task_status.json()["worker"]["status"] == "not_checked"
 
 
+async def test_channel_management_simulation_delivery_and_secret_boundary_api() -> None:
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        catalog = await client.get("/api/v1/channels/catalog")
+        model_capabilities = await client.get("/api/v1/channels/model-capabilities")
+        web = await client.post(
+            "/api/v1/channels",
+            json={
+                "name": "内部 Web",
+                "platform": "web",
+                "status": "enabled",
+                "rate_limit_per_minute": 10,
+                "settings": {"audience": "internal"},
+            },
+        )
+        web_id = web.json()["id"]
+        delivery_command = {
+            "recipient_id": "browser-session",
+            "blocks": [{"kind": "markdown", "text": "你好，**渠道**"}],
+            "idempotency_key": "api:web:delivery:1",
+            "request_streaming": True,
+            "proactive": False,
+        }
+        first_delivery = await client.post(
+            f"/api/v1/channels/{web_id}/deliveries",
+            json=delivery_command,
+        )
+        replayed_delivery = await client.post(
+            f"/api/v1/channels/{web_id}/deliveries",
+            json=delivery_command,
+        )
+        inbound = await client.post(
+            f"/api/v1/channels/{web_id}/simulate-inbound",
+            json={
+                "payload": {
+                    "external_event_id": "web:event:1",
+                    "sender_external_id": "local-user",
+                    "conversation_external_id": "local-conversation",
+                    "text": "模拟入站消息",
+                    "occurred_at": datetime.now(UTC).isoformat(),
+                }
+            },
+        )
+        simulation = await client.post(
+            "/api/v1/channels/simulate",
+            json={
+                "platform": "discord",
+                "blocks": [{"kind": "markdown", "text": "a" * 2500}],
+                "request_streaming": True,
+                "thread_id": "thread-1",
+                "edit_message_id": "message-1",
+                "proactive": False,
+            },
+        )
+        feishu = await client.post(
+            "/api/v1/channels",
+            json={
+                "name": "飞书占位",
+                "platform": "feishu",
+                "status": "enabled",
+                "rate_limit_per_minute": 60,
+                "settings": {"app_id_hint": "cli_test"},
+                "credential": "不能通过响应返回的渠道密钥",
+            },
+        )
+        feishu_id = feishu.json()["id"]
+        tested = await client.post(f"/api/v1/channels/{feishu_id}/connection-test")
+        placeholder_delivery = await client.post(
+            f"/api/v1/channels/{feishu_id}/deliveries",
+            json={
+                **delivery_command,
+                "idempotency_key": "api:feishu:delivery:1",
+            },
+        )
+        events = await client.get("/api/v1/channels/diagnostics/events", params={"limit": 100})
+        viewer_create = await client.post(
+            "/api/v1/channels",
+            headers={"X-CNB-Development-Role": "viewer"},
+            json={
+                "name": "无权创建",
+                "platform": "web",
+                "status": "disabled",
+                "rate_limit_per_minute": 10,
+            },
+        )
+
+    assert catalog.status_code == model_capabilities.status_code == 200
+    assert [item["platform"] for item in catalog.json()["items"]] == [
+        "web",
+        "feishu",
+        "discord",
+        "telegram",
+    ]
+    assert model_capabilities.json()["items"][1]["document_input"] is True
+    assert web.status_code == 201
+    assert first_delivery.status_code == replayed_delivery.status_code == 200
+    assert replayed_delivery.json()["idempotent_replay"] is True
+    assert inbound.json()["blocks"][0]["text"] == "模拟入站消息"
+    assert simulation.status_code == 200
+    assert "streaming_to_buffered" in simulation.json()["degradations"]
+    assert "long_text_split" in simulation.json()["degradations"]
+    assert feishu.status_code == 201
+    assert feishu.json()["credential_configured"] is True
+    assert "不能通过响应返回" not in feishu.text
+    assert tested.json()["health_status"] == "not_configured"
+    assert placeholder_delivery.status_code == 503
+    assert events.status_code == 200
+    assert all("text" not in item["payload_summary"] for item in events.json()["items"])
+    assert viewer_create.status_code == 403
+
+
 def test_internal_chat_websocket_replays_from_sequence_and_responds_to_ping() -> None:
     app = create_app(
         Settings(environment="test"),

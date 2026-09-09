@@ -8,12 +8,15 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, status
 from starlette.requests import HTTPConnection
 
+from cnb_adapters import ChannelAdapterRegistry
 from cnb_application import (
     AdministrationRepository,
     AdministrationService,
     AttachmentRepository,
     AttachmentService,
     BackgroundTaskService,
+    ChannelRepository,
+    ChannelService,
     CognitionRepository,
     CognitionService,
     ConfigurationRegistry,
@@ -62,6 +65,18 @@ def get_configuration_repository(request: HTTPConnection) -> ConfigurationReposi
     return repository
 
 
+def get_channel_repository(request: HTTPConnection) -> ChannelRepository:
+    """返回组合根选择的渠道实例与诊断仓储。"""
+    repository: ChannelRepository = request.app.state.channel_repository
+    return repository
+
+
+def get_channel_registry(request: HTTPConnection) -> ChannelAdapterRegistry:
+    """返回进程级 Channel Adapter 注册表。"""
+    registry: ChannelAdapterRegistry = request.app.state.channel_adapter_registry
+    return registry
+
+
 def get_configuration_service(
     registry: Annotated[ConfigurationRegistry, Depends(get_configuration_registry)],
     repository: Annotated[ConfigurationRepository, Depends(get_configuration_repository)],
@@ -88,6 +103,15 @@ def get_secret_store(request: HTTPConnection) -> SecretStore:
     """返回组合根选择的密钥安全存储。"""
     store: SecretStore = request.app.state.secret_store
     return store
+
+
+def get_channel_service(
+    repository: Annotated[ChannelRepository, Depends(get_channel_repository)],
+    registry: Annotated[ChannelAdapterRegistry, Depends(get_channel_registry)],
+    secret_store: Annotated[SecretStore, Depends(get_secret_store)],
+) -> ChannelService:
+    """构建请求级渠道控制平面服务。"""
+    return ChannelService(repository, registry, secret_store)
 
 
 def get_secret_management_service(

@@ -168,7 +168,7 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .admin-table tbody tr:hover { background: #10211c; }
 .table-primary strong, .table-primary code { display: block; }
 .table-primary strong { color: #b9d0c7; font-size: 11px; }
-.table-primary code { margin-top: 3px; color: #4d7667; font-size: 8px; }
+.table-primary code { margin-top: 3px; color: #718f84; font-size: 8px; }
 .permission-tags { display: flex; flex-wrap: wrap; gap: 5px; max-width: 560px; }
 .permission-tags span { padding: 3px 6px; color: #70ae91; border: 1px solid #234837; background: #0e241b; border-radius: 4px; font-size: 8px; }
 .admin-table-empty { padding: 45px; color: #537268; text-align: center; font-size: 10px; }
@@ -202,6 +202,30 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .task-table-panel { margin-top: 13px; }
 .task-panel-heading { border-bottom: 1px solid #173029; }
 .task-panel-heading small { color: #638579; font-size: 9px; }
+.channel-catalog-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px; }
+.channel-catalog-card { min-width: 0; }
+.channel-catalog-card p { margin: 14px 0 0; color: #66877b; font-size: 9px; line-height: 1.6; }
+.channel-form-panel, .channel-credential-panel { margin-top: 13px; }
+.channel-create-form { display: grid; grid-template-columns: 1fr .8fr .7fr 1.2fr auto; align-items: end; gap: 12px; }
+.channel-create-form label, .channel-credential-form label, .channel-simulator-form > label { display: grid; gap: 6px; color: #78998d; font-size: 9px; }
+.channel-create-form input, .channel-create-form select, .channel-create-form textarea, .channel-credential-form input, .channel-credential-form select, .channel-simulator select, .channel-simulator textarea { min-height: 38px; padding: 8px 10px; color: #b8d0c6; border: 1px solid #294a3f; background: #0b1b16; border-radius: 7px; }
+.channel-create-form textarea, .channel-simulator textarea { resize: vertical; }
+.channel-json-field { grid-column: 1 / -2; }
+.channel-credential-form { display: grid; grid-template-columns: minmax(200px, .7fr) minmax(280px, 1.5fr) auto; align-items: end; gap: 12px; }
+.channel-status-stack { display: grid; justify-items: start; gap: 6px; color: #729287; font-size: 8px; }
+.channel-lab-grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 13px; margin-top: 13px; }
+.channel-simulator-form { display: grid; gap: 12px; }
+.channel-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.channel-options label { display: flex; align-items: center; gap: 5px; padding: 6px 8px; color: #82a096; border: 1px solid #25463b; border-radius: 6px; font-size: 9px; }
+.channel-options input { accent-color: #64d793; }
+.channel-simulation-result { display: grid; gap: 5px; margin-top: 14px; padding: 12px; color: #82a096; border: 1px solid #285340; background: #0e231a; border-radius: 7px; font-size: 9px; }
+.channel-simulation-result strong { color: #8ee6aa; font-size: 11px; }
+.channel-simulation-result small { color: #78968b; }
+.model-capability-list { display: grid; gap: 9px; }
+.model-capability-list > div { display: grid; gap: 5px; padding: 12px; border: 1px solid #1f3c32; background: #0b1b16; border-radius: 7px; }
+.model-capability-list strong { color: #b7d0c6; font-size: 10px; }
+.model-capability-list span { color: #82a096; font-size: 9px; }
+.model-capability-list small { color: #78968b; font-size: 8px; }
 .block-code { display: block; margin-top: 3px; color: #4b7164; font-size: 8px; }
 .audit-detail { display: block; max-width: 360px; overflow: hidden; color: #668b7d; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .toggle { display: flex; align-items: center; gap: 7px; width: 100%; padding: 6px 8px; color: #78958b; border: 1px solid #29483e; background: #0d1c18; border-radius: 6px; font-size: 9px; cursor: pointer; }
@@ -430,6 +454,9 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .memory-tabs { width: 100%; overflow-x: auto; }
   .memory-toolbar, .memory-form-grid, .recall-results { grid-template-columns: 1fr; }
   .task-create-form { grid-template-columns: 1fr; }
+  .channel-catalog-grid, .channel-lab-grid { grid-template-columns: 1fr; }
+  .channel-create-form, .channel-credential-form { grid-template-columns: 1fr; }
+  .channel-json-field { grid-column: auto; }
   .config-context { align-items: stretch; flex-direction: column; }
   .config-tabs button { flex: 1; justify-content: center; }
   .config-context label { justify-content: space-between; }

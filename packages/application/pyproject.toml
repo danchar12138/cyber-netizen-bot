@@ -4,12 +4,14 @@ version = "0.1.0"
 description = "赛博网友机器人的应用层用例"
 requires-python = ">=3.12,<3.14"
 dependencies = [
+  "cnb-adapters",
   "cnb-cognition",
   "cnb-contracts",
   "cnb-domain",
 ]
 
 [tool.uv.sources]
+cnb-adapters = { workspace = true }
 cnb-cognition = { workspace = true }
 cnb-contracts = { workspace = true }
 cnb-domain = { workspace = true }

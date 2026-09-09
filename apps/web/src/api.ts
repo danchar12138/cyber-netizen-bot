@@ -100,6 +100,101 @@ export interface TaskDashboard {
 
 export type ScheduledActionStatus = 'pending' | 'dispatched' | 'completed' | 'suppressed' | 'canceled' | 'expired' | 'failed'
 
+export type ChannelPlatform = 'web' | 'feishu' | 'discord' | 'telegram'
+export type ChannelInstanceStatus = 'enabled' | 'disabled'
+export type ChannelHealthStatus = 'healthy' | 'degraded' | 'not_configured' | 'disabled'
+export type ContentBlockKind = 'text' | 'markdown' | 'image' | 'file'
+
+export interface ChannelCapabilities {
+  text: boolean
+  markdown: boolean
+  images: boolean
+  files: boolean
+  streaming: boolean
+  reactions: boolean
+  threads: boolean
+  message_edit: boolean
+  proactive_messages: boolean
+  max_text_chars: number
+  max_blocks: number
+  max_attachment_bytes: number
+  accepted_content_types: string[]
+}
+
+export interface ChannelCatalogItem {
+  platform: ChannelPlatform
+  display_name: string
+  implementation_status: 'ready' | 'placeholder'
+  credential_required: boolean
+  capabilities: ChannelCapabilities
+}
+
+export interface ChannelInstance {
+  id: string
+  tenant_id: string
+  name: string
+  platform: ChannelPlatform
+  display_name: string
+  implementation_status: 'ready' | 'placeholder'
+  status: ChannelInstanceStatus
+  rate_limit_per_minute: number
+  settings: Record<string, ConfigValue>
+  credential_configured: boolean
+  capabilities: ChannelCapabilities
+  health_status: ChannelHealthStatus
+  health_detail: string | null
+  last_checked_at: string | null
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+export interface MultimodalContentBlock {
+  kind: ContentBlockKind
+  text: string | null
+  attachment_id: string | null
+  content_type: string | null
+  file_name: string | null
+  size_bytes: number | null
+  sha256: string | null
+  alt_text: string | null
+}
+
+export interface ChannelSimulation {
+  platform: ChannelPlatform
+  blocks: MultimodalContentBlock[]
+  degradations: string[]
+  buffered: boolean
+  thread_preserved: boolean
+  edit_preserved: boolean
+}
+
+export interface ChannelDiagnosticEvent {
+  id: string
+  channel_id: string
+  direction: 'inbound' | 'outbound' | 'system'
+  event_type: string
+  status: 'accepted' | 'delivered' | 'degraded' | 'rejected' | 'failed' | 'rate_limited'
+  external_event_id: string | null
+  idempotency_key: string
+  external_message_id: string | null
+  payload_summary: Record<string, ConfigValue>
+  error_code: string | null
+  degradations: string[]
+  occurred_at: string
+}
+
+export interface ModelCapabilityProfile {
+  provider: string
+  model_family: string
+  text_input: boolean
+  image_input: boolean
+  document_input: boolean
+  streaming: boolean
+  structured_output: boolean
+  tool_calling: boolean
+}
+
 export interface ScheduledAction {
   id: string
   tenant_id: string
@@ -143,6 +238,10 @@ export type AdminPermission =
   | 'task:read'
   | 'task:manage'
   | 'proactive:manage'
+  | 'channel:read'
+  | 'channel:write'
+  | 'channel:send'
+  | 'channel_credential:manage'
   | 'trace:read'
   | 'user:read'
   | 'user:write'
@@ -806,6 +905,78 @@ export const cancelScheduledAction = (actionId: string) =>
   postJson<ScheduledAction>(`/api/v1/tasks/scheduled-actions/${actionId}/cancel`, {
     confirmed: true,
   })
+
+export const getChannelCatalog = () =>
+  getJson<{ items: ChannelCatalogItem[] }>('/api/v1/channels/catalog')
+
+export const getModelCapabilities = () =>
+  getJson<{ items: ModelCapabilityProfile[] }>('/api/v1/channels/model-capabilities')
+
+export const getChannelInstances = () =>
+  getJson<{ items: ChannelInstance[] }>('/api/v1/channels')
+
+export const createChannelInstance = (command: {
+  name: string
+  platform: ChannelPlatform
+  status: ChannelInstanceStatus
+  rate_limit_per_minute: number
+  settings: Record<string, ConfigValue>
+  credential: string | null
+}) => postJson<ChannelInstance>('/api/v1/channels', command)
+
+export const updateChannelInstance = (
+  channelId: string,
+  command: {
+    name?: string
+    status?: ChannelInstanceStatus
+    rate_limit_per_minute?: number
+    settings?: Record<string, ConfigValue>
+    confirmed: boolean
+  },
+) => patchJson<ChannelInstance>(`/api/v1/channels/${channelId}`, command)
+
+export const setChannelCredential = (channelId: string, credential: string) =>
+  putJson<ChannelInstance>(`/api/v1/channels/${channelId}/credential`, { credential })
+
+export const clearChannelCredential = (channelId: string) =>
+  postJson<ChannelInstance>(`/api/v1/channels/${channelId}/credential/clear`, {
+    confirmed: true,
+  })
+
+export const testChannelConnection = (channelId: string) =>
+  postJson<ChannelInstance>(`/api/v1/channels/${channelId}/connection-test`)
+
+export const simulateChannel = (command: {
+  platform: ChannelPlatform
+  blocks: Array<{ kind: 'text' | 'markdown'; text: string }>
+  request_streaming: boolean
+  thread_id: string | null
+  edit_message_id: string | null
+  proactive: boolean
+}) => postJson<ChannelSimulation>('/api/v1/channels/simulate', command)
+
+export const deliverChannelMessage = (
+  channelId: string,
+  command: {
+    recipient_id: string
+    blocks: Array<{ kind: 'text' | 'markdown'; text: string }>
+    idempotency_key: string
+    request_streaming: boolean
+    proactive: boolean
+  },
+) => postJson<{
+  status: ChannelDiagnosticEvent['status']
+  external_message_id: string
+  degradations: string[]
+  delivered_at: string
+  idempotent_replay: boolean
+}>(`/api/v1/channels/${channelId}/deliveries`, command)
+
+export const getChannelEvents = (channelId?: string) => {
+  const query = new URLSearchParams({ limit: '100' })
+  if (channelId) query.set('channel_id', channelId)
+  return getJson<{ items: ChannelDiagnosticEvent[] }>(`/api/v1/channels/diagnostics/events?${query}`)
+}
 
 export const getAdminSession = () =>
   getJson<AdminSession>('/api/v1/administration/session')

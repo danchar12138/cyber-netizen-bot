@@ -1,5 +1,46 @@
-"""渠道 Adapter 能力契约。"""
+"""渠道 Adapter 协议、能力协商、正式 Web 实现与 IM 占位实现。"""
 
-from cnb_adapters.channel import ChannelCapabilities, PlaceholderAdapter
+from cnb_adapters.channel import (
+    SAFE_ATTACHMENT_CONTENT_TYPES,
+    SAFE_DOCUMENT_CONTENT_TYPES,
+    SAFE_IMAGE_CONTENT_TYPES,
+    AdapterDeliveryResult,
+    AdapterHealth,
+    CapabilityNegotiation,
+    ChannelAdapter,
+    ChannelAdapterError,
+    ChannelCapabilityError,
+    ChannelDeliveryCommand,
+    ChannelInboundEvent,
+    ChannelNotConfiguredError,
+    ChannelRateLimitError,
+    negotiate_capabilities,
+    summarize_blocks,
+)
+from cnb_adapters.placeholder import PlaceholderAdapter
+from cnb_adapters.registry import ChannelAdapterRegistry, build_default_channel_registry
+from cnb_adapters.web import WebChannelAdapter
+from cnb_domain import ChannelCapabilities
 
-__all__ = ["ChannelCapabilities", "PlaceholderAdapter"]
+__all__ = [
+    "SAFE_ATTACHMENT_CONTENT_TYPES",
+    "SAFE_DOCUMENT_CONTENT_TYPES",
+    "SAFE_IMAGE_CONTENT_TYPES",
+    "AdapterDeliveryResult",
+    "AdapterHealth",
+    "CapabilityNegotiation",
+    "ChannelAdapter",
+    "ChannelAdapterError",
+    "ChannelAdapterRegistry",
+    "ChannelCapabilities",
+    "ChannelCapabilityError",
+    "ChannelDeliveryCommand",
+    "ChannelInboundEvent",
+    "ChannelNotConfiguredError",
+    "ChannelRateLimitError",
+    "PlaceholderAdapter",
+    "WebChannelAdapter",
+    "build_default_channel_registry",
+    "negotiate_capabilities",
+    "summarize_blocks",
+]

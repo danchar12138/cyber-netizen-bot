@@ -1,0 +1,261 @@
+"""多模态内容、Channel Adapter 与渠道控制平面 API 契约。"""
+
+from datetime import datetime
+from typing import Literal, Self
+from uuid import UUID
+
+from pydantic import BaseModel, Field, SecretStr, model_validator
+
+from cnb_domain import (
+    ChannelEventDirection,
+    ChannelEventStatus,
+    ChannelHealthStatus,
+    ChannelInstanceStatus,
+    ChannelPlatform,
+    ContentBlockKind,
+    JsonValue,
+)
+
+
+class ChannelCapabilitiesResponse(BaseModel):
+    """Adapter 能力和载荷边界。"""
+
+    text: bool
+    markdown: bool
+    images: bool
+    files: bool
+    streaming: bool
+    reactions: bool
+    threads: bool
+    message_edit: bool
+    proactive_messages: bool
+    max_text_chars: int = Field(gt=0)
+    max_blocks: int = Field(gt=0)
+    max_attachment_bytes: int = Field(gt=0)
+    accepted_content_types: tuple[str, ...]
+
+
+class MultimodalContentBlockInput(BaseModel):
+    """文本正文或已校验附件引用，绝不接受内联二进制和对象地址。"""
+
+    kind: ContentBlockKind
+    text: str | None = Field(default=None, max_length=600_000)
+    attachment_id: UUID | None = None
+    content_type: str | None = Field(default=None, max_length=160)
+    file_name: str | None = Field(default=None, max_length=255)
+    size_bytes: int | None = Field(default=None, gt=0)
+    sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    alt_text: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> Self:
+        """在应用层能力协商前先拒绝明显不完整的内容块。"""
+        if self.kind in {ContentBlockKind.TEXT, ContentBlockKind.MARKDOWN}:
+            if self.text is None or not self.text.strip():
+                raise ValueError("文本内容块不能为空")
+        elif any(
+            value is None
+            for value in (
+                self.attachment_id,
+                self.content_type,
+                self.file_name,
+                self.size_bytes,
+                self.sha256,
+            )
+        ):
+            raise ValueError("图片和文件内容块必须包含完整附件元数据")
+        return self
+
+
+class MultimodalContentBlockResponse(BaseModel):
+    """能力协商后的安全内容块。"""
+
+    kind: ContentBlockKind
+    text: str | None
+    attachment_id: UUID | None
+    content_type: str | None
+    file_name: str | None
+    size_bytes: int | None
+    sha256: str | None
+    alt_text: str | None
+
+
+class ChannelCatalogResponse(BaseModel):
+    """一个可开发或可配置的 Adapter 描述。"""
+
+    platform: ChannelPlatform
+    display_name: str
+    implementation_status: Literal["ready", "placeholder"]
+    credential_required: bool
+    capabilities: ChannelCapabilitiesResponse
+
+
+class ChannelCatalogListResponse(BaseModel):
+    """当前进程注册的全部 Adapter。"""
+
+    items: tuple[ChannelCatalogResponse, ...]
+
+
+class ChannelInstanceCreate(BaseModel):
+    """创建渠道实例；凭证只在本次请求中进入加密存储。"""
+
+    name: str = Field(min_length=1, max_length=120)
+    platform: ChannelPlatform
+    status: ChannelInstanceStatus = ChannelInstanceStatus.DISABLED
+    rate_limit_per_minute: int = Field(default=60, ge=1, le=10_000)
+    settings: dict[str, JsonValue] = Field(default_factory=dict)
+    credential: SecretStr | None = Field(default=None, min_length=1, max_length=16_384)
+
+
+class ChannelInstanceUpdate(BaseModel):
+    """部分更新渠道公开设置和启停状态。"""
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    status: ChannelInstanceStatus | None = None
+    rate_limit_per_minute: int | None = Field(default=None, ge=1, le=10_000)
+    settings: dict[str, JsonValue] | None = None
+    confirmed: bool
+
+
+class ChannelCredentialCommand(BaseModel):
+    """只写不回显的渠道凭证命令。"""
+
+    credential: SecretStr = Field(min_length=1, max_length=16_384)
+
+
+class ChannelConfirmedCommand(BaseModel):
+    """不可逆管理动作的明确确认。"""
+
+    confirmed: bool
+
+
+class ChannelInstanceResponse(BaseModel):
+    """不包含凭证明文、定位符或远端原始响应的渠道视图。"""
+
+    id: UUID
+    tenant_id: UUID
+    name: str
+    platform: ChannelPlatform
+    display_name: str
+    implementation_status: Literal["ready", "placeholder"]
+    status: ChannelInstanceStatus
+    rate_limit_per_minute: int
+    settings: dict[str, JsonValue]
+    credential_configured: bool
+    capabilities: ChannelCapabilitiesResponse
+    health_status: ChannelHealthStatus
+    health_detail: str | None
+    last_checked_at: datetime | None
+    created_by: UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChannelInstanceListResponse(BaseModel):
+    """当前租户全部渠道实例。"""
+
+    items: tuple[ChannelInstanceResponse, ...]
+
+
+class ChannelSimulationCommand(BaseModel):
+    """无副作用的平台能力协商模拟。"""
+
+    platform: ChannelPlatform
+    blocks: tuple[MultimodalContentBlockInput, ...] = Field(min_length=1, max_length=100)
+    request_streaming: bool = False
+    thread_id: str | None = Field(default=None, max_length=255)
+    edit_message_id: str | None = Field(default=None, max_length=255)
+    proactive: bool = False
+
+
+class ChannelSimulationResponse(BaseModel):
+    """模拟后的目标内容与全部降级说明。"""
+
+    platform: ChannelPlatform
+    blocks: tuple[MultimodalContentBlockResponse, ...]
+    degradations: tuple[str, ...]
+    buffered: bool
+    thread_preserved: bool
+    edit_preserved: bool
+
+
+class ChannelDeliveryRequest(BaseModel):
+    """管理端验证 Adapter 闭环使用的幂等发送命令。"""
+
+    recipient_id: str = Field(min_length=1, max_length=255)
+    blocks: tuple[MultimodalContentBlockInput, ...] = Field(min_length=1, max_length=100)
+    idempotency_key: str = Field(min_length=1, max_length=255)
+    request_streaming: bool = False
+    thread_id: str | None = Field(default=None, max_length=255)
+    edit_message_id: str | None = Field(default=None, max_length=255)
+    proactive: bool = False
+
+
+class ChannelDeliveryResponse(BaseModel):
+    """不透出平台原始响应的发送结果。"""
+
+    status: ChannelEventStatus
+    external_message_id: str
+    degradations: tuple[str, ...]
+    delivered_at: datetime
+    idempotent_replay: bool
+
+
+class ChannelInboundSimulationCommand(BaseModel):
+    """平台模拟器提供给 Adapter 的入站载荷。"""
+
+    payload: dict[str, JsonValue]
+
+
+class ChannelInboundResponse(BaseModel):
+    """归一化的入站事件，仅用于契约与诊断验证。"""
+
+    external_event_id: str
+    event_type: str
+    sender_external_id: str
+    conversation_external_id: str
+    blocks: tuple[MultimodalContentBlockResponse, ...]
+    occurred_at: datetime
+    thread_external_id: str | None
+
+
+class ChannelDiagnosticEventResponse(BaseModel):
+    """不包含消息正文、文件名、凭证和远端响应的诊断事件。"""
+
+    id: UUID
+    channel_id: UUID
+    direction: ChannelEventDirection
+    event_type: str
+    status: ChannelEventStatus
+    external_event_id: str | None
+    idempotency_key: str
+    external_message_id: str | None
+    payload_summary: dict[str, JsonValue]
+    error_code: str | None
+    degradations: tuple[str, ...]
+    occurred_at: datetime
+
+
+class ChannelDiagnosticEventListResponse(BaseModel):
+    """最近的渠道诊断事件。"""
+
+    items: tuple[ChannelDiagnosticEventResponse, ...]
+
+
+class ModelCapabilityResponse(BaseModel):
+    """用于渠道规划的模型输入输出能力矩阵行。"""
+
+    provider: str
+    model_family: str
+    text_input: bool
+    image_input: bool
+    document_input: bool
+    streaming: bool
+    structured_output: bool
+    tool_calling: bool
+
+
+class ModelCapabilityMatrixResponse(BaseModel):
+    """内置 Provider 的能力矩阵。"""
+
+    items: tuple[ModelCapabilityResponse, ...]

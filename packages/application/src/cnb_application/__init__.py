@@ -27,6 +27,17 @@ from cnb_application.authorization import (
     permissions_for_role,
     require_admin_permission,
 )
+from cnb_application.channel_service import (
+    ChannelCatalogItem,
+    ChannelConflictError,
+    ChannelDeliveryReceipt,
+    ChannelInstanceView,
+    ChannelNotFoundError,
+    ChannelRepository,
+    ChannelService,
+    ChannelSimulationResult,
+    ChannelValidationError,
+)
 from cnb_application.cognition_service import (
     CognitionRepository,
     CognitionResourceNotFoundError,
@@ -114,6 +125,15 @@ __all__ = [
     "AuditCursor",
     "BackgroundJobHandler",
     "BackgroundTaskService",
+    "ChannelCatalogItem",
+    "ChannelConflictError",
+    "ChannelDeliveryReceipt",
+    "ChannelInstanceView",
+    "ChannelNotFoundError",
+    "ChannelRepository",
+    "ChannelService",
+    "ChannelSimulationResult",
+    "ChannelValidationError",
     "CognitionRepository",
     "CognitionResourceNotFoundError",
     "CognitionService",

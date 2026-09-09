@@ -8,11 +8,13 @@ from uuid import NAMESPACE_DNS, UUID, uuid5
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from cnb_adapters import ChannelAdapterRegistry, build_default_channel_registry
 from cnb_api import __version__
 from cnb_api.errors import RequestIdMiddleware, install_error_handlers
 from cnb_api.routes import (
     administration,
     attachment,
+    channels,
     cognition,
     configuration,
     conversation,
@@ -24,6 +26,7 @@ from cnb_api.routes import (
 from cnb_application import (
     AdministrationRepository,
     AttachmentRepository,
+    ChannelRepository,
     CognitionRepository,
     ConfigurationRepository,
     ConversationRepository,
@@ -45,6 +48,7 @@ from cnb_infrastructure import (
     InMemoryTaskRepository,
     MemoryAdministrationRepository,
     MemoryAttachmentRepository,
+    MemoryChannelRepository,
     MemoryCognitionRepository,
     MemoryObjectStorage,
     MemorySecretStore,
@@ -52,6 +56,7 @@ from cnb_infrastructure import (
     Settings,
     SqlAlchemyAdministrationRepository,
     SqlAlchemyAttachmentRepository,
+    SqlAlchemyChannelRepository,
     SqlAlchemyCognitionRepository,
     SqlAlchemyConfigurationRepository,
     SqlAlchemyConversationRepository,
@@ -69,6 +74,8 @@ def create_app(
     *,
     configuration_repository: ConfigurationRepository | None = None,
     cognition_repository: CognitionRepository | None = None,
+    channel_repository: ChannelRepository | None = None,
+    channel_adapter_registry: ChannelAdapterRegistry | None = None,
     conversation_repository: ConversationRepository | None = None,
     memory_repository: MemoryRepository | None = None,
     task_repository: TaskRepository | None = None,
@@ -116,6 +123,15 @@ def create_app(
     session_factory = create_session_factory(resolved_settings)
     application.state.configuration_repository = (
         configuration_repository or SqlAlchemyConfigurationRepository(session_factory)
+    )
+    if channel_repository is not None:
+        application.state.channel_repository = channel_repository
+    elif configuration_repository is not None or conversation_repository is not None:
+        application.state.channel_repository = MemoryChannelRepository()
+    else:
+        application.state.channel_repository = SqlAlchemyChannelRepository(session_factory)
+    application.state.channel_adapter_registry = (
+        channel_adapter_registry or build_default_channel_registry()
     )
     application.state.conversation_repository = (
         conversation_repository or SqlAlchemyConversationRepository(session_factory)
@@ -203,6 +219,7 @@ def create_app(
     application.include_router(administration.router, prefix="/api/v1")
     application.include_router(configuration.router, prefix="/api/v1")
     application.include_router(cognition.router, prefix="/api/v1")
+    application.include_router(channels.router, prefix="/api/v1")
     application.include_router(memory.router, prefix="/api/v1")
     application.include_router(tasks.router, prefix="/api/v1")
     application.include_router(attachment.router, prefix="/api/v1")

@@ -153,6 +153,12 @@ wheels = [
 name = "cnb-adapters"
 version = "0.1.0"
 source = { editable = "packages/adapters" }
+dependencies = [
+    { name = "cnb-domain" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "cnb-domain", editable = "packages/domain" }]
 
 [[package]]
 name = "cnb-api"
@@ -182,6 +188,7 @@ name = "cnb-application"
 version = "0.1.0"
 source = { editable = "packages/application" }
 dependencies = [
+    { name = "cnb-adapters" },
     { name = "cnb-cognition" },
     { name = "cnb-contracts" },
     { name = "cnb-domain" },
@@ -189,6 +196,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cnb-adapters", editable = "packages/adapters" },
     { name = "cnb-cognition", editable = "packages/cognition" },
     { name = "cnb-contracts", editable = "packages/contracts" },
     { name = "cnb-domain", editable = "packages/domain" },

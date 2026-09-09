@@ -8,6 +8,10 @@ from cnb_infrastructure.attachment_repository import (
     MemoryAttachmentRepository,
     SqlAlchemyAttachmentRepository,
 )
+from cnb_infrastructure.channel_repository import (
+    MemoryChannelRepository,
+    SqlAlchemyChannelRepository,
+)
 from cnb_infrastructure.cognition_repository import (
     MemoryCognitionRepository,
     SqlAlchemyCognitionRepository,
@@ -51,6 +55,7 @@ __all__ = [
     "InMemoryTaskRepository",
     "MemoryAdministrationRepository",
     "MemoryAttachmentRepository",
+    "MemoryChannelRepository",
     "MemoryCognitionRepository",
     "MemoryConfigurationRepository",
     "MemoryConversationRepository",
@@ -61,6 +66,7 @@ __all__ = [
     "Settings",
     "SqlAlchemyAdministrationRepository",
     "SqlAlchemyAttachmentRepository",
+    "SqlAlchemyChannelRepository",
     "SqlAlchemyCognitionRepository",
     "SqlAlchemyConfigurationRepository",
     "SqlAlchemyConversationRepository",

@@ -1414,3 +1414,120 @@ class WorkerHeartbeatModel(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (Index("ix_worker_heartbeats_seen", "last_seen_at"),)
+
+
+class ChannelInstanceModel(Base):
+    """租户隔离且不保存凭证明文的渠道实例。"""
+
+    __tablename__ = "channel_instances"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    platform: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    rate_limit_per_minute: Mapped[int] = mapped_column(Integer, nullable=False)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    health_status: Mapped[str] = mapped_column(String(24), nullable=False)
+    health_detail: Mapped[str | None] = mapped_column(String(500))
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "platform IN ('web', 'feishu', 'discord', 'telegram')",
+            name="ck_channel_instances_platform",
+        ),
+        CheckConstraint(
+            "status IN ('enabled', 'disabled')",
+            name="ck_channel_instances_status",
+        ),
+        CheckConstraint(
+            "health_status IN ('healthy', 'degraded', 'not_configured', 'disabled')",
+            name="ck_channel_instances_health_status",
+        ),
+        CheckConstraint(
+            "rate_limit_per_minute BETWEEN 1 AND 10000",
+            name="ck_channel_instances_rate_limit",
+        ),
+        UniqueConstraint("tenant_id", "name", name="uq_channel_instances_tenant_name"),
+        Index("ix_channel_instances_tenant_platform", "tenant_id", "platform", "status"),
+    )
+
+
+class ChannelDiagnosticEventModel(Base):
+    """不保存消息正文和原始平台载荷的渠道事件摘要。"""
+
+    __tablename__ = "channel_diagnostic_events"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    channel_id: Mapped[UUID] = mapped_column(
+        ForeignKey("channel_instances.id", ondelete="CASCADE"), nullable=False
+    )
+    direction: Mapped[str] = mapped_column(String(24), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    external_event_id: Mapped[str | None] = mapped_column(String(255))
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    external_message_id: Mapped[str | None] = mapped_column(String(255))
+    payload_summary: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(120))
+    degradations: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "direction IN ('inbound', 'outbound', 'system')",
+            name="ck_channel_diagnostic_events_direction",
+        ),
+        CheckConstraint(
+            "status IN ('accepted', 'delivered', 'degraded', 'rejected', 'failed', 'rate_limited')",
+            name="ck_channel_diagnostic_events_status",
+        ),
+        UniqueConstraint(
+            "channel_id",
+            "direction",
+            "idempotency_key",
+            name="uq_channel_diagnostic_events_idempotency",
+        ),
+        Index(
+            "ix_channel_diagnostic_events_tenant_time",
+            "tenant_id",
+            "occurred_at",
+        ),
+        Index(
+            "ix_channel_diagnostic_events_channel_time",
+            "channel_id",
+            "occurred_at",
+        ),
+    )
+
+
+class ChannelRateLimitWindowModel(Base):
+    """数据库原子维护的分钟级渠道发送预算。"""
+
+    __tablename__ = "channel_rate_limit_windows"
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True
+    )
+    channel_id: Mapped[UUID] = mapped_column(
+        ForeignKey("channel_instances.id", ondelete="CASCADE"), primary_key=True
+    )
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    used_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("used_count BETWEEN 1 AND 10000", name="ck_channel_rate_windows_used"),
+        Index("ix_channel_rate_windows_time", "window_started_at"),
+    )

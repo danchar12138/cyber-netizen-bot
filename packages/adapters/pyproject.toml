@@ -3,7 +3,12 @@ name = "cnb-adapters"
 version = "0.1.0"
 description = "渠道 Adapter 契约与占位实现"
 requires-python = ">=3.12,<3.14"
-dependencies = []
+dependencies = [
+  "cnb-domain",
+]
+
+[tool.uv.sources]
+cnb-domain = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

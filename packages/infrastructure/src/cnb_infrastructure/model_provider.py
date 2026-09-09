@@ -40,6 +40,7 @@ class DevelopmentModelProvider:
             structured_output=False,
             tool_calling=False,
             image_input=False,
+            document_input=False,
         )
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
@@ -86,6 +87,7 @@ class OpenAIResponsesProvider:
             structured_output=True,
             tool_calling=True,
             image_input=True,
+            document_input=True,
         )
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:

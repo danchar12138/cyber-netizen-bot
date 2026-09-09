@@ -9,6 +9,7 @@ import { AdminShell } from './shell/AdminShell'
 import { AccessControlPage } from './views/AccessControlPage'
 import { AuditLogPage } from './views/AuditLogPage'
 import { ChatPage } from './views/ChatPage'
+import { ChannelsPage } from './views/ChannelsPage'
 import { ConfigurationPage } from './views/ConfigurationPage'
 import { ConversationsPage } from './views/ConversationsPage'
 import { CognitionResourcesPage } from './views/CognitionResourcesPage'
@@ -125,6 +126,12 @@ const tasksRoute = createRoute({
   component: TaskStatusPage,
 })
 
+const channelsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/channels',
+  component: ChannelsPage,
+})
+
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
@@ -153,6 +160,7 @@ const routeTree = rootRoute.addChildren([
   toolsRoute,
   evaluationsRoute,
   observabilityRoute,
+  channelsRoute,
   tasksRoute,
   settingsRoute,
   sectionRoute,

@@ -363,6 +363,19 @@ class CognitionService:
             cls._require_string(payload, "provider")
             cls._require_string(payload, "model")
             cls._require_string_list(payload, "purposes", minimum=1)
+            capabilities = payload.get("capabilities")
+            if capabilities is not None:
+                if not isinstance(capabilities, dict):
+                    raise CognitionValidationError("字段 capabilities 必须是模型能力对象")
+                for key in (
+                    "text_input",
+                    "image_input",
+                    "document_input",
+                    "streaming",
+                    "structured_output",
+                    "tool_calling",
+                ):
+                    cls._require_boolean(capabilities, key)
         elif kind is CognitionResourceKind.MODEL_ROUTE:
             cls._require_string(payload, "purpose")
             cls._require_profile_reference(payload.get("primary_profile"), "primary_profile")

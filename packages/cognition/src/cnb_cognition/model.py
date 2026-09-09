@@ -54,6 +54,7 @@ class ModelCapabilities:
     structured_output: bool
     tool_calling: bool
     image_input: bool
+    document_input: bool = False
 
 
 class ModelProvider(Protocol):
