@@ -562,7 +562,7 @@ class SqlAlchemyEvaluationRepository:
 
     async def save_run(self, run: EvaluationRun) -> EvaluationRun:
         async with self._session_factory() as session, session.begin():
-            self._add_run(session, run)
+            await self._add_run(session, run)
             self._audit(
                 session,
                 tenant_id=run.tenant_id,
@@ -604,7 +604,7 @@ class SqlAlchemyEvaluationRepository:
                 )
             )
             for entry in comparison.entries:
-                self._add_run(session, entry.run)
+                await self._add_run(session, entry.run)
                 session.add(
                     EvaluationComparisonEntryModel(
                         comparison_id=comparison.id,
@@ -894,7 +894,7 @@ class SqlAlchemyEvaluationRepository:
             )
 
     @staticmethod
-    def _add_run(session: AsyncSession, run: EvaluationRun) -> None:
+    async def _add_run(session: AsyncSession, run: EvaluationRun) -> None:
         """在调用方事务内写入一次完整回放，不单独提交。"""
         session.add(
             EvaluationRunModel(
@@ -927,6 +927,8 @@ class SqlAlchemyEvaluationRepository:
                 completed_at=run.completed_at,
             )
         )
+        # 未声明 ORM relationship 时，先落运行主记录再写用例外键；仍处于同一事务。
+        await session.flush()
         session.add_all(
             EvaluationCaseResultModel(
                 id=item.id,

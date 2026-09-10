@@ -1,9 +1,13 @@
 """拟人自动回放、版本质量门与人工盲评服务测试。"""
 
+from collections.abc import Iterable
 from datetime import datetime
+from types import TracebackType
+from typing import Self, cast
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from cnb_application import (
     CognitionService,
@@ -33,6 +37,7 @@ from cnb_infrastructure import (
     MemoryCognitionRepository,
     MemoryConfigurationRepository,
     MemoryEvaluationRepository,
+    SqlAlchemyEvaluationRepository,
 )
 
 
@@ -46,6 +51,47 @@ class EventRecordingRuntime:
     async def run(self, event: AgentEvent, context: CognitiveContext) -> AgentDecision:
         self.events.append((event.event_id, event.conversation_id, event.occurred_at))
         return await self._delegate.run(event, context)
+
+
+class EvaluationRunInsertRecordingSession:
+    """记录运行主表与用例结果的写入顺序。"""
+
+    def __init__(self) -> None:
+        self.operations: list[str] = []
+
+    def add(self, instance: object) -> None:
+        self.operations.append(f"add:{type(instance).__name__}")
+
+    def add_all(self, instances: Iterable[object]) -> None:
+        for instance in instances:
+            self.operations.append(f"add_all:{type(instance).__name__}")
+
+    async def flush(self) -> None:
+        self.operations.append("flush")
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        del exc_type, exc_value, traceback
+
+    def begin(self) -> Self:
+        return self
+
+
+class EvaluationRunInsertRecordingSessionFactory:
+    """为仓储公开方法提供不访问数据库的记录会话。"""
+
+    def __init__(self, session: EvaluationRunInsertRecordingSession) -> None:
+        self._session = session
+
+    def __call__(self) -> EvaluationRunInsertRecordingSession:
+        return self._session
 
 
 async def _comparison_service() -> tuple[
@@ -205,6 +251,46 @@ async def test_builtin_replay_freezes_versions_and_feeds_blind_report() -> None:
             response_b_score=score_b,
             note=None,
         )
+
+
+async def test_sqlalchemy_comparison_flushes_run_parents_before_case_results() -> None:
+    service, _, _, tenant_id = await _comparison_service()
+    comparison = await service.run_comparison(
+        tenant_id=tenant_id,
+        actor_id=uuid4(),
+        profile_keys=("fast", "quality"),
+    )
+    recording_session = EvaluationRunInsertRecordingSession()
+    repository = SqlAlchemyEvaluationRepository(
+        cast(
+            async_sessionmaker[AsyncSession],
+            EvaluationRunInsertRecordingSessionFactory(recording_session),
+        )
+    )
+
+    await repository.save_comparison(comparison)
+
+    run_indexes = [
+        index
+        for index, operation in enumerate(recording_session.operations)
+        if operation == "add:EvaluationRunModel"
+    ]
+    flush_indexes = [
+        index
+        for index, operation in enumerate(recording_session.operations)
+        if operation == "flush"
+    ]
+    result_indexes = [
+        index
+        for index, operation in enumerate(recording_session.operations)
+        if operation == "add_all:EvaluationCaseResultModel"
+    ]
+    first_result_count = len(comparison.entries[0].run.results)
+
+    assert len(run_indexes) == len(flush_indexes) == len(comparison.entries)
+    assert len(result_indexes) == sum(len(entry.run.results) for entry in comparison.entries)
+    assert run_indexes[0] < flush_indexes[0] < result_indexes[0]
+    assert run_indexes[1] < flush_indexes[1] < result_indexes[first_result_count]
 
 
 async def test_custom_suite_is_versioned_published_and_tenant_isolated() -> None:

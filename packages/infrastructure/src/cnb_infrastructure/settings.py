@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     oidc_audience: str | None = None
     oidc_scopes: tuple[str, ...] = ("openid", "profile", "email")
     oidc_tenant_id: UUID | None = None
-    oidc_tenant_name: str = "Cyber Netizen"
+    oidc_tenant_name: str = "赛博网友租户"
     oidc_agent_id: UUID | None = None
     oidc_agent_name: str = "赛博网友"
     oidc_role_claim: str = "cnb_role"
