@@ -59,9 +59,9 @@ def test_web_runtime_only_renders_configuration_into_tmp() -> None:
     dockerfile = (REPOSITORY_ROOT / "Dockerfile").read_text(encoding="utf-8")
     nginx = (REPOSITORY_ROOT / "deploy/nginx/nginx.conf").read_text(encoding="utf-8")
 
-    assert "NGINX_ENVSUBST_OUTPUT_DIR=/tmp/nginx/conf.d" in dockerfile
+    assert "NGINX_ENVSUBST_OUTPUT_DIR=/tmp" in dockerfile
     assert "NGINX_ENVSUBST_FILTER=^CNB_API_UPSTREAM$" in dockerfile
-    assert "include /tmp/nginx/conf.d/*.conf;" in nginx
+    assert "include /tmp/*.conf;" in nginx
     assert "pid /tmp/nginx.pid;" in nginx
     assert "RUN apk upgrade --no-cache" in _docker_stage("web")
     assert '"--output-document=/dev/null"' in _docker_stage("web")

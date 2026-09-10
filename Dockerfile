@@ -123,7 +123,7 @@ LABEL org.opencontainers.image.title="Cyber Netizen Web" \
 
 ENV CNB_API_UPSTREAM=http://api:8000 \
     NGINX_ENVSUBST_FILTER=^CNB_API_UPSTREAM$ \
-    NGINX_ENVSUBST_OUTPUT_DIR=/tmp/nginx/conf.d
+    NGINX_ENVSUBST_OUTPUT_DIR=/tmp
 COPY deploy/nginx/nginx.conf /etc/nginx/nginx.conf
 COPY deploy/nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=web-builder --chown=101:101 /app/apps/web/dist /usr/share/nginx/html
