@@ -190,16 +190,23 @@ try {
     }
 
     $baseUri = "http://127.0.0.1:$WebPort"
-    $live = Invoke-RestMethod -Uri "$baseUri/health/live" -TimeoutSec 10
-    $ready = Invoke-RestMethod -Uri "$baseUri/health/ready" -TimeoutSec 10
-    $session = Invoke-RestMethod -Uri "$baseUri/api/v1/administration/session" -TimeoutSec 10
-    $identity = Invoke-RestMethod -Uri "$baseUri/api/v1/chat/identity" -TimeoutSec 10
-    $conversation = Invoke-RestMethod `
-        -Method Post `
-        -Uri "$baseUri/api/v1/chat/conversations" `
-        -ContentType "application/json" `
-        -Body '{"title":"基础设施验收会话"}' `
-        -TimeoutSec 10
+    try {
+        $live = Invoke-RestMethod -Uri "$baseUri/health/live" -TimeoutSec 10
+        $ready = Invoke-RestMethod -Uri "$baseUri/health/ready" -TimeoutSec 10
+        $session = Invoke-RestMethod `
+            -Uri "$baseUri/api/v1/administration/session" `
+            -TimeoutSec 10
+        $identity = Invoke-RestMethod -Uri "$baseUri/api/v1/chat/identity" -TimeoutSec 10
+        $conversation = Invoke-RestMethod `
+            -Method Post `
+            -Uri "$baseUri/api/v1/chat/conversations" `
+            -ContentType "application/json" `
+            -Body '{"title":"基础设施验收会话"}' `
+            -TimeoutSec 10
+    } catch {
+        & docker @composeArguments logs --no-color --tail 100 api web
+        throw
+    }
     if (
         $live.status -ne "healthy" -or
         $ready.status -ne "ready" -or

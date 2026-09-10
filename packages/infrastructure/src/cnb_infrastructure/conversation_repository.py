@@ -1032,6 +1032,8 @@ class SqlAlchemyConversationRepository:
                 event_sequence=0,
             )
             session.add(row)
+            # 未声明 ORM relationship 时不能依赖 Unit of Work 推断跨 Mapper 的插入顺序。
+            await session.flush()
             session.add(
                 ConversationMember(
                     id=uuid4(),
@@ -1494,6 +1496,8 @@ class SqlAlchemyConversationRepository:
                 branched_from_message_id=source.id,
             )
             session.add(branch)
+            # 先落会话主记录，再写成员外键；两步仍处于同一数据库事务。
+            await session.flush()
             session.add(
                 ConversationMember(
                     id=uuid4(),
