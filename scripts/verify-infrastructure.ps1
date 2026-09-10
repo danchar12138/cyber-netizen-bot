@@ -177,9 +177,17 @@ try {
     Invoke-Docker -Arguments (
         $composeArguments + @("--profile", "operations", "run", "--rm", "migrate")
     )
-    Invoke-Docker -Arguments (
-        $composeArguments + @("up", "--detach", "--no-build", "--wait", "api", "worker", "web")
-    )
+    try {
+        Invoke-Docker -Arguments (
+            $composeArguments + @(
+                "up", "--detach", "--no-build", "--wait", "api", "worker", "web"
+            )
+        )
+    } catch {
+        & docker @composeArguments ps
+        & docker @composeArguments logs --no-color --tail 100 api worker web
+        throw
+    }
 
     $baseUri = "http://127.0.0.1:$WebPort"
     $live = Invoke-RestMethod -Uri "$baseUri/health/live" -TimeoutSec 10

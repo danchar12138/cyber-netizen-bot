@@ -122,6 +122,7 @@ LABEL org.opencontainers.image.title="Cyber Netizen Web" \
       org.opencontainers.image.licenses="LicenseRef-Proprietary"
 
 ENV CNB_API_UPSTREAM=http://api:8000 \
+    NGINX_ENVSUBST_FILTER=^CNB_API_UPSTREAM$ \
     NGINX_ENVSUBST_OUTPUT_DIR=/tmp/nginx/conf.d
 COPY deploy/nginx/nginx.conf /etc/nginx/nginx.conf
 COPY deploy/nginx/default.conf.template /etc/nginx/templates/default.conf.template
