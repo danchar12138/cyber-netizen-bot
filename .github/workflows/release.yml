@@ -137,7 +137,7 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           sbom-path: sbom-${{ matrix.target }}.spdx.json
           push-to-registry: true
-      - uses: sigstore/cosign-installer@v3.10.0
+      - uses: sigstore/cosign-installer@v4.1.2
       - name: 使用 GitHub OIDC 无密钥签名
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
