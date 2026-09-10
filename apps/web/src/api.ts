@@ -1,3 +1,19 @@
+import * as apiSdk from './api-client/generated/sdk.gen'
+import type {
+  AgentRunResponse,
+  AttachmentReservationResponse,
+  ConfigDefinitionResponse,
+  ConversationResponse,
+  MessageAcceptedResponse,
+  MessageResponse,
+} from './api-client/generated/types.gen'
+import {
+  ApiClientError,
+  apiClient,
+  getGeneratedApiAccessToken,
+  setGeneratedApiAccessToken,
+} from './api-client/client'
+
 export interface ComponentHealth {
   name: string
   status: 'healthy' | 'ready' | 'degraded' | 'not_checked' | 'not_configured'
@@ -346,11 +362,6 @@ export interface ConfigDefinition {
   minimum?: number | null
   maximum?: number | null
   options: string[]
-}
-
-interface ConfigRegistry {
-  schema_version: string
-  definitions: ConfigDefinition[]
 }
 
 export type ConfigVersionStatus = 'draft' | 'published' | 'superseded'
@@ -956,10 +967,6 @@ export interface Episode {
   updated_at: string
 }
 
-interface ConfigVersionList {
-  versions: ConfigVersion[]
-}
-
 interface ConfigDraftCommand {
   note: string | null
   values: Array<{
@@ -995,11 +1002,6 @@ export interface EffectiveConfigValue {
   }
 }
 
-interface EffectiveConfiguration {
-  version: number
-  values: EffectiveConfigValue[]
-}
-
 export interface SecretMetadata {
   id: string
   key: string
@@ -1014,159 +1016,106 @@ export interface SecretMetadata {
   last_tested_at: string | null
 }
 
-interface SecretList {
-  secrets: SecretMetadata[]
-}
-
-let accessToken: string | null = null
-
 export function setApiAccessToken(token: string | null) {
-  accessToken = token
+  setGeneratedApiAccessToken(token)
 }
 
 export function getApiAccessToken() {
-  return accessToken
+  return getGeneratedApiAccessToken()
 }
 
-function requestHeaders(json = false): Record<string, string> {
+function normalizeConfigDefinition(definition: ConfigDefinitionResponse): ConfigDefinition {
   return {
-    Accept: 'application/json',
-    ...(json ? { 'Content-Type': 'application/json' } : {}),
-    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    ...definition,
+    default: definition.default,
+    options: definition.options ?? [],
   }
 }
 
-async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(path, {
-    headers: requestHeaders(),
-  })
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: string }
-    } | null
-    throw new Error(payload?.error?.message ?? `请求失败，状态码 ${response.status}`)
-  }
-  return response.json() as Promise<T>
-}
-
-async function getOptionalJson<T>(path: string): Promise<T | null> {
-  const response = await fetch(path, { headers: requestHeaders() })
-  if (response.status === 404) return null
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: string }
-    } | null
-    throw new Error(payload?.error?.message ?? `请求失败，状态码 ${response.status}`)
-  }
-  return response.json() as Promise<T>
-}
-
-async function postJson<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: requestHeaders(true),
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: string }
-    } | null
-    throw new Error(payload?.error?.message ?? `请求失败，状态码 ${response.status}`)
-  }
-  return response.json() as Promise<T>
-}
-
-async function patchJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, {
-    method: 'PATCH',
-    headers: requestHeaders(true),
-    body: JSON.stringify(body),
-  })
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: string }
-    } | null
-    throw new Error(payload?.error?.message ?? `请求失败，状态码 ${response.status}`)
-  }
-  return response.json() as Promise<T>
-}
-
-async function putJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, {
-    method: 'PUT',
-    headers: requestHeaders(true),
-    body: JSON.stringify(body),
-  })
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: string }
-    } | null
-    throw new Error(payload?.error?.message ?? `请求失败，状态码 ${response.status}`)
-  }
-  return response.json() as Promise<T>
-}
-
-async function deleteJson<T>(path: string): Promise<T> {
-  const response = await fetch(path, { method: 'DELETE', headers: requestHeaders() })
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: string }
-    } | null
-    throw new Error(payload?.error?.message ?? `请求失败，状态码 ${response.status}`)
-  }
-  return response.json() as Promise<T>
-}
-
-async function deleteRequest(path: string): Promise<void> {
-  const response = await fetch(path, { method: 'DELETE', headers: requestHeaders() })
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: string }
-    } | null
-    throw new Error(payload?.error?.message ?? `请求失败，状态码 ${response.status}`)
+function normalizeConversation(conversation: ConversationResponse): Conversation {
+  return {
+    ...conversation,
+    pinned_at: conversation.pinned_at ?? null,
+    archived_at: conversation.archived_at ?? null,
+    deleted_at: conversation.deleted_at ?? null,
+    branched_from_conversation_id: conversation.branched_from_conversation_id ?? null,
+    branched_from_message_id: conversation.branched_from_message_id ?? null,
   }
 }
 
-export const getSystemOverview = () => getJson<SystemOverview>('/api/v1/system/overview')
+function normalizeMessage(message: MessageResponse): ChatMessage {
+  return { ...message, edited_from_id: message.edited_from_id ?? null }
+}
+
+function normalizeAgentRun(run: AgentRunResponse): AgentRun {
+  return {
+    ...run,
+    input_tokens: run.input_tokens ?? null,
+    output_tokens: run.output_tokens ?? null,
+    error_code: run.error_code ?? null,
+  }
+}
+
+function normalizeMessageAccepted(response: MessageAcceptedResponse): MessageAccepted {
+  return {
+    ...response,
+    user_message: normalizeMessage(response.user_message),
+    response_message: normalizeMessage(response.response_message),
+    run: normalizeAgentRun(response.run),
+  }
+}
+
+function normalizeAttachmentReservation(
+  reservation: AttachmentReservationResponse,
+): AttachmentReservation {
+  return {
+    ...reservation,
+    upload: { ...reservation.upload, method: reservation.upload.method ?? 'PUT' },
+  }
+}
+
+export const getSystemOverview = () => apiSdk.getApiV1SystemOverview()
 
 export const getAuthenticationConfig = () =>
-  getJson<AuthenticationConfig>('/api/v1/auth/config')
+  apiSdk.getApiV1AuthConfig()
 
 export const getBootstrapSettings = () =>
-  getJson<BootstrapSettings>('/api/v1/system/settings')
+  apiSdk.getApiV1SystemSettings()
 
 export const getTaskStatus = () =>
-  getJson<TaskStatus>('/api/v1/system/tasks/status')
+  apiSdk.getApiV1SystemTasksStatus()
 
 export const getTaskDashboard = () =>
-  getJson<TaskDashboard>('/api/v1/tasks/dashboard')
+  apiSdk.getApiV1TasksDashboard()
 
 export const getBackgroundJobs = (filters: {
   status?: BackgroundJobStatus
   kind?: BackgroundJobKind
 } = {}) => {
-  const query = new URLSearchParams({ limit: '200' })
-  if (filters.status) query.set('job_status', filters.status)
-  if (filters.kind) query.set('kind', filters.kind)
-  return getJson<{ items: BackgroundJob[] }>(`/api/v1/tasks/jobs?${query}`)
+  return apiSdk.getApiV1TasksJobs({
+    query: { limit: 200, job_status: filters.status, kind: filters.kind },
+  })
 }
 
 export const getBackgroundJob = (jobId: string) =>
-  getJson<{ job: BackgroundJob; attempts: JobAttempt[] }>(`/api/v1/tasks/jobs/${jobId}`)
+  apiSdk.getApiV1TasksJobsByJobId({ path: { job_id: jobId } })
 
 export const cancelBackgroundJob = (jobId: string) =>
-  postJson<BackgroundJob>(`/api/v1/tasks/jobs/${jobId}/cancel`, { confirmed: true })
+  apiSdk.postApiV1TasksJobsByJobIdCancel({
+    path: { job_id: jobId },
+    body: { confirmed: true },
+  })
 
 export const replayBackgroundJob = (jobId: string, reason: string) =>
-  postJson<BackgroundJob>(`/api/v1/tasks/jobs/${jobId}/replay`, {
-    confirmed: true,
-    reason,
+  apiSdk.postApiV1TasksJobsByJobIdReplay({
+    path: { job_id: jobId },
+    body: { confirmed: true, reason },
   })
 
 export const getScheduledActions = (status?: ScheduledActionStatus) => {
-  const query = new URLSearchParams({ limit: '200' })
-  if (status) query.set('action_status', status)
-  return getJson<{ items: ScheduledAction[] }>(`/api/v1/tasks/scheduled-actions?${query}`)
+  return apiSdk.getApiV1TasksScheduledActions({
+    query: { limit: 200, action_status: status },
+  })
 }
 
 export const createScheduledAction = (command: {
@@ -1179,21 +1128,22 @@ export const createScheduledAction = (command: {
   reason: string
   payload: Record<string, ConfigValue>
   social_cost: number
-}) => postJson<ScheduledAction>('/api/v1/tasks/scheduled-actions', command)
+}) => apiSdk.postApiV1TasksScheduledActions({ body: command })
 
 export const cancelScheduledAction = (actionId: string) =>
-  postJson<ScheduledAction>(`/api/v1/tasks/scheduled-actions/${actionId}/cancel`, {
-    confirmed: true,
+  apiSdk.postApiV1TasksScheduledActionsByActionIdCancel({
+    path: { action_id: actionId },
+    body: { confirmed: true },
   })
 
 export const getChannelCatalog = () =>
-  getJson<{ items: ChannelCatalogItem[] }>('/api/v1/channels/catalog')
+  apiSdk.getApiV1ChannelsCatalog()
 
 export const getModelCapabilities = () =>
-  getJson<{ items: ModelCapabilityProfile[] }>('/api/v1/channels/model-capabilities')
+  apiSdk.getApiV1ChannelsModelCapabilities()
 
 export const getChannelInstances = () =>
-  getJson<{ items: ChannelInstance[] }>('/api/v1/channels')
+  apiSdk.getApiV1Channels()
 
 export const createChannelInstance = (command: {
   name: string
@@ -1202,7 +1152,7 @@ export const createChannelInstance = (command: {
   rate_limit_per_minute: number
   settings: Record<string, ConfigValue>
   credential: string | null
-}) => postJson<ChannelInstance>('/api/v1/channels', command)
+}) => apiSdk.postApiV1Channels({ body: command })
 
 export const updateChannelInstance = (
   channelId: string,
@@ -1213,18 +1163,22 @@ export const updateChannelInstance = (
     settings?: Record<string, ConfigValue>
     confirmed: boolean
   },
-) => patchJson<ChannelInstance>(`/api/v1/channels/${channelId}`, command)
+) => apiSdk.patchApiV1ChannelsByChannelId({ path: { channel_id: channelId }, body: command })
 
 export const setChannelCredential = (channelId: string, credential: string) =>
-  putJson<ChannelInstance>(`/api/v1/channels/${channelId}/credential`, { credential })
+  apiSdk.putApiV1ChannelsByChannelIdCredential({
+    path: { channel_id: channelId },
+    body: { credential },
+  })
 
 export const clearChannelCredential = (channelId: string) =>
-  postJson<ChannelInstance>(`/api/v1/channels/${channelId}/credential/clear`, {
-    confirmed: true,
+  apiSdk.postApiV1ChannelsByChannelIdCredentialClear({
+    path: { channel_id: channelId },
+    body: { confirmed: true },
   })
 
 export const testChannelConnection = (channelId: string) =>
-  postJson<ChannelInstance>(`/api/v1/channels/${channelId}/connection-test`)
+  apiSdk.postApiV1ChannelsByChannelIdConnectionTest({ path: { channel_id: channelId } })
 
 export const simulateChannel = (command: {
   platform: ChannelPlatform
@@ -1233,7 +1187,7 @@ export const simulateChannel = (command: {
   thread_id: string | null
   edit_message_id: string | null
   proactive: boolean
-}) => postJson<ChannelSimulation>('/api/v1/channels/simulate', command)
+}) => apiSdk.postApiV1ChannelsSimulate({ body: command })
 
 export const deliverChannelMessage = (
   channelId: string,
@@ -1244,43 +1198,37 @@ export const deliverChannelMessage = (
     request_streaming: boolean
     proactive: boolean
   },
-) => postJson<{
-  status: ChannelDiagnosticEvent['status']
-  external_message_id: string
-  degradations: string[]
-  delivered_at: string
-  idempotent_replay: boolean
-}>(`/api/v1/channels/${channelId}/deliveries`, command)
+) => apiSdk.postApiV1ChannelsByChannelIdDeliveries({
+  path: { channel_id: channelId },
+  body: command,
+})
 
 export const getChannelEvents = (channelId?: string) => {
-  const query = new URLSearchParams({ limit: '100' })
-  if (channelId) query.set('channel_id', channelId)
-  return getJson<{ items: ChannelDiagnosticEvent[] }>(`/api/v1/channels/diagnostics/events?${query}`)
+  return apiSdk.getApiV1ChannelsDiagnosticsEvents({
+    query: { limit: 100, channel_id: channelId },
+  })
 }
 
 export const getAdminSession = () =>
-  getJson<AdminSession>('/api/v1/administration/session')
+  apiSdk.getApiV1AdministrationSession()
 
 export const getAdminRoles = () =>
-  getJson<{ roles: AdminRoleDefinition[] }>('/api/v1/administration/roles')
+  apiSdk.getApiV1AdministrationRoles()
 
 export const getDataLifecycleOverview = () =>
-  getJson<DataLifecycleOverview>('/api/v1/data-lifecycle/overview')
+  apiSdk.getApiV1DataLifecycleOverview()
 
 export async function downloadUserDataExport(userId: string): Promise<DataExportDownload> {
-  const response = await fetch('/api/v1/data-lifecycle/exports', {
-    method: 'POST',
-    headers: requestHeaders(true),
-    body: JSON.stringify({ user_id: userId }),
+  const { data, response } = await apiClient.post<{ 200: Blob }, unknown, true, 'fields'>({
+    url: '/api/v1/data-lifecycle/exports',
+    body: { user_id: userId },
+    headers: { 'Content-Type': 'application/json' },
+    parseAs: 'blob',
+    responseStyle: 'fields',
+    throwOnError: true,
   })
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: string }
-    } | null
-    throw new Error(payload?.error?.message ?? `请求失败：${response.status}`)
-  }
   return {
-    blob: await response.blob(),
+    blob: data,
     filename: `cyber-netizen-user-${userId}.json`,
     sha256: response.headers.get('X-Content-SHA256'),
     runId: response.headers.get('X-Export-Run-ID'),
@@ -1288,16 +1236,13 @@ export async function downloadUserDataExport(userId: string): Promise<DataExport
 }
 
 export const forgetUserData = (userId: string, confirmation: string) =>
-  postJson<LifecycleRun>('/api/v1/data-lifecycle/forget', {
-    user_id: userId,
-    confirmation,
-  })
+  apiSdk.postApiV1DataLifecycleForget({ body: { user_id: userId, confirmation } })
 
 export const runRetentionCleanup = () =>
-  postJson<LifecycleRun>('/api/v1/data-lifecycle/retention/cleanup', { confirmed: true })
+  apiSdk.postApiV1DataLifecycleRetentionCleanup({ body: { confirmed: true } })
 
 export const runOrphanCleanup = () =>
-  postJson<LifecycleRun>('/api/v1/data-lifecycle/objects/orphans/cleanup', { confirmed: true })
+  apiSdk.postApiV1DataLifecycleObjectsOrphansCleanup({ body: { confirmed: true } })
 
 export const recordBackupRestoreDrill = (command: {
   manifest_sha256: string
@@ -1307,51 +1252,48 @@ export const recordBackupRestoreDrill = (command: {
   object_integrity_verified: boolean
   application_smoke_verified: boolean
   confirmation: string
-}) => postJson<LifecycleRun>('/api/v1/data-lifecycle/backup-drills', command)
-
-function administrationListPath(resource: string, search: string, status?: string) {
-  const query = new URLSearchParams({ limit: '100' })
-  if (search.trim()) query.set('search', search.trim())
-  if (status) query.set('entity_status', status)
-  return `/api/v1/administration/${resource}?${query}`
-}
+}) => apiSdk.postApiV1DataLifecycleBackupDrills({ body: command })
 
 export const getManagedAgents = (search = '', status?: string) =>
-  getJson<CursorPage<ManagedAgent>>(administrationListPath('agents', search, status))
+  apiSdk.getApiV1AdministrationAgents({
+    query: {
+      limit: 100,
+      search: search.trim() || undefined,
+      entity_status: status === 'active' || status === 'disabled' ? status : undefined,
+    },
+  })
 
 export const updateManagedAgentStatus = (
   ids: string[],
   status: 'active' | 'disabled',
-) => postJson<CursorPage<ManagedAgent>>('/api/v1/administration/agents/status', {
-  ids,
-  status,
-  confirmed: true,
-})
+) => apiSdk.postApiV1AdministrationAgentsStatus({ body: { ids, status, confirmed: true } })
 
 export const getManagedUsers = (search = '', status?: string) =>
-  getJson<CursorPage<ManagedUser>>(administrationListPath('users', search, status))
+  apiSdk.getApiV1AdministrationUsers({
+    query: {
+      limit: 100,
+      search: search.trim() || undefined,
+      entity_status: status === 'active' || status === 'disabled' ? status : undefined,
+    },
+  })
 
 export const updateManagedUserStatus = (
   ids: string[],
   status: 'active' | 'disabled',
-) => postJson<CursorPage<ManagedUser>>('/api/v1/administration/users/status', {
-  ids,
-  status,
-  confirmed: true,
-})
+) => apiSdk.postApiV1AdministrationUsersStatus({ body: { ids, status, confirmed: true } })
 
 export const getAuditRecords = (search = '', action = '') => {
-  const query = new URLSearchParams({ limit: '100' })
-  if (search.trim()) query.set('search', search.trim())
-  if (action.trim()) query.set('action', action.trim())
-  return getJson<CursorPage<AuditRecord>>(`/api/v1/administration/audit?${query}`)
+  return apiSdk.getApiV1AdministrationAudit({
+    query: {
+      limit: 100,
+      search: search.trim() || undefined,
+      action: action.trim() || undefined,
+    },
+  })
 }
 
 export const getCognitionResources = (kind?: CognitionResourceKind) => {
-  const query = new URLSearchParams()
-  if (kind) query.set('kind', kind)
-  const suffix = query.size ? `?${query}` : ''
-  return getJson<{ items: CognitionResource[] }>(`/api/v1/cognition/resources${suffix}`)
+  return apiSdk.getApiV1CognitionResources({ query: { kind } })
 }
 
 export const createCognitionResourceDraft = (command: {
@@ -1360,56 +1302,55 @@ export const createCognitionResourceDraft = (command: {
   name: string
   payload: Record<string, ConfigValue>
   note: string | null
-}) => postJson<CognitionResource>('/api/v1/cognition/resources', command)
+}) => apiSdk.postApiV1CognitionResources({ body: command })
 
 export const testCognitionResource = (
   kind: CognitionResourceKind,
   payload: Record<string, ConfigValue>,
-) => postJson<{ valid: boolean; messages: string[] }>('/api/v1/cognition/resources/test', {
-  kind,
-  payload,
-})
+) => apiSdk.postApiV1CognitionResourcesTest({ body: { kind, payload } })
 
 export const publishCognitionResource = (resourceId: string) =>
-  postJson<CognitionResource>(`/api/v1/cognition/resources/${resourceId}/publish`)
+  apiSdk.postApiV1CognitionResourcesByResourceIdPublish({
+    path: { resource_id: resourceId },
+  })
 
 export const rollbackCognitionResource = (resourceId: string) =>
-  postJson<CognitionResource>(`/api/v1/cognition/resources/${resourceId}/rollback`)
+  apiSdk.postApiV1CognitionResourcesByResourceIdRollback({
+    path: { resource_id: resourceId },
+  })
 
 export const getCognitiveRunTrace = (runId: string) =>
-  getJson<CognitiveRunTrace>(`/api/v1/cognition/runs/${runId}/trace`)
+  apiSdk.getApiV1CognitionRunsByRunIdTrace({ path: { run_id: runId } })
 
 export const getObservabilityDashboard = () =>
-  getJson<ObservabilityDashboard>('/api/v1/observability/dashboard')
+  apiSdk.getApiV1ObservabilityDashboard()
 
 export const runCognitionEvaluationSuite = () =>
-  postJson<EvaluationSuite>('/api/v1/cognition/evaluations/run')
+  apiSdk.postApiV1CognitionEvaluationsRun()
 
 export const getEvaluationSuites = () =>
-  getJson<{ items: EvaluationSuiteDefinition[] }>('/api/v1/evaluations/suites')
+  apiSdk.getApiV1EvaluationsSuites()
 
 export const createEvaluationSuite = (draft: EvaluationSuiteDraft) =>
-  postJson<EvaluationSuiteDefinition>('/api/v1/evaluations/suites', draft)
+  apiSdk.postApiV1EvaluationsSuites({ body: draft })
 
 export const publishEvaluationSuite = (suiteId: string) =>
-  postJson<EvaluationSuiteDefinition>(`/api/v1/evaluations/suites/${suiteId}/publish`)
+  apiSdk.postApiV1EvaluationsSuitesBySuiteIdPublish({ path: { suite_id: suiteId } })
 
 export const runEvaluation = (suiteId: string | null = null) =>
-  postJson<EvaluationRun>('/api/v1/evaluations/runs', { suite_id: suiteId })
+  apiSdk.postApiV1EvaluationsRuns({ body: { suite_id: suiteId } })
 
 export const getEvaluationRuns = () =>
-  getJson<{ items: EvaluationRunSummary[] }>('/api/v1/evaluations/runs?limit=20')
+  apiSdk.getApiV1EvaluationsRuns({ query: { limit: 20 } })
 
 export const getEvaluationRun = (runId: string) =>
-  getJson<EvaluationRun>(`/api/v1/evaluations/runs/${runId}`)
+  apiSdk.getApiV1EvaluationsRunsByRunId({ path: { run_id: runId } })
 
 export const getEvaluationReport = () =>
-  getJson<EvaluationReport>('/api/v1/evaluations/report')
+  apiSdk.getApiV1EvaluationsReport()
 
 export const claimBlindReviewAssignment = (runId: string | null = null) =>
-  postJson<BlindReviewAssignment | null>('/api/v1/evaluations/blind-assignments', {
-    run_id: runId,
-  })
+  apiSdk.postApiV1EvaluationsBlindAssignments({ body: { run_id: runId } })
 
 export const submitBlindReview = (
   assignmentId: string,
@@ -1419,10 +1360,10 @@ export const submitBlindReview = (
     response_b_score: BlindReviewScore
     note: string | null
   },
-) => postJson<BlindReview>(
-  `/api/v1/evaluations/blind-assignments/${assignmentId}/reviews`,
-  input,
-)
+) => apiSdk.postApiV1EvaluationsBlindAssignmentsByAssignmentIdReviews({
+  path: { assignment_id: assignmentId },
+  body: input,
+})
 
 export const getMemories = (filters: {
   userId?: string
@@ -1430,16 +1371,19 @@ export const getMemories = (filters: {
   status?: MemoryStatus
   kind?: MemoryKind
 } = {}) => {
-  const query = new URLSearchParams({ limit: '200' })
-  if (filters.userId) query.set('user_id', filters.userId)
-  if (filters.query?.trim()) query.set('query', filters.query.trim())
-  if (filters.status) query.set('status', filters.status)
-  if (filters.kind) query.set('kind', filters.kind)
-  return getJson<{ items: LongTermMemory[] }>(`/api/v1/memory/memories?${query}`)
+  return apiSdk.getApiV1MemoryMemories({
+    query: {
+      limit: 200,
+      user_id: filters.userId,
+      query: filters.query?.trim() || undefined,
+      status: filters.status,
+      kind: filters.kind,
+    },
+  })
 }
 
 export const getMemoryDetail = (memoryId: string) =>
-  getJson<MemoryDetail>(`/api/v1/memory/memories/${memoryId}`)
+  apiSdk.getApiV1MemoryMemoriesByMemoryId({ path: { memory_id: memoryId } })
 
 export const createMemory = (command: {
   user_id: string | null
@@ -1461,42 +1405,50 @@ export const createMemory = (command: {
     is_verbatim: boolean
     occurred_at: string
   }>
-}) => postJson<MemoryDetail>('/api/v1/memory/memories', command)
+}) => apiSdk.postApiV1MemoryMemories({ body: command })
 
 export const setMemoryConfirmation = (
   memoryId: string,
   confirmation: MemoryConfirmation,
-) => postJson<LongTermMemory>(`/api/v1/memory/memories/${memoryId}/confirmation`, {
-  confirmation,
+) => apiSdk.postApiV1MemoryMemoriesByMemoryIdConfirmation({
+  path: { memory_id: memoryId },
+  body: { confirmation },
 })
 
 export const correctMemory = (
   memoryId: string,
   command: { content: string; event_at: string; note: string | null },
-) => postJson<MemoryDetail>(`/api/v1/memory/memories/${memoryId}/corrections`, command)
+) => apiSdk.postApiV1MemoryMemoriesByMemoryIdCorrections({
+  path: { memory_id: memoryId },
+  body: command,
+})
 
 export const linkMemoryConflict = (
   memoryId: string,
   targetMemoryId: string,
   note: string | null,
-) => postJson<MemoryLink>(`/api/v1/memory/memories/${memoryId}/conflicts`, {
-  target_memory_id: targetMemoryId,
-  note,
+) => apiSdk.postApiV1MemoryMemoriesByMemoryIdConflicts({
+  path: { memory_id: memoryId },
+  body: { target_memory_id: targetMemoryId, note },
 })
 
 export const forgetMemory = (memoryId: string) =>
-  postJson<LongTermMemory>(`/api/v1/memory/memories/${memoryId}/forget`, {
-    confirmed: true,
+  apiSdk.postApiV1MemoryMemoriesByMemoryIdForget({
+    path: { memory_id: memoryId },
+    body: { confirmed: true },
   })
 
 export const recallMemories = (userId: string, query: string, limit?: number) =>
-  postJson<{ items: MemoryRecallItem[]; embedding_version: string }>(
-    '/api/v1/memory/recall',
-    { user_id: userId, query, limit },
-  )
+  apiSdk.postApiV1MemoryRecall({ body: { user_id: userId, query, limit } })
 
-export const getRelationship = (userId: string) =>
-  getOptionalJson<RelationshipDetail>(`/api/v1/memory/relationship?user_id=${userId}`)
+export async function getRelationship(userId: string): Promise<RelationshipDetail | null> {
+  try {
+    return await apiSdk.getApiV1MemoryRelationship({ query: { user_id: userId } })
+  } catch (error) {
+    if (error instanceof ApiClientError && error.status === 404) return null
+    throw error
+  }
+}
 
 export const createRelationshipEvent = (command: {
   user_id: string
@@ -1507,21 +1459,18 @@ export const createRelationshipEvent = (command: {
   summary: string
   boundaries: string[] | null
   evidence_memory_id: string | null
-}) => postJson<RelationshipDetail>('/api/v1/memory/relationship/events', command)
+}) => apiSdk.postApiV1MemoryRelationshipEvents({ body: command })
 
 export const getMemoryIndexJobs = () =>
-  getJson<{ items: MemoryIndexJob[] }>('/api/v1/memory/index-jobs')
+  apiSdk.getApiV1MemoryIndexJobs()
 
 export const rebuildMemoryIndex = (userId?: string) =>
-  postJson<MemoryIndexJob>('/api/v1/memory/index-jobs', {
-    user_id: userId ?? null,
-    confirmed: true,
+  apiSdk.postApiV1MemoryIndexJobs({
+    body: { user_id: userId ?? null, confirmed: true },
   })
 
 export const getEpisodes = (userId?: string) => {
-  const query = new URLSearchParams({ limit: '200' })
-  if (userId) query.set('user_id', userId)
-  return getJson<{ items: Episode[] }>(`/api/v1/memory/episodes?${query}`)
+  return apiSdk.getApiV1MemoryEpisodes({ query: { limit: 200, user_id: userId } })
 }
 
 export const createEpisode = (command: {
@@ -1532,34 +1481,45 @@ export const createEpisode = (command: {
   started_at: string
   ended_at: string | null
   source_message_ids: string[]
-}) => postJson<Episode>('/api/v1/memory/episodes', command)
+}) => apiSdk.postApiV1MemoryEpisodes({ body: command })
 
 export const closeEpisode = (episodeId: string, consolidate: boolean) =>
-  postJson<Episode>(`/api/v1/memory/episodes/${episodeId}/close`, { consolidate })
+  apiSdk.postApiV1MemoryEpisodesByEpisodeIdClose({
+    path: { episode_id: episodeId },
+    body: { consolidate },
+  })
 
 export const getConfigRegistry = () =>
-  getJson<ConfigRegistry>('/api/v1/configuration/definitions')
+  apiSdk.getApiV1ConfigurationDefinitions().then((registry) => ({
+    ...registry,
+    schema_version: registry.schema_version ?? '1',
+    definitions: registry.definitions.map(normalizeConfigDefinition),
+  }))
 
 export const getConfigVersions = () =>
-  getJson<ConfigVersionList>('/api/v1/configuration/versions')
+  apiSdk.getApiV1ConfigurationVersions()
 
 export const createConfigDraft = (command: ConfigDraftCommand) =>
-  postJson<ConfigVersion>('/api/v1/configuration/drafts', command)
+  apiSdk.postApiV1ConfigurationDrafts({ body: command })
 
 export const exportConfigPackage = (versionId: string) =>
-  getJson<ConfigPackageDocument>(`/api/v1/configuration/versions/${versionId}/export`)
+  apiSdk.getApiV1ConfigurationVersionsByVersionIdExport({ path: { version_id: versionId } })
 
 export const importConfigPackage = (document: ConfigPackageDocument) =>
-  postJson<ConfigVersion>('/api/v1/configuration/imports', document)
+  apiSdk.postApiV1ConfigurationImports({ body: document }) as Promise<ConfigVersion>
 
 export const publishConfigVersion = (versionId: string) =>
-  postJson<ConfigVersion>(`/api/v1/configuration/versions/${versionId}/publish`)
+  apiSdk.postApiV1ConfigurationVersionsByVersionIdPublish({
+    path: { version_id: versionId },
+  })
 
 export const rollbackConfigVersion = (versionId: string) =>
-  postJson<ConfigVersion>(`/api/v1/configuration/versions/${versionId}/rollback`)
+  apiSdk.postApiV1ConfigurationVersionsByVersionIdRollback({
+    path: { version_id: versionId },
+  })
 
 export const getConfigDiff = (versionId: string) =>
-  getJson<ConfigDiff>(`/api/v1/configuration/versions/${versionId}/diff`)
+  apiSdk.getApiV1ConfigurationVersionsByVersionIdDiff({ path: { version_id: versionId } })
 
 export const getEffectiveConfiguration = (targets: {
   tenantId: string
@@ -1567,104 +1527,134 @@ export const getEffectiveConfiguration = (targets: {
   channelId?: string
   userId?: string
 }) => {
-  const query = new URLSearchParams({ tenant_id: targets.tenantId })
-  if (targets.agentId) query.set('agent_id', targets.agentId)
-  if (targets.channelId) query.set('channel_id', targets.channelId)
-  if (targets.userId) query.set('user_id', targets.userId)
-  return getJson<EffectiveConfiguration>(`/api/v1/configuration/effective?${query}`)
+  return apiSdk.getApiV1ConfigurationEffective({
+    query: {
+      tenant_id: targets.tenantId,
+      agent_id: targets.agentId,
+      channel_id: targets.channelId,
+      user_id: targets.userId,
+    },
+  })
 }
 
-export const getSecrets = () => getJson<SecretList>('/api/v1/configuration/secrets')
+export const getSecrets = () => apiSdk.getApiV1ConfigurationSecrets()
 
 export const setSecret = (command: {
   key: string
   scope_type: ConfigScope
   scope_id: string | null
   plaintext: string
-}) => postJson<SecretMetadata>('/api/v1/configuration/secrets', command)
+}) => apiSdk.postApiV1ConfigurationSecrets({ body: command })
 
 export const rotateSecret = (secretId: string, plaintext: string) =>
-  postJson<SecretMetadata>(`/api/v1/configuration/secrets/${secretId}/rotate`, { plaintext })
+  apiSdk.postApiV1ConfigurationSecretsBySecretIdRotate({
+    path: { secret_id: secretId },
+    body: { plaintext },
+  })
 
 export const testSecret = (secretId: string) =>
-  postJson<SecretMetadata>(`/api/v1/configuration/secrets/${secretId}/test`)
+  apiSdk.postApiV1ConfigurationSecretsBySecretIdTest({ path: { secret_id: secretId } })
 
 export const clearSecret = (secretId: string) =>
-  deleteRequest(`/api/v1/configuration/secrets/${secretId}`)
+  apiSdk.deleteApiV1ConfigurationSecretsBySecretId({ path: { secret_id: secretId } })
 
 export const getDevelopmentIdentity = () =>
-  getJson<DevelopmentIdentity>('/api/v1/chat/identity')
+  apiSdk.getApiV1ChatIdentity()
 
 export const getConversations = (search = '', status?: ConversationStatus) => {
-  const query = new URLSearchParams({ limit: '100' })
-  if (search.trim()) query.set('search', search.trim())
-  if (status) query.set('conversation_status', status)
-  return getJson<CursorPage<Conversation>>(`/api/v1/chat/conversations?${query}`)
+  return apiSdk.getApiV1ChatConversations({
+    query: {
+      limit: 100,
+      search: search.trim() || undefined,
+      conversation_status: status,
+    },
+  }).then((page) => ({
+    items: page.items.map(normalizeConversation),
+    next_cursor: page.next_cursor ?? null,
+  }))
 }
 
 export const createConversation = (title?: string) =>
-  postJson<Conversation>('/api/v1/chat/conversations', { title: title || null })
+  apiSdk.postApiV1ChatConversations({ body: { title: title || null } }).then(normalizeConversation)
 
 export const updateConversation = (
   conversationId: string,
   command: { title?: string; status?: ConversationStatus; pinned?: boolean },
-) => patchJson<Conversation>(`/api/v1/chat/conversations/${conversationId}`, command)
+) => apiSdk.patchApiV1ChatConversationsByConversationId({
+  path: { conversation_id: conversationId },
+  body: command,
+}).then(normalizeConversation)
 
 export const deleteConversation = (conversationId: string) =>
-  deleteJson<Conversation>(`/api/v1/chat/conversations/${conversationId}`)
+  apiSdk.deleteApiV1ChatConversationsByConversationId({
+    path: { conversation_id: conversationId },
+  }).then(normalizeConversation)
 
 export const getMessages = (conversationId: string) =>
-  getJson<CursorPage<ChatMessage>>(
-    `/api/v1/chat/conversations/${conversationId}/messages?limit=200`,
-  )
+  apiSdk.getApiV1ChatConversationsByConversationIdMessages({
+    path: { conversation_id: conversationId },
+    query: { limit: 200 },
+  }).then((page) => ({
+    items: page.items.map(normalizeMessage),
+    next_cursor: page.next_cursor ?? null,
+  }))
 
 export const sendChatMessage = (
   conversationId: string,
   command: { client_message_id: string; content: string; attachment_ids?: string[] },
 ) =>
-  postJson<MessageAccepted>(`/api/v1/chat/conversations/${conversationId}/messages`, command)
+  apiSdk.postApiV1ChatConversationsByConversationIdMessages({
+    path: { conversation_id: conversationId },
+    body: command,
+  }).then(normalizeMessageAccepted)
 
 export const cancelAgentRun = (runId: string) =>
-  postJson<AgentRun>(`/api/v1/chat/runs/${runId}/cancel`)
+  apiSdk.postApiV1ChatRunsByRunIdCancel({ path: { run_id: runId } })
 
 export const regenerateChatMessage = (messageId: string) =>
-  postJson<MessageAccepted>(`/api/v1/chat/messages/${messageId}/regenerate`, {
-    client_request_id: crypto.randomUUID(),
-  })
+  apiSdk.postApiV1ChatMessagesByMessageIdRegenerate({
+    path: { message_id: messageId },
+    body: { client_request_id: crypto.randomUUID() },
+  }).then(normalizeMessageAccepted)
 
 export const editChatMessage = (messageId: string, content: string) =>
-  postJson<MessageAccepted>(`/api/v1/chat/messages/${messageId}/edit`, {
-    client_message_id: crypto.randomUUID(),
-    content,
-  })
+  apiSdk.postApiV1ChatMessagesByMessageIdEdit({
+    path: { message_id: messageId },
+    body: { client_message_id: crypto.randomUUID(), content },
+  }).then(normalizeMessageAccepted)
 
 export const getMessageFeedback = (conversationId: string) =>
-  getJson<{ items: MessageFeedback[] }>(
-    `/api/v1/chat/conversations/${conversationId}/feedback`,
-  )
+  apiSdk.getApiV1ChatConversationsByConversationIdFeedback({
+    path: { conversation_id: conversationId },
+  })
 
 export const setMessageFeedback = (
   messageId: string,
   rating: MessageFeedbackRating,
   comment?: string,
-) => putJson<MessageFeedback>(`/api/v1/chat/messages/${messageId}/feedback`, {
-  rating,
-  comment: comment || null,
+) => apiSdk.putApiV1ChatMessagesByMessageIdFeedback({
+  path: { message_id: messageId },
+  body: { rating, comment: comment || null },
 })
 
 export const clearMessageFeedback = (messageId: string) =>
-  deleteRequest(`/api/v1/chat/messages/${messageId}/feedback`)
+  apiSdk.deleteApiV1ChatMessagesByMessageIdFeedback({ path: { message_id: messageId } })
 
 export const searchChatMessages = (queryText: string, conversationId?: string) => {
-  const query = new URLSearchParams({ query: queryText, limit: '100' })
-  if (conversationId) query.set('conversation_id', conversationId)
-  return getJson<{ items: MessageSearchResult[] }>(`/api/v1/chat/messages/search?${query}`)
+  return apiSdk.getApiV1ChatMessagesSearch({
+    query: { query: queryText, limit: 100, conversation_id: conversationId },
+  }).then((response) => ({
+    items: response.items.map((item) => ({
+      conversation: normalizeConversation(item.conversation),
+      message: normalizeMessage(item.message),
+    })),
+  }))
 }
 
 export const getAttachments = (conversationId: string) =>
-  getJson<{ items: ChatAttachment[] }>(
-    `/api/v1/chat/conversations/${conversationId}/attachments`,
-  )
+  apiSdk.getApiV1ChatConversationsByConversationIdAttachments({
+    path: { conversation_id: conversationId },
+  })
 
 export async function calculateFileSha256(file: File): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
@@ -1678,14 +1668,16 @@ export async function reserveAttachment(
   clientMessageId: string,
   file: File,
 ): Promise<AttachmentReservation> {
-  return postJson<AttachmentReservation>('/api/v1/chat/attachments/reservations', {
-    conversation_id: conversationId,
-    client_message_id: clientMessageId,
-    original_name: file.name,
-    content_type: file.type || 'application/octet-stream',
-    size_bytes: file.size,
-    sha256: await calculateFileSha256(file),
-  })
+  return apiSdk.postApiV1ChatAttachmentsReservations({
+    body: {
+      conversation_id: conversationId,
+      client_message_id: clientMessageId,
+      original_name: file.name,
+      content_type: file.type || 'application/octet-stream',
+      size_bytes: file.size,
+      sha256: await calculateFileSha256(file),
+    },
+  }).then(normalizeAttachmentReservation)
 }
 
 export function uploadReservedAttachment(
@@ -1711,15 +1703,17 @@ export function uploadReservedAttachment(
 }
 
 export const completeAttachment = (attachmentId: string) =>
-  postJson<ChatAttachment>(`/api/v1/chat/attachments/${attachmentId}/complete`)
+  apiSdk.postApiV1ChatAttachmentsByAttachmentIdComplete({
+    path: { attachment_id: attachmentId },
+  })
 
 export const deleteAttachment = (attachmentId: string) =>
-  deleteJson<ChatAttachment>(`/api/v1/chat/attachments/${attachmentId}`)
+  apiSdk.deleteApiV1ChatAttachmentsByAttachmentId({ path: { attachment_id: attachmentId } })
 
 export const getAttachmentPreview = (attachmentId: string) =>
-  getJson<{ attachment: ChatAttachment; url: string; expires_in_seconds: number }>(
-    `/api/v1/chat/attachments/${attachmentId}/preview`,
-  )
+  apiSdk.getApiV1ChatAttachmentsByAttachmentIdPreview({
+    path: { attachment_id: attachmentId },
+  })
 
 export function formatConfigValue(value: ConfigValue): string {
   if (value === null) return '未设置'

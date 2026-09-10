@@ -18,6 +18,7 @@
 - 服务端 `admin`、`operator`、`viewer` 最小权限矩阵、开发管理会话和可搜索的访问控制页面。
 - Agent/用户租户隔离列表、带确认的批量启停、实时总览计数和只追加审计查询页面。
 - 统一错误 Envelope、请求追踪 ID、稳定开发身份与游标分页。
+- 从 FastAPI 确定性导出 OpenAPI 3.1 契约，并通过锁定版本的 Hey API 生成 Fetch SDK 与 TypeScript 类型；Web 标准 HTTP 调用均由生成 SDK 承载，访问令牌只驻留内存，CI 会拦截契约或客户端漂移。
 - 会话、消息、Agent Run、有序事件持久化，以及可取消、可断线恢复的 WebSocket 流式闭环。
 - 厂商无关的 `ModelProvider` 契约、无需密钥的本地 Provider 和 OpenAI 官方 SDK `Responses API` 适配器。
 - 自研拟人认知状态机：感知、上下文组装、Social Mind、结构化决策、确定性 Policy Gate 与表达器。
@@ -91,10 +92,13 @@ MinIO 是项目唯一的附件与大对象存储。应用使用 `CNB_MINIO_ENDPO
 ## 常用检查
 
 ```powershell
+corepack pnpm api:generate
 uv run poe check
 corepack pnpm --filter @cnb/web check
 uv run alembic heads
 ```
+
+修改路由或 API 契约后必须先运行 `corepack pnpm api:generate`，并同时提交 [`apps/web/openapi.json`](apps/web/openapi.json) 与 `apps/web/src/api-client/generated/`。生成目录视为构建依赖，不得手工编辑；WebSocket、MinIO 预签名直传和需要读取下载响应头的业务封装保留在生成 SDK 之外。
 
 生产式镜像构建、Compose 启动、GHCR 发布、SBOM 与签名验证见 [`docs/runbooks/release-supply-chain.md`](docs/runbooks/release-supply-chain.md)。当前 CI 会额外执行锁文件检查、Python workspace 包构建、生产依赖审计、三个镜像构建、Trivy 扫描、SBOM 生成，以及 `scripts/verify-infrastructure.ps1` 基础设施验收。验收会上传不含密钥、正文和对象键的 `infrastructure-acceptance-evidence`，用于证明迁移版本、服务就绪、PostgreSQL/MinIO 恢复完整性与恢复后 API 可用性。
 

@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
 from fastapi import FastAPI
@@ -11,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from cnb_adapters import ChannelAdapterRegistry, build_default_channel_registry
 from cnb_api import __version__
 from cnb_api.errors import RequestIdMiddleware, SecurityHeadersMiddleware, install_error_handlers
+from cnb_api.openapi import stable_operation_id
 from cnb_api.routes import (
     administration,
     attachment,
@@ -48,6 +50,7 @@ from cnb_application import (
     TaskRepository,
 )
 from cnb_cognition import AnthropomorphicCognitiveRuntime, CognitiveRuntime, ModelProvider
+from cnb_contracts import ApiErrorResponse
 from cnb_domain import DevelopmentIdentity
 from cnb_infrastructure import (
     AesGcmEnvelopeCipher,
@@ -125,12 +128,28 @@ def create_app(
                 await asyncio.gather(*agent_run_tasks.values(), return_exceptions=True)
             telemetry_runtime.shutdown()
 
+    error_responses: dict[int | str, dict[str, Any]] = {
+        status_code: {"model": ApiErrorResponse, "description": description}
+        for status_code, description in {
+            400: "请求格式或业务条件无效",
+            401: "尚未通过身份认证",
+            403: "当前身份没有所需权限",
+            404: "请求的资源不存在",
+            409: "资源状态或幂等约束冲突",
+            422: "请求字段校验失败",
+            429: "请求超过允许频率",
+            500: "服务发生已安全处理的内部错误",
+            503: "依赖服务暂时不可用",
+        }.items()
+    }
     application = FastAPI(
         title="Cyber Netizen Bot API",
         summary="赛博网友管理与消息网关",
         version=__version__,
         docs_url="/docs" if resolved_settings.environment != "production" else None,
         redoc_url=None,
+        generate_unique_id_function=stable_operation_id,
+        responses=error_responses,
         lifespan=lifespan,
     )
     application.state.settings = resolved_settings

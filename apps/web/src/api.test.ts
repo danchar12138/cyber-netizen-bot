@@ -6,9 +6,11 @@ import {
   formatConfigValue,
   formatConfigVersionStatus,
   importConfigPackage,
+  setApiAccessToken,
 } from './api'
 
 afterEach(() => {
+  setApiAccessToken(null)
   vi.unstubAllGlobals()
 })
 
@@ -61,25 +63,51 @@ describe('配置包客户端', () => {
       values: packageDocument.values,
     }
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(packageDocument) })
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(imported) })
+      .mockResolvedValueOnce(new Response(JSON.stringify(packageDocument), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(imported), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      }))
     vi.stubGlobal('fetch', fetchMock)
 
     expect(await exportConfigPackage('version-id')).toEqual(packageDocument)
     expect(await importConfigPackage(packageDocument)).toEqual(imported)
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      '/api/v1/configuration/versions/version-id/export',
-      { headers: { Accept: 'application/json' } },
-    )
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      '/api/v1/configuration/imports',
-      {
-        method: 'POST',
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify(packageDocument),
-      },
+    const exportRequest = fetchMock.mock.calls[0]?.[0] as Request
+    const importRequest = fetchMock.mock.calls[1]?.[0] as Request
+    expect(exportRequest.url).toBe('http://localhost:3000/api/v1/configuration/versions/version-id/export')
+    expect(exportRequest.method).toBe('GET')
+    expect(exportRequest.headers.get('Accept')).toBe('application/json')
+    expect(importRequest.url).toBe('http://localhost:3000/api/v1/configuration/imports')
+    expect(importRequest.method).toBe('POST')
+    expect(importRequest.headers.get('Content-Type')).toBe('application/json')
+    expect(await importRequest.json()).toEqual(packageDocument)
+  })
+
+  it('为生成客户端注入仅驻留内存的访问令牌并转换安全错误', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      schema_version: '1',
+      error: { code: 'forbidden', message: '没有查看配置包的权限', request_id: 'request-id' },
+    }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    setApiAccessToken('signed-access-token')
+
+    await expect(exportConfigPackage('version-id')).rejects.toThrow('没有查看配置包的权限')
+
+    const request = fetchMock.mock.calls[0]?.[0] as Request
+    expect(request.headers.get('Authorization')).toBe('Bearer signed-access-token')
+  })
+
+  it('将网络故障转换为自然中文提示', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    await expect(exportConfigPackage('version-id')).rejects.toThrow(
+      '无法连接 API 服务，请检查网络或服务状态',
     )
   })
 })

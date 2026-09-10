@@ -26,6 +26,10 @@ jobs:
           python-version: "3.12"
       - run: uv lock --check
       - run: uv sync --frozen
+      - name: 检查 OpenAPI 契约是否已同步
+        run: >-
+          uv run python -m cnb_api.openapi --output apps/web/openapi.json
+          && git diff --exit-code -- apps/web/openapi.json
       - run: uv run poe check
       - run: uv run alembic heads
       - run: uv build --all-packages --out-dir dist
@@ -45,6 +49,10 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - name: 检查 TypeScript API 客户端是否已同步
+        run: >-
+          pnpm --filter @cnb/web generate:api
+          && git diff --exit-code -- apps/web/src/api-client/generated
       - run: pnpm --filter @cnb/web check
       - run: pnpm --filter @cnb/web exec playwright install --with-deps chromium
       - run: pnpm --filter @cnb/web test:e2e
