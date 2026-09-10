@@ -22,7 +22,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
@@ -425,7 +425,7 @@ class ConversationMember(Base):
 
 
 class MessageModel(Base):
-    """会话中支持幂等接收和流式更新的文本消息。"""
+    """会话中支持幂等接收、流式更新和内容块投影的消息。"""
 
     __tablename__ = "messages"
 
@@ -449,6 +449,11 @@ class MessageModel(Base):
     )
     edited_from_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("messages.id", ondelete="SET NULL")
+    )
+    parts: Mapped[list["MessagePartModel"]] = relationship(
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="MessagePartModel.position",
     )
 
     __table_args__ = (
@@ -474,6 +479,57 @@ class MessageModel(Base):
             text("to_tsvector('simple', content)"),
             postgresql_using="gin",
         ),
+    )
+
+
+class MessagePartModel(Base):
+    """消息内按位置排序的文本、Markdown、图片或文件内容块。"""
+
+    __tablename__ = "message_parts"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    text: Mapped[str | None] = mapped_column(Text)
+    attachment_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("attachments.id", ondelete="SET NULL")
+    )
+    content_type: Mapped[str | None] = mapped_column(String(160))
+    file_name: Mapped[str | None] = mapped_column(String(255))
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    sha256: Mapped[str | None] = mapped_column(String(64))
+    alt_text: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("position >= 0", name="ck_message_parts_position"),
+        CheckConstraint(
+            "kind IN ('text', 'markdown', 'image', 'file')",
+            name="ck_message_parts_kind",
+        ),
+        CheckConstraint(
+            "((kind IN ('text', 'markdown') AND text IS NOT NULL "
+            "AND attachment_id IS NULL AND content_type IS NULL AND file_name IS NULL "
+            "AND size_bytes IS NULL AND sha256 IS NULL) OR "
+            "(kind IN ('image', 'file') AND text IS NULL AND content_type IS NOT NULL "
+            "AND file_name IS NOT NULL AND size_bytes > 0 "
+            "AND sha256 ~ '^[0-9a-f]{64}$'))",
+            name="ck_message_parts_shape",
+        ),
+        UniqueConstraint("message_id", "position", name="uq_message_parts_position"),
+        Index("ix_message_parts_tenant_message", "tenant_id", "message_id"),
+        Index("ix_message_parts_attachment", "attachment_id"),
     )
 
 

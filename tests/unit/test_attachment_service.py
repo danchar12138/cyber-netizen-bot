@@ -80,6 +80,7 @@ async def test_attachment_upload_is_verified_and_bound_to_message() -> None:
         conversation_id=conversation.id,
         client_message_id=client_message_id,
         content="请看附件",
+        attachments=(ready,),
         configuration_version=0,
         persona_version=1,
         prompt_version=1,
@@ -98,6 +99,8 @@ async def test_attachment_upload_is_verified_and_bound_to_message() -> None:
     assert ready.status is AttachmentStatus.READY
     assert attached[0].status is AttachmentStatus.ATTACHED
     assert attached[0].message_id == pending.trigger_message.id
+    assert [part.kind.value for part in pending.trigger_message.parts] == ["markdown", "file"]
+    assert pending.trigger_message.parts[1].attachment_id == ready.id
     assert preview_item.id == ready.id
     assert preview_url.startswith("memory://download/")
 

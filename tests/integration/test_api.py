@@ -1155,6 +1155,9 @@ async def test_attachment_api_upload_complete_send_and_preview_flow() -> None:
     assert complete_response.json()["status"] == "ready"
     assert send_response.status_code == 202
     assert accepted.user_message.content == "请查看附件"
+    assert [part.kind.value for part in accepted.user_message.parts] == ["markdown", "file"]
+    assert accepted.user_message.parts[1].attachment_id == attachment_id
+    assert accepted.user_message.parts[1].file_name == "资料.txt"
     assert attached is not None
     assert attached.status.value == "attached"
     assert attached.message_id == accepted.user_message.id

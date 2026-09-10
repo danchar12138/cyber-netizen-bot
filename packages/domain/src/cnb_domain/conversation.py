@@ -5,6 +5,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
+from cnb_domain.channels import ContentBlockKind
 from cnb_domain.configuration import JsonValue
 
 
@@ -91,8 +92,28 @@ class Conversation:
 
 
 @dataclass(frozen=True, slots=True)
+class MessagePart:
+    """消息内按稳定位置排序的文本或附件内容块。"""
+
+    id: UUID
+    tenant_id: UUID
+    message_id: UUID
+    position: int
+    kind: ContentBlockKind
+    text: str | None
+    attachment_id: UUID | None
+    content_type: str | None
+    file_name: str | None
+    size_bytes: int | None
+    sha256: str | None
+    alt_text: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class Message:
-    """会话中的一条文本消息。"""
+    """会话中的一条消息；content 是文本检索与旧客户端兼容投影。"""
 
     id: UUID
     tenant_id: UUID
@@ -105,6 +126,7 @@ class Message:
     created_at: datetime
     updated_at: datetime
     edited_from_id: UUID | None = None
+    parts: tuple[MessagePart, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

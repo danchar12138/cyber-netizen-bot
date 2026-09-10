@@ -248,6 +248,9 @@ async def test_streamed_run_persists_message_usage_and_ordered_events() -> None:
     messages = await service.list_messages(conversation.id, limit=20, cursor=None)
     assert messages.items[-1].content == "你好呀"
     assert messages.items[-1].status is MessageStatus.COMPLETED
+    assert messages.items[0].parts[0].kind.value == "markdown"
+    assert messages.items[0].parts[0].text == "你好"
+    assert messages.items[-1].parts[0].text == "你好呀"
     events = await service.list_events(conversation.id, after_sequence=0)
     assert [item.sequence for item in events] == list(range(1, len(events) + 1))
     assert [item.event_type for item in events][-2:] == [
@@ -257,6 +260,10 @@ async def test_streamed_run_persists_message_usage_and_ordered_events() -> None:
     completed_payload = events[-1].payload
     assert completed_payload["input_tokens"] == 2
     assert completed_payload["output_tokens"] == 3
+    parts_payload = events[-2].payload["parts"]
+    assert isinstance(parts_payload, list)
+    assert isinstance(parts_payload[0], dict)
+    assert parts_payload[0]["text"] == "你好呀"
 
 
 async def test_event_replay_starts_strictly_after_requested_sequence() -> None:
@@ -376,6 +383,12 @@ async def test_editing_user_message_creates_an_independent_branch() -> None:
     repository = MemoryConversationRepository()
     service = _service(repository)
     conversation = await service.create_conversation(title="分支测试")
+    preface = await service.send_message(
+        conversation.id,
+        client_message_id=uuid5(NAMESPACE_DNS, "test.branch-preface"),
+        content="先聊一句",
+    )
+    await service.execute_run(preface)
     original = await service.send_message(
         conversation.id,
         client_message_id=uuid5(NAMESPACE_DNS, "test.branch-source"),
@@ -395,8 +408,10 @@ async def test_editing_user_message_creates_an_independent_branch() -> None:
     assert branch.conversation.id != conversation.id
     assert branch.conversation.branched_from_conversation_id == conversation.id
     assert branch.trigger_message.edited_from_id == original.trigger_message.id
-    assert len(original_messages.items) == 2
-    assert len(branch_messages.items) == 2
+    assert len(original_messages.items) == 4
+    assert len(branch_messages.items) == 4
+    assert branch_messages.items[0].parts[0].text == "先聊一句"
+    assert branch_messages.items[0].parts[0].id != original_messages.items[0].parts[0].id
     assert branch_messages.items[-1].status is MessageStatus.COMPLETED
 
 

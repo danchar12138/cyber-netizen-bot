@@ -5,6 +5,7 @@ import type {
   ConfigDefinitionResponse,
   ConversationResponse,
   MessageAcceptedResponse,
+  MessagePartResponse,
   MessageResponse,
 } from './api-client/generated/types.gen'
 import {
@@ -442,6 +443,11 @@ export interface ChatMessage {
   created_at: string
   updated_at: string
   edited_from_id: string | null
+  parts: MessagePart[]
+}
+
+export type MessagePart = Omit<MessagePartResponse, 'size_bytes'> & {
+  size_bytes: number | null
 }
 
 export type MessageFeedbackRating = 'positive' | 'negative'
@@ -1044,7 +1050,24 @@ function normalizeConversation(conversation: ConversationResponse): Conversation
 }
 
 function normalizeMessage(message: MessageResponse): ChatMessage {
-  return { ...message, edited_from_id: message.edited_from_id ?? null }
+  const parts = message.parts?.map((part) => ({
+    ...part,
+    size_bytes: part.size_bytes ?? null,
+  })) ?? [{
+    id: `legacy-${message.id}`,
+    position: 0,
+    kind: 'markdown' as const,
+    text: message.content,
+    attachment_id: null,
+    content_type: null,
+    file_name: null,
+    size_bytes: null,
+    sha256: null,
+    alt_text: null,
+    created_at: message.created_at,
+    updated_at: message.updated_at,
+  }]
+  return { ...message, edited_from_id: message.edited_from_id ?? null, parts }
 }
 
 function normalizeAgentRun(run: AgentRunResponse): AgentRun {

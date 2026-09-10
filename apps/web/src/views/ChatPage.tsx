@@ -7,7 +7,7 @@ import {
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
-  type ChatAttachment, type ChatMessage, type ConversationEvent, type MessageAccepted,
+  type ChatMessage, type ConversationEvent, type MessageAccepted, type MessagePart,
   cancelAgentRun, clearMessageFeedback, completeAttachment, createConversation,
   deleteAttachment, deleteConversation, editChatMessage, getAdminSession,
   getApiAccessToken, getAttachmentPreview, getAttachments, getConversations, getDevelopmentIdentity,
@@ -34,6 +34,45 @@ interface DraftAttachment {
   status: 'preparing' | 'uploading' | 'ready' | 'failed'
   attachmentId?: string
   error?: string
+}
+
+function MessagePartContent({ part }: { part: MessagePart }) {
+  const imagePreview = useQuery({
+    queryKey: ['attachment-preview', part.attachment_id],
+    queryFn: () => getAttachmentPreview(part.attachment_id!),
+    enabled: part.kind === 'image' && part.attachment_id !== null,
+    staleTime: 4 * 60 * 1000,
+    retry: false,
+  })
+
+  if (part.kind === 'markdown') {
+    return (
+      <Suspense fallback={<p>{part.text || '正在读取内容…'}</p>}>
+        <MarkdownContent content={part.text ?? ''} />
+      </Suspense>
+    )
+  }
+  if (part.kind === 'text') return <p className="message-plain-text">{part.text}</p>
+
+  const name = part.file_name ?? (part.kind === 'image' ? '图片' : '文件')
+  const openAttachment = async () => {
+    if (!part.attachment_id) return
+    const preview = imagePreview.data ?? await getAttachmentPreview(part.attachment_id)
+    window.open(preview.url, '_blank', 'noopener,noreferrer')
+  }
+  if (part.kind === 'image' && imagePreview.data) {
+    return (
+      <button className="message-image-part" aria-label={`预览 ${name}`} onClick={() => void openAttachment()}>
+        <img src={imagePreview.data.url} alt={part.alt_text ?? name} />
+        <span>{name}</span>
+      </button>
+    )
+  }
+  return (
+    <button className="message-file-part" disabled={!part.attachment_id} onClick={() => void openAttachment()}>
+      {part.kind === 'image' ? <ImagePlus size={13} /> : <FileText size={13} />} {name}
+    </button>
+  )
 }
 
 function draftStorageKey(conversationId: string) {
@@ -341,8 +380,8 @@ export function ChatPage() {
     if (item.attachmentId) await deleteAttachment(item.attachmentId).catch(() => undefined)
     setDraftAttachments((current) => current.filter((candidate) => candidate.localId !== item.localId))
   }
-  const previewAttachment = async (attachment: ChatAttachment) => {
-    const preview = await getAttachmentPreview(attachment.id)
+  const previewAttachment = async (attachmentId: string) => {
+    const preview = await getAttachmentPreview(attachmentId)
     window.open(preview.url, '_blank', 'noopener,noreferrer')
   }
   const selectConversation = (conversationId: string) => {
@@ -428,6 +467,15 @@ export function ChatPage() {
             {messages.filter((message) => message.status !== 'suppressed').map((message) => {
               const selectedFeedback = feedbackByMessage.get(message.id)
               const messageAttachments = attachments.data?.items.filter((item) => item.message_id === message.id) ?? []
+              const representedAttachmentIds = new Set(
+                message.parts.flatMap((part) => part.attachment_id ? [part.attachment_id] : []),
+              )
+              const legacyAttachments = messageAttachments.filter(
+                (attachment) => !representedAttachmentIds.has(attachment.id),
+              )
+              const hasVisiblePart = message.parts.some((part) =>
+                part.kind === 'image' || part.kind === 'file' || Boolean(part.text),
+              )
               return (
                 <article className={`chat-message ${message.sender_type}`} key={message.id}>
                   <div className="message-avatar">{message.sender_type === 'agent' ? <Bot size={15} /> : <UserRound size={15} />}</div>
@@ -437,14 +485,13 @@ export function ChatPage() {
                       <span>{message.edited_from_id ? '分支消息 · ' : ''}{messageStatusLabels[message.status]}</span>
                     </div>
                     <div className="message-content">
-                      <Suspense fallback={<p>{message.content || '正在读取内容…'}</p>}>
-                        <MarkdownContent content={message.content || (message.status === 'processing' ? '正在思考…' : '…')} />
-                      </Suspense>
+                      {message.parts.map((part) => <MessagePartContent key={part.id} part={part} />)}
+                      {!hasVisiblePart && <p>{message.status === 'processing' ? '正在思考…' : '…'}</p>}
                     </div>
-                    {messageAttachments.length > 0 && (
+                    {legacyAttachments.length > 0 && (
                       <div className="message-attachments">
-                        {messageAttachments.map((attachment) => (
-                          <button key={attachment.id} onClick={() => void previewAttachment(attachment)}>
+                        {legacyAttachments.map((attachment) => (
+                          <button key={attachment.id} onClick={() => void previewAttachment(attachment.id)}>
                             {attachment.content_type.startsWith('image/') ? <ImagePlus size={13} /> : <FileText size={13} />} {attachment.original_name}
                           </button>
                         ))}

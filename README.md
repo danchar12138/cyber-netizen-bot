@@ -20,6 +20,7 @@
 - 统一错误 Envelope、请求追踪 ID、稳定开发身份与游标分页。
 - 从 FastAPI 确定性导出 OpenAPI 3.1 契约，并通过锁定版本的 Hey API 生成 Fetch SDK 与 TypeScript 类型；Web 标准 HTTP 调用均由生成 SDK 承载，访问令牌只驻留内存，CI 会拦截契约或客户端漂移。
 - 会话、消息、Agent Run、有序事件持久化，以及可取消、可断线恢复的 WebSocket 流式闭环。
+- 租户隔离的 `message_parts` 有序内容块持久化；Markdown、文本、图片和文件元数据与消息正文投影、流式事件、编辑分支、数据导出及遗忘语义保持一致。
 - 厂商无关的 `ModelProvider` 契约、无需密钥的本地 Provider 和 OpenAI 官方 SDK `Responses API` 适配器。
 - 自研拟人认知状态机：感知、上下文组装、Social Mind、结构化决策、确定性 Policy Gate 与表达器。
 - 版本化 Persona 宪法/特质/风格、可半衰期衰减的情绪状态，以及带来源、优先级、必需项和 Token 预算的 Context Assembler。
@@ -51,7 +52,7 @@
 - 生产式 Compose 自动验收：全链 Alembic 迁移、三服务深度健康检查、PostgreSQL/MinIO 合成备份与隔离恢复、完整性比对和恢复后 API 冒烟。
 - Python/Node 依赖审计、Hadolint、Trivy 镜像门禁、SPDX SBOM、GitHub provenance/SBOM attestation、Cosign OIDC 无密钥签名和多架构 GHCR 发布。
 - Markdown/GFM 消息、自动保存草稿、图片/文件选择、键盘跳转和 axe 无障碍回归。
-- Alembic 配置、对话、附件、加密密钥、审计、认知运行、长期记忆、可靠异步任务、渠道控制平面、OIDC、数据生命周期、可观测成本和拟人评测迁移，当前 head 为 `20260910_0014`。
+- Alembic 配置、对话、附件、多模态消息块、加密密钥、审计、认知运行、长期记忆、可靠异步任务、渠道控制平面、OIDC、数据生命周期、可观测成本和拟人评测迁移，当前 head 为 `20260910_0015`。
 - Python/Web 测试、静态检查和 GitHub Actions。
 
 ## 环境要求

@@ -317,6 +317,12 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .message-content table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
 .message-content th, .message-content td { padding: 5px 8px; border: 1px solid #315346; }
 .message-content ul, .message-content ol { padding-left: 20px; }
+.message-plain-text { white-space: pre-wrap; }
+.message-file-part { display: inline-flex; align-items: center; gap: 5px; margin: 6px 6px 0 0; padding: 6px 8px; color: #7ec79c; border: 1px solid #27503d; background: #10261d; border-radius: 6px; font-size: 9px; cursor: pointer; }
+.message-file-part:disabled { color: #638076; cursor: not-allowed; }
+.message-image-part { display: block; max-width: min(100%, 420px); margin-top: 8px; padding: 0; overflow: hidden; color: #8fafa3; text-align: left; border: 1px solid #2b5143; background: #0b1713; border-radius: 8px; cursor: pointer; }
+.message-image-part img { display: block; width: 100%; max-height: 320px; object-fit: contain; background: #07100d; }
+.message-image-part span { display: block; padding: 6px 8px; overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .message-attachments, .draft-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .message-attachments button, .draft-attachment { display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px; color: #7ec79c; border: 1px solid #27503d; background: #10261d; border-radius: 5px; font-size: 8px; }
 .message-attachments button { cursor: pointer; }

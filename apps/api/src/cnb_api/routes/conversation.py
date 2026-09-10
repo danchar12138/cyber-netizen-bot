@@ -41,6 +41,7 @@ from cnb_contracts import (
     MessageFeedbackResponse,
     MessageFeedbackSet,
     MessageListResponse,
+    MessagePartResponse,
     MessageRegenerate,
     MessageResponse,
     MessageSearchItemResponse,
@@ -54,6 +55,7 @@ from cnb_domain import (
     ConversationStatus,
     Message,
     MessageFeedback,
+    MessagePart,
     MessageSearchResult,
     PendingAgentRun,
 )
@@ -95,6 +97,24 @@ def _message_response(item: Message) -> MessageResponse:
         created_at=item.created_at,
         updated_at=item.updated_at,
         edited_from_id=item.edited_from_id,
+        parts=tuple(_message_part_response(part) for part in item.parts),
+    )
+
+
+def _message_part_response(item: MessagePart) -> MessagePartResponse:
+    return MessagePartResponse(
+        id=item.id,
+        position=item.position,
+        kind=item.kind,
+        text=item.text,
+        attachment_id=item.attachment_id,
+        content_type=item.content_type,
+        file_name=item.file_name,
+        size_bytes=item.size_bytes,
+        sha256=item.sha256,
+        alt_text=item.alt_text,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
     )
 
 
@@ -319,7 +339,7 @@ async def send_message(
 ) -> MessageAcceptedResponse:
     """原子接收幂等消息并异步启动 Agent Run。"""
     try:
-        await attachment_service.prepare_message_attachments(
+        attachments = await attachment_service.prepare_message_attachments(
             conversation_id=conversation_id,
             client_message_id=command.client_message_id,
             attachment_ids=command.attachment_ids,
@@ -328,6 +348,7 @@ async def send_message(
             conversation_id,
             client_message_id=command.client_message_id,
             content=command.content,
+            attachments=attachments,
         )
         await attachment_service.attach_to_message(
             attachment_ids=command.attachment_ids,

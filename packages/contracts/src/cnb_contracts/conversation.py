@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from cnb_domain import (
     AgentRunStatus,
+    ContentBlockKind,
     ConversationStatus,
     JsonValue,
     MessageFeedbackRating,
@@ -65,8 +66,25 @@ class ConversationListResponse(BaseModel):
     next_cursor: str | None = None
 
 
+class MessagePartResponse(BaseModel):
+    """一条消息内可独立排序和持久化的安全内容块。"""
+
+    id: UUID
+    position: int = Field(ge=0)
+    kind: ContentBlockKind
+    text: str | None
+    attachment_id: UUID | None
+    content_type: str | None
+    file_name: str | None
+    size_bytes: int | None = Field(gt=0)
+    sha256: str | None
+    alt_text: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
 class MessageResponse(BaseModel):
-    """一条已持久化的会话文本消息。"""
+    """一条已持久化的会话消息及其有序多模态内容块。"""
 
     id: UUID
     conversation_id: UUID
@@ -78,6 +96,7 @@ class MessageResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     edited_from_id: UUID | None = None
+    parts: tuple[MessagePartResponse, ...]
 
 
 class MessageListResponse(BaseModel):

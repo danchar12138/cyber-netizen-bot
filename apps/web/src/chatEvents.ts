@@ -15,9 +15,11 @@ function isMessagePayload(
 }
 
 function upsert(messages: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
+  const incomingHasParts = Array.isArray(incoming.parts)
+  const normalizedIncoming = withFallbackPart(incoming)
   const existingIndex = messages.findIndex((item) => item.id === incoming.id)
   if (existingIndex < 0) {
-    return [...messages, incoming].sort((left, right) =>
+    return [...messages, normalizedIncoming].sort((left, right) =>
       left.created_at.localeCompare(right.created_at),
     )
   }
@@ -31,8 +33,38 @@ function upsert(messages: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
     ) {
       return item
     }
-    return incoming
+    return incomingHasParts
+      ? normalizedIncoming
+      : {
+          ...normalizedIncoming,
+          parts: item.parts.map((part) =>
+            part.position === 0 && (part.kind === 'text' || part.kind === 'markdown')
+              ? { ...part, text: normalizedIncoming.content, updated_at: normalizedIncoming.updated_at }
+              : part,
+          ),
+        }
   })
+}
+
+function withFallbackPart(message: ChatMessage): ChatMessage {
+  if (Array.isArray(message.parts)) return message
+  return {
+    ...message,
+    parts: [{
+      id: `legacy-${message.id}`,
+      position: 0,
+      kind: 'markdown',
+      text: message.content,
+      attachment_id: null,
+      content_type: null,
+      file_name: null,
+      size_bytes: null,
+      sha256: null,
+      alt_text: null,
+      created_at: message.created_at,
+      updated_at: message.updated_at,
+    }],
+  }
 }
 
 export function applyConversationEvent(
@@ -53,7 +85,16 @@ export function applyConversationEvent(
     if (typeof messageId !== 'string' || typeof delta !== 'string') return messages
     return messages.map((item) =>
       item.id === messageId
-        ? { ...item, content: item.content + delta, status: 'streaming' }
+        ? {
+            ...item,
+            content: item.content + delta,
+            status: 'streaming',
+            parts: item.parts.map((part) =>
+              part.position === 0 && (part.kind === 'text' || part.kind === 'markdown')
+                ? { ...part, text: (part.text ?? '') + delta, updated_at: event.occurred_at }
+                : part,
+            ),
+          }
         : item,
     )
   }

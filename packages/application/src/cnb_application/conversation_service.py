@@ -35,6 +35,7 @@ from cnb_cognition import (
 )
 from cnb_domain import (
     AgentRun,
+    Attachment,
     BackgroundJobKind,
     Conversation,
     ConversationEvent,
@@ -137,6 +138,7 @@ class ConversationRepository(Protocol):
         conversation_id: UUID,
         client_message_id: UUID,
         content: str,
+        attachments: Sequence[Attachment],
         configuration_version: int,
         persona_version: int,
         prompt_version: int,
@@ -408,6 +410,7 @@ class ConversationService:
         *,
         client_message_id: UUID,
         content: str,
+        attachments: Sequence[Attachment] = (),
     ) -> PendingAgentRun:
         await self.get_conversation(conversation_id)
         (
@@ -423,6 +426,7 @@ class ConversationService:
             conversation_id=conversation_id,
             client_message_id=client_message_id,
             content=content.strip(),
+            attachments=attachments,
             configuration_version=configuration_version,
             persona_version=persona_version,
             prompt_version=prompt_version,

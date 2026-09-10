@@ -6489,6 +6489,129 @@
         "title": "MessageListResponse",
         "type": "object"
       },
+      "MessagePartResponse": {
+        "description": "一条消息内可独立排序和持久化的安全内容块。",
+        "properties": {
+          "alt_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alt Text"
+          },
+          "attachment_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attachment Id"
+          },
+          "content_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Type"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Name"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ContentBlockKind"
+          },
+          "position": {
+            "minimum": 0.0,
+            "title": "Position",
+            "type": "integer"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "kind",
+          "text",
+          "attachment_id",
+          "content_type",
+          "file_name",
+          "size_bytes",
+          "sha256",
+          "alt_text",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MessagePartResponse",
+        "type": "object"
+      },
       "MessageRegenerate": {
         "description": "带幂等 ID 的重新生成命令。",
         "properties": {
@@ -6505,7 +6628,7 @@
         "type": "object"
       },
       "MessageResponse": {
-        "description": "一条已持久化的会话文本消息。",
+        "description": "一条已持久化的会话消息及其有序多模态内容块。",
         "properties": {
           "client_message_id": {
             "anyOf": [
@@ -6550,6 +6673,13 @@
             "title": "Id",
             "type": "string"
           },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/MessagePartResponse"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
           "sender_id": {
             "anyOf": [
               {
@@ -6583,7 +6713,8 @@
           "status",
           "client_message_id",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "parts"
         ],
         "title": "MessageResponse",
         "type": "object"

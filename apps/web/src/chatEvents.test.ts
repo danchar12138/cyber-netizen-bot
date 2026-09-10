@@ -14,6 +14,20 @@ const assistant: ChatMessage = {
   created_at: '2026-09-09T00:00:00Z',
   updated_at: '2026-09-09T00:00:00Z',
   edited_from_id: null,
+  parts: [{
+    id: 'part-1',
+    position: 0,
+    kind: 'markdown',
+    text: '',
+    attachment_id: null,
+    content_type: null,
+    file_name: null,
+    size_bytes: null,
+    sha256: null,
+    alt_text: null,
+    created_at: '2026-09-09T00:00:00Z',
+    updated_at: '2026-09-09T00:00:00Z',
+  }],
 }
 
 function event(eventType: string, payload: Record<string, unknown>): ConversationEvent {
@@ -38,6 +52,7 @@ describe('applyConversationEvent', () => {
     )
 
     expect(next[0]!.content).toBe('你好')
+    expect(next[0]!.parts[0]!.text).toBe('你好')
     expect(next[0]!.status).toBe('streaming')
   })
 
@@ -73,5 +88,15 @@ describe('applyConversationEvent', () => {
     )
 
     expect(replayed).toEqual([suppressed])
+  })
+
+  it('为升级前的不含内容块事件补齐兼容 Markdown 块', () => {
+    const legacy: Record<string, unknown> = { ...assistant, content: '旧消息' }
+    delete legacy.parts
+    const next = applyConversationEvent([], event('message.created', legacy))
+
+    expect(next[0]!.parts).toHaveLength(1)
+    expect(next[0]!.parts[0]!.kind).toBe('markdown')
+    expect(next[0]!.parts[0]!.text).toBe('旧消息')
   })
 })

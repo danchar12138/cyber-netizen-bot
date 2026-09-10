@@ -44,6 +44,7 @@ from cnb_infrastructure.models import (
     MemorySourceModel,
     MessageFeedbackModel,
     MessageModel,
+    MessagePartModel,
     OutboxEventModel,
     RelationshipEventModel,
     RelationshipModel,
@@ -383,6 +384,19 @@ class SqlAlchemyDataLifecycleRepository:
                 if conversation_ids
                 else []
             )
+            message_ids = [item.id for item in messages]
+            message_parts = (
+                await rows(
+                    select(MessagePartModel)
+                    .where(
+                        MessagePartModel.tenant_id == tenant_id,
+                        MessagePartModel.message_id.in_(message_ids),
+                    )
+                    .order_by(MessagePartModel.message_id, MessagePartModel.position)
+                )
+                if message_ids
+                else []
+            )
             attachments = (
                 await rows(
                     select(AttachmentModel)
@@ -524,6 +538,26 @@ class SqlAlchemyDataLifecycleRepository:
                             "updated_at": item.updated_at.isoformat(),
                         }
                         for item in messages
+                    ],
+                    "message_parts": [
+                        {
+                            "id": str(item.id),
+                            "message_id": str(item.message_id),
+                            "position": item.position,
+                            "kind": item.kind,
+                            "text": item.text,
+                            "attachment_id": (
+                                str(item.attachment_id) if item.attachment_id else None
+                            ),
+                            "content_type": item.content_type,
+                            "file_name": item.file_name,
+                            "size_bytes": item.size_bytes,
+                            "sha256": item.sha256,
+                            "alt_text": item.alt_text,
+                            "created_at": item.created_at.isoformat(),
+                            "updated_at": item.updated_at.isoformat(),
+                        }
+                        for item in message_parts
                     ],
                     "attachments": [
                         {
@@ -706,6 +740,17 @@ class SqlAlchemyDataLifecycleRepository:
                             )
                         )
                     ).all()
+                )
+                await session.execute(
+                    delete(MessagePartModel).where(
+                        MessagePartModel.tenant_id == tenant_id,
+                        MessagePartModel.message_id.in_(
+                            select(MessageModel.id).where(
+                                MessageModel.tenant_id == tenant_id,
+                                MessageModel.conversation_id.in_(conversation_ids),
+                            )
+                        ),
+                    )
                 )
                 await session.execute(
                     update(MessageModel)

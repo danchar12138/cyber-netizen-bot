@@ -1,6 +1,7 @@
 """最小对话闭环的内存与 PostgreSQL 仓储实现。"""
 
 import asyncio
+from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import cast
@@ -19,6 +20,9 @@ from cnb_cognition import ModelUsage
 from cnb_domain import (
     AgentRun,
     AgentRunStatus,
+    Attachment,
+    AttachmentStatus,
+    ContentBlockKind,
     Conversation,
     ConversationEvent,
     ConversationStatus,
@@ -27,6 +31,7 @@ from cnb_domain import (
     Message,
     MessageFeedback,
     MessageFeedbackRating,
+    MessagePart,
     MessageSearchResult,
     MessageSenderType,
     MessageStatus,
@@ -40,9 +45,99 @@ from cnb_infrastructure.models import (
     ConversationModel,
     MessageFeedbackModel,
     MessageModel,
+    MessagePartModel,
     Tenant,
     User,
 )
+
+
+def _new_message_parts(
+    *,
+    tenant_id: UUID,
+    message_id: UUID,
+    content: str,
+    attachments: Sequence[Attachment],
+    occurred_at: datetime,
+) -> tuple[MessagePart, ...]:
+    """从兼容文本投影和已校验附件生成稳定、有序的领域内容块。"""
+    parts = [
+        MessagePart(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            message_id=message_id,
+            position=0,
+            kind=ContentBlockKind.MARKDOWN,
+            text=content,
+            attachment_id=None,
+            content_type=None,
+            file_name=None,
+            size_bytes=None,
+            sha256=None,
+            alt_text=None,
+            created_at=occurred_at,
+            updated_at=occurred_at,
+        )
+    ]
+    for position, attachment in enumerate(attachments, start=1):
+        is_image = attachment.content_type.startswith("image/")
+        parts.append(
+            MessagePart(
+                id=uuid4(),
+                tenant_id=tenant_id,
+                message_id=message_id,
+                position=position,
+                kind=ContentBlockKind.IMAGE if is_image else ContentBlockKind.FILE,
+                text=None,
+                attachment_id=attachment.id,
+                content_type=attachment.content_type,
+                file_name=attachment.original_name,
+                size_bytes=attachment.size_bytes,
+                sha256=attachment.sha256,
+                alt_text=attachment.original_name if is_image else None,
+                created_at=occurred_at,
+                updated_at=occurred_at,
+            )
+        )
+    return tuple(parts)
+
+
+def _copied_message_parts(
+    parts: Sequence[MessagePart], *, message_id: UUID, occurred_at: datetime
+) -> tuple[MessagePart, ...]:
+    """为编辑分支复制不可变内容块身份，同时保留安全附件引用。"""
+    return tuple(
+        replace(
+            part,
+            id=uuid4(),
+            message_id=message_id,
+            created_at=occurred_at,
+            updated_at=occurred_at,
+        )
+        for part in parts
+    )
+
+
+def _message_part_models(parts: Sequence[MessagePart]) -> list[MessagePartModel]:
+    """把纯领域内容块映射为 SQLAlchemy 持久化模型。"""
+    return [
+        MessagePartModel(
+            id=part.id,
+            tenant_id=part.tenant_id,
+            message_id=part.message_id,
+            position=part.position,
+            kind=part.kind.value,
+            text=part.text,
+            attachment_id=part.attachment_id,
+            content_type=part.content_type,
+            file_name=part.file_name,
+            size_bytes=part.size_bytes,
+            sha256=part.sha256,
+            alt_text=part.alt_text,
+            created_at=part.created_at,
+            updated_at=part.updated_at,
+        )
+        for part in parts
+    ]
 
 
 class MemoryConversationRepository:
@@ -226,6 +321,7 @@ class MemoryConversationRepository:
         conversation_id: UUID,
         client_message_id: UUID,
         content: str,
+        attachments: Sequence[Attachment],
         configuration_version: int,
         persona_version: int,
         prompt_version: int,
@@ -241,9 +337,19 @@ class MemoryConversationRepository:
                 return self._pending(existing, created=False)
 
             conversation = self._require_conversation(conversation_id, identity.user_id)
+            if any(
+                item.tenant_id != identity.tenant_id
+                or item.owner_id != identity.user_id
+                or item.conversation_id != conversation_id
+                or item.client_message_id != client_message_id
+                or item.status not in {AttachmentStatus.READY, AttachmentStatus.ATTACHED}
+                for item in attachments
+            ):
+                raise ConversationConflictError("消息内容块包含不属于当前消息草稿的附件")
             now = self._next_message_time(conversation.id)
+            trigger_id = uuid4()
             trigger = Message(
-                id=uuid4(),
+                id=trigger_id,
                 tenant_id=identity.tenant_id,
                 conversation_id=conversation_id,
                 sender_type=MessageSenderType.USER,
@@ -253,9 +359,18 @@ class MemoryConversationRepository:
                 client_message_id=client_message_id,
                 created_at=now,
                 updated_at=now,
+                parts=_new_message_parts(
+                    tenant_id=identity.tenant_id,
+                    message_id=trigger_id,
+                    content=content,
+                    attachments=attachments,
+                    occurred_at=now,
+                ),
             )
+            response_id = uuid4()
+            response_time = now + timedelta(microseconds=1)
             response = Message(
-                id=uuid4(),
+                id=response_id,
                 tenant_id=identity.tenant_id,
                 conversation_id=conversation_id,
                 sender_type=MessageSenderType.AGENT,
@@ -263,8 +378,15 @@ class MemoryConversationRepository:
                 content="",
                 status=MessageStatus.PROCESSING,
                 client_message_id=None,
-                created_at=now + timedelta(microseconds=1),
-                updated_at=now + timedelta(microseconds=1),
+                created_at=response_time,
+                updated_at=response_time,
+                parts=_new_message_parts(
+                    tenant_id=identity.tenant_id,
+                    message_id=response_id,
+                    content="",
+                    attachments=(),
+                    occurred_at=response_time,
+                ),
             )
             run = AgentRun(
                 id=uuid4(),
@@ -353,8 +475,9 @@ class MemoryConversationRepository:
             if original_run is None:
                 raise ConversationConflictError("要重新生成的回复缺少关联 Agent Run")
             now = self._next_message_time(conversation.id)
+            response_id = uuid4()
             response = Message(
-                id=uuid4(),
+                id=response_id,
                 tenant_id=identity.tenant_id,
                 conversation_id=conversation.id,
                 sender_type=MessageSenderType.AGENT,
@@ -364,6 +487,13 @@ class MemoryConversationRepository:
                 client_message_id=client_request_id,
                 created_at=now,
                 updated_at=now,
+                parts=_new_message_parts(
+                    tenant_id=identity.tenant_id,
+                    message_id=response_id,
+                    content="",
+                    attachments=(),
+                    occurred_at=now,
+                ),
             )
             run = AgentRun(
                 id=uuid4(),
@@ -458,13 +588,20 @@ class MemoryConversationRepository:
                 < (source.created_at, source.id)
             ]
             for index, item in enumerate(ordered_source, start=1):
+                copied_id = uuid4()
+                copied_at = now + timedelta(microseconds=index)
                 copied = replace(
                     item,
-                    id=uuid4(),
+                    id=copied_id,
                     conversation_id=branch.id,
                     client_message_id=None,
-                    created_at=now + timedelta(microseconds=index),
-                    updated_at=now + timedelta(microseconds=index),
+                    created_at=copied_at,
+                    updated_at=copied_at,
+                    parts=_copied_message_parts(
+                        item.parts,
+                        message_id=copied_id,
+                        occurred_at=copied_at,
+                    ),
                 )
                 self._messages[copied.id] = copied
                 self._conversation_messages[branch.id].append(copied.id)
@@ -475,8 +612,9 @@ class MemoryConversationRepository:
                     message_id=copied.id,
                 )
             trigger_time = now + timedelta(microseconds=len(ordered_source) + 1)
+            trigger_id = uuid4()
             trigger = Message(
-                id=uuid4(),
+                id=trigger_id,
                 tenant_id=identity.tenant_id,
                 conversation_id=branch.id,
                 sender_type=MessageSenderType.USER,
@@ -487,9 +625,18 @@ class MemoryConversationRepository:
                 created_at=trigger_time,
                 updated_at=trigger_time,
                 edited_from_id=source.id,
+                parts=_new_message_parts(
+                    tenant_id=identity.tenant_id,
+                    message_id=trigger_id,
+                    content=content,
+                    attachments=(),
+                    occurred_at=trigger_time,
+                ),
             )
+            response_id = uuid4()
+            response_time = trigger_time + timedelta(microseconds=1)
             response = Message(
-                id=uuid4(),
+                id=response_id,
                 tenant_id=identity.tenant_id,
                 conversation_id=branch.id,
                 sender_type=MessageSenderType.AGENT,
@@ -497,8 +644,15 @@ class MemoryConversationRepository:
                 content="",
                 status=MessageStatus.PROCESSING,
                 client_message_id=None,
-                created_at=trigger_time + timedelta(microseconds=1),
-                updated_at=trigger_time + timedelta(microseconds=1),
+                created_at=response_time,
+                updated_at=response_time,
+                parts=_new_message_parts(
+                    tenant_id=identity.tenant_id,
+                    message_id=response_id,
+                    content="",
+                    attachments=(),
+                    occurred_at=response_time,
+                ),
             )
             run = AgentRun(
                 id=uuid4(),
@@ -582,11 +736,23 @@ class MemoryConversationRepository:
         async with self._lock:
             run = self._require_running_run(run_id)
             message = self._messages[run.response_message_id]
+            now = datetime.now(UTC)
             updated = replace(
                 message,
                 content=message.content + delta,
                 status=MessageStatus.STREAMING,
-                updated_at=datetime.now(UTC),
+                updated_at=now,
+                parts=tuple(
+                    replace(
+                        part,
+                        text=(part.text or "") + delta,
+                        updated_at=now,
+                    )
+                    if part.position == 0
+                    and part.kind in {ContentBlockKind.TEXT, ContentBlockKind.MARKDOWN}
+                    else part
+                    for part in message.parts
+                ),
             )
             self._messages[updated.id] = updated
             self._emit(
@@ -892,6 +1058,24 @@ class MemoryConversationRepository:
             "created_at": message.created_at.isoformat(),
             "updated_at": message.updated_at.isoformat(),
             "edited_from_id": str(message.edited_from_id) if message.edited_from_id else None,
+            "parts": [MemoryConversationRepository.part_payload(part) for part in message.parts],
+        }
+
+    @staticmethod
+    def part_payload(part: MessagePart) -> dict[str, JsonValue]:
+        return {
+            "id": str(part.id),
+            "position": part.position,
+            "kind": part.kind.value,
+            "text": part.text,
+            "attachment_id": str(part.attachment_id) if part.attachment_id else None,
+            "content_type": part.content_type,
+            "file_name": part.file_name,
+            "size_bytes": part.size_bytes,
+            "sha256": part.sha256,
+            "alt_text": part.alt_text,
+            "created_at": part.created_at.isoformat(),
+            "updated_at": part.updated_at.isoformat(),
         }
 
     @staticmethod
@@ -1170,6 +1354,7 @@ class SqlAlchemyConversationRepository:
         conversation_id: UUID,
         client_message_id: UUID,
         content: str,
+        attachments: Sequence[Attachment],
         configuration_version: int,
         persona_version: int,
         prompt_version: int,
@@ -1208,9 +1393,19 @@ class SqlAlchemyConversationRepository:
                     created=False,
                 )
 
+            if any(
+                item.tenant_id != identity.tenant_id
+                or item.owner_id != identity.user_id
+                or item.conversation_id != conversation_id
+                or item.client_message_id != client_message_id
+                or item.status not in {AttachmentStatus.READY, AttachmentStatus.ATTACHED}
+                for item in attachments
+            ):
+                raise ConversationConflictError("消息内容块包含不属于当前消息草稿的附件")
             now = await self._next_persisted_message_time(session, conversation_id)
+            trigger_id = uuid4()
             trigger = MessageModel(
-                id=uuid4(),
+                id=trigger_id,
                 tenant_id=identity.tenant_id,
                 conversation_id=conversation_id,
                 sender_type=MessageSenderType.USER.value,
@@ -1220,9 +1415,20 @@ class SqlAlchemyConversationRepository:
                 client_message_id=client_message_id,
                 created_at=now,
                 updated_at=now,
+                parts=_message_part_models(
+                    _new_message_parts(
+                        tenant_id=identity.tenant_id,
+                        message_id=trigger_id,
+                        content=content,
+                        attachments=attachments,
+                        occurred_at=now,
+                    )
+                ),
             )
+            response_id = uuid4()
+            response_time = now + timedelta(microseconds=1)
             response = MessageModel(
-                id=uuid4(),
+                id=response_id,
                 tenant_id=identity.tenant_id,
                 conversation_id=conversation_id,
                 sender_type=MessageSenderType.AGENT.value,
@@ -1230,8 +1436,17 @@ class SqlAlchemyConversationRepository:
                 content="",
                 status=MessageStatus.PROCESSING.value,
                 client_message_id=None,
-                created_at=now + timedelta(microseconds=1),
-                updated_at=now + timedelta(microseconds=1),
+                created_at=response_time,
+                updated_at=response_time,
+                parts=_message_part_models(
+                    _new_message_parts(
+                        tenant_id=identity.tenant_id,
+                        message_id=response_id,
+                        content="",
+                        attachments=(),
+                        occurred_at=response_time,
+                    )
+                ),
             )
             session.add_all((trigger, response))
             await session.flush()
@@ -1356,8 +1571,9 @@ class SqlAlchemyConversationRepository:
                 raise ConversationConflictError("要重新生成的回复缺少关联 Agent Run")
             trigger = await self._required_message(session, original_run.trigger_message_id)
             now = await self._next_persisted_message_time(session, conversation.id)
+            response_id = uuid4()
             response = MessageModel(
-                id=uuid4(),
+                id=response_id,
                 tenant_id=identity.tenant_id,
                 conversation_id=conversation.id,
                 sender_type=MessageSenderType.AGENT.value,
@@ -1367,6 +1583,15 @@ class SqlAlchemyConversationRepository:
                 client_message_id=client_request_id,
                 created_at=now,
                 updated_at=now,
+                parts=_message_part_models(
+                    _new_message_parts(
+                        tenant_id=identity.tenant_id,
+                        message_id=response_id,
+                        content="",
+                        attachments=(),
+                        occurred_at=now,
+                    )
+                ),
             )
             session.add(response)
             await session.flush()
@@ -1535,8 +1760,10 @@ class SqlAlchemyConversationRepository:
             copied_count = 0
             for index, item in enumerate(source_rows, start=1):
                 copied_count = index
+                copied_id = uuid4()
+                copied_at = now + timedelta(microseconds=index)
                 copied = MessageModel(
-                    id=uuid4(),
+                    id=copied_id,
                     tenant_id=item.tenant_id,
                     conversation_id=branch.id,
                     sender_type=item.sender_type,
@@ -1544,8 +1771,15 @@ class SqlAlchemyConversationRepository:
                     content=item.content,
                     status=item.status,
                     client_message_id=None,
-                    created_at=now + timedelta(microseconds=index),
-                    updated_at=now + timedelta(microseconds=index),
+                    created_at=copied_at,
+                    updated_at=copied_at,
+                    parts=_message_part_models(
+                        _copied_message_parts(
+                            self._message(item).parts,
+                            message_id=copied_id,
+                            occurred_at=copied_at,
+                        )
+                    ),
                 )
                 session.add(copied)
                 await session.flush()
@@ -1557,8 +1791,9 @@ class SqlAlchemyConversationRepository:
                     message_id=copied.id,
                 )
             trigger_time = now + timedelta(microseconds=copied_count + 1)
+            trigger_id = uuid4()
             trigger = MessageModel(
-                id=uuid4(),
+                id=trigger_id,
                 tenant_id=identity.tenant_id,
                 conversation_id=branch.id,
                 sender_type=MessageSenderType.USER.value,
@@ -1569,9 +1804,20 @@ class SqlAlchemyConversationRepository:
                 created_at=trigger_time,
                 updated_at=trigger_time,
                 edited_from_id=source.id,
+                parts=_message_part_models(
+                    _new_message_parts(
+                        tenant_id=identity.tenant_id,
+                        message_id=trigger_id,
+                        content=content,
+                        attachments=(),
+                        occurred_at=trigger_time,
+                    )
+                ),
             )
+            response_id = uuid4()
+            response_time = trigger_time + timedelta(microseconds=1)
             response = MessageModel(
-                id=uuid4(),
+                id=response_id,
                 tenant_id=identity.tenant_id,
                 conversation_id=branch.id,
                 sender_type=MessageSenderType.AGENT.value,
@@ -1579,8 +1825,17 @@ class SqlAlchemyConversationRepository:
                 content="",
                 status=MessageStatus.PROCESSING.value,
                 client_message_id=None,
-                created_at=trigger_time + timedelta(microseconds=1),
-                updated_at=trigger_time + timedelta(microseconds=1),
+                created_at=response_time,
+                updated_at=response_time,
+                parts=_message_part_models(
+                    _new_message_parts(
+                        tenant_id=identity.tenant_id,
+                        message_id=response_id,
+                        content="",
+                        attachments=(),
+                        occurred_at=response_time,
+                    )
+                ),
             )
             session.add_all((trigger, response))
             await session.flush()
@@ -1666,9 +1921,23 @@ class SqlAlchemyConversationRepository:
             run = await self._locked_running_run(session, run_id)
             conversation = await self._locked_conversation_by_id(session, run.conversation_id)
             response = await self._required_message(session, run.response_message_id)
+            now = datetime.now(UTC)
             response.content += delta
             response.status = MessageStatus.STREAMING.value
-            response.updated_at = datetime.now(UTC)
+            response.updated_at = now
+            text_part = next(
+                (
+                    part
+                    for part in response.parts
+                    if part.position == 0
+                    and part.kind in {ContentBlockKind.TEXT.value, ContentBlockKind.MARKDOWN.value}
+                ),
+                None,
+            )
+            if text_part is None:
+                raise ConversationConflictError("Agent 回复缺少可流式更新的文本内容块")
+            text_part.text = (text_part.text or "") + delta
+            text_part.updated_at = now
             await self._emit(
                 session,
                 conversation,
@@ -2076,6 +2345,29 @@ class SqlAlchemyConversationRepository:
             created_at=row.created_at,
             updated_at=row.updated_at,
             edited_from_id=row.edited_from_id,
+            parts=tuple(
+                SqlAlchemyConversationRepository._part(part)
+                for part in sorted(row.parts, key=lambda item: item.position)
+            ),
+        )
+
+    @staticmethod
+    def _part(row: MessagePartModel) -> MessagePart:
+        return MessagePart(
+            id=row.id,
+            tenant_id=row.tenant_id,
+            message_id=row.message_id,
+            position=row.position,
+            kind=ContentBlockKind(row.kind),
+            text=row.text,
+            attachment_id=row.attachment_id,
+            content_type=row.content_type,
+            file_name=row.file_name,
+            size_bytes=row.size_bytes,
+            sha256=row.sha256,
+            alt_text=row.alt_text,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
         )
 
     @staticmethod
@@ -2131,6 +2423,7 @@ class SqlAlchemyConversationRepository:
         )
 
     message_payload = staticmethod(MemoryConversationRepository.message_payload)
+    part_payload = staticmethod(MemoryConversationRepository.part_payload)
     conversation_payload = staticmethod(MemoryConversationRepository.conversation_payload)
     feedback_payload = staticmethod(MemoryConversationRepository.feedback_payload)
     run_payload = staticmethod(MemoryConversationRepository.run_payload)

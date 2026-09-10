@@ -9,6 +9,9 @@ const runId = '55555555-5555-4555-8555-555555555555'
 const userMessageId = '66666666-6666-4666-8666-666666666666'
 const responseMessageId = '77777777-7777-4777-8777-777777777777'
 const attachmentId = '88888888-8888-4888-8888-888888888888'
+const userTextPartId = '99999999-9999-4999-8999-999999999999'
+const userFilePartId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const responseTextPartId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const timestamp = '2026-09-09T08:00:00Z'
 
 test('可以创建会话并发送一条持久化消息', async ({ page }) => {
@@ -156,6 +159,36 @@ test('可以创建会话并发送一条持久化消息', async ({ page }) => {
           client_message_id: command.client_message_id,
           created_at: timestamp,
           updated_at: timestamp,
+          parts: [
+            {
+              id: userTextPartId,
+              position: 0,
+              kind: 'markdown',
+              text: command.content,
+              attachment_id: null,
+              content_type: null,
+              file_name: null,
+              size_bytes: null,
+              sha256: null,
+              alt_text: null,
+              created_at: timestamp,
+              updated_at: timestamp,
+            },
+            {
+              id: userFilePartId,
+              position: 1,
+              kind: 'file',
+              text: null,
+              attachment_id: attachmentId,
+              content_type: 'text/plain',
+              file_name: '说明.txt',
+              size_bytes: 12,
+              sha256: attachment.sha256,
+              alt_text: null,
+              created_at: timestamp,
+              updated_at: timestamp,
+            },
+          ],
         },
         response_message: {
           id: responseMessageId,
@@ -167,6 +200,20 @@ test('可以创建会话并发送一条持久化消息', async ({ page }) => {
           client_message_id: null,
           created_at: '2026-09-09T08:00:00.000001Z',
           updated_at: '2026-09-09T08:00:00.000001Z',
+          parts: [{
+            id: responseTextPartId,
+            position: 0,
+            kind: 'markdown',
+            text: '',
+            attachment_id: null,
+            content_type: null,
+            file_name: null,
+            size_bytes: null,
+            sha256: null,
+            alt_text: null,
+            created_at: '2026-09-09T08:00:00.000001Z',
+            updated_at: '2026-09-09T08:00:00.000001Z',
+          }],
         },
         run: {
           id: runId,

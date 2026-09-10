@@ -3872,6 +3872,59 @@ export type MessageListResponse = {
 };
 
 /**
+ * MessagePartResponse
+ *
+ * 一条消息内可独立排序和持久化的安全内容块。
+ */
+export type MessagePartResponse = {
+    /**
+     * Alt Text
+     */
+    alt_text: string | null;
+    /**
+     * Attachment Id
+     */
+    attachment_id: string | null;
+    /**
+     * Content Type
+     */
+    content_type: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * File Name
+     */
+    file_name: string | null;
+    /**
+     * Id
+     */
+    id: string;
+    kind: ContentBlockKind;
+    /**
+     * Position
+     */
+    position: number;
+    /**
+     * Sha256
+     */
+    sha256: string | null;
+    /**
+     * Size Bytes
+     */
+    size_bytes: number | null;
+    /**
+     * Text
+     */
+    text: string | null;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
  * MessageRegenerate
  *
  * 带幂等 ID 的重新生成命令。
@@ -3886,7 +3939,7 @@ export type MessageRegenerate = {
 /**
  * MessageResponse
  *
- * 一条已持久化的会话文本消息。
+ * 一条已持久化的会话消息及其有序多模态内容块。
  */
 export type MessageResponse = {
     /**
@@ -3913,6 +3966,10 @@ export type MessageResponse = {
      * Id
      */
     id: string;
+    /**
+     * Parts
+     */
+    parts: Array<MessagePartResponse>;
     /**
      * Sender Id
      */
