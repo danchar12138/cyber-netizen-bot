@@ -17,6 +17,7 @@ from cnb_domain import (
 class LifecyclePolicyResponse(BaseModel):
     """管理后台可查看、配置中心可修改的最终生效策略。"""
 
+    deleted_agent_days: int
     deleted_conversation_days: int
     deleted_attachment_days: int
     orphan_grace_hours: int

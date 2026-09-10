@@ -1,16 +1,18 @@
 """数据生命周期的内存测试仓储与 PostgreSQL 真相源实现。"""
 
 import asyncio
+from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import Select
 
 from cnb_application import (
+    AgentRetentionCandidate,
     DataLifecycleNotFoundError,
     DataLifecycleValidationError,
     ExportSnapshot,
@@ -27,10 +29,13 @@ from cnb_domain import (
 from cnb_infrastructure.models import (
     ActionCandidateModel,
     AdminSession,
+    Agent,
     AgentRunModel,
     AttachmentModel,
     AuditLog,
     BackgroundJobModel,
+    ChannelInstanceModel,
+    ConfigurationValue,
     ConversationEventModel,
     ConversationMember,
     ConversationModel,
@@ -51,6 +56,7 @@ from cnb_infrastructure.models import (
     RoleAssignment,
     RunStepModel,
     ScheduledActionModel,
+    SecretReference,
     User,
 )
 
@@ -78,6 +84,7 @@ class MemoryDataLifecycleRepository:
         }
         self._forget_objects: dict[UUID, tuple[str, ...]] = {}
         self._retention_candidates: dict[UUID, RetentionCandidate] = {}
+        self._agent_retention_candidates: dict[UUID, AgentRetentionCandidate] = {}
         self._known_object_keys: set[str] = set()
         self._lock = asyncio.Lock()
 
@@ -223,6 +230,36 @@ class MemoryDataLifecycleRepository:
         del tenant_id, deleted_before, limit
         return 0
 
+    async def list_agent_retention_candidates(
+        self,
+        *,
+        tenant_id: UUID,
+        purge_before: datetime,
+        limit: int,
+    ) -> tuple[AgentRetentionCandidate, ...]:
+        del purge_before
+        if tenant_id != self._identity.tenant_id:
+            return ()
+        async with self._lock:
+            return tuple(self._agent_retention_candidates.values())[:limit]
+
+    async def purge_agent(
+        self,
+        agent_id: UUID,
+        *,
+        tenant_id: UUID,
+        purge_before: datetime,
+    ) -> bool:
+        del purge_before
+        async with self._lock:
+            if tenant_id != self._identity.tenant_id:
+                return False
+            candidate = self._agent_retention_candidates.pop(agent_id, None)
+            if candidate is None:
+                return False
+            self._known_object_keys.difference_update(candidate.object_keys)
+            return True
+
     async def list_known_object_keys(self, *, tenant_id: UUID) -> frozenset[str]:
         if tenant_id != self._identity.tenant_id:
             return frozenset()
@@ -243,6 +280,10 @@ class MemoryDataLifecycleRepository:
 
     def seed_retention_candidate(self, candidate: RetentionCandidate) -> None:
         self._retention_candidates[candidate.conversation_id] = candidate
+        self._known_object_keys.update(candidate.object_keys)
+
+    def seed_agent_retention_candidate(self, candidate: AgentRetentionCandidate) -> None:
+        self._agent_retention_candidates[candidate.agent_id] = candidate
         self._known_object_keys.update(candidate.object_keys)
 
     def set_known_object_keys(self, object_keys: set[str]) -> None:
@@ -1082,6 +1123,137 @@ class SqlAlchemyDataLifecycleRepository:
                 return 0
             await session.execute(delete(AttachmentModel).where(AttachmentModel.id.in_(ids)))
             return len(ids)
+
+    async def list_agent_retention_candidates(
+        self,
+        *,
+        tenant_id: UUID,
+        purge_before: datetime,
+        limit: int,
+    ) -> tuple[AgentRetentionCandidate, ...]:
+        async with self._session_factory() as session:
+            agents = (
+                await session.scalars(
+                    select(Agent)
+                    .where(
+                        Agent.tenant_id == tenant_id,
+                        Agent.status == "deleted",
+                        Agent.purge_after.is_not(None),
+                        Agent.purge_after <= purge_before,
+                    )
+                    .order_by(Agent.purge_after, Agent.id)
+                    .limit(limit)
+                )
+            ).all()
+            if not agents:
+                return ()
+            agent_ids = [item.id for item in agents]
+            conversations = (
+                await session.scalars(
+                    select(ConversationModel).where(
+                        ConversationModel.tenant_id == tenant_id,
+                        ConversationModel.agent_id.in_(agent_ids),
+                    )
+                )
+            ).all()
+            conversation_ids = [item.id for item in conversations]
+            attachments: Sequence[AttachmentModel] = ()
+            if conversation_ids:
+                attachments = (
+                    await session.scalars(
+                        select(AttachmentModel).where(
+                            AttachmentModel.tenant_id == tenant_id,
+                            AttachmentModel.conversation_id.in_(conversation_ids),
+                        )
+                    )
+                ).all()
+            conversation_agent = {item.id: item.agent_id for item in conversations}
+            keys_by_agent: dict[UUID, list[str]] = {item.id: [] for item in agents}
+            for attachment in attachments:
+                agent_id = conversation_agent.get(attachment.conversation_id)
+                if agent_id is not None:
+                    keys_by_agent[agent_id].append(attachment.object_key)
+            return tuple(
+                AgentRetentionCandidate(
+                    agent_id=item.id,
+                    object_keys=tuple(keys_by_agent[item.id]),
+                )
+                for item in agents
+            )
+
+    async def purge_agent(
+        self,
+        agent_id: UUID,
+        *,
+        tenant_id: UUID,
+        purge_before: datetime,
+    ) -> bool:
+        """仅清理已过保留期 Agent；管理 API 不暴露这一物理操作。"""
+        async with self._session_factory() as session, session.begin():
+            row = await session.scalar(
+                select(Agent)
+                .where(
+                    Agent.id == agent_id,
+                    Agent.tenant_id == tenant_id,
+                    Agent.status == "deleted",
+                    Agent.purge_after.is_not(None),
+                    Agent.purge_after <= purge_before,
+                )
+                .with_for_update()
+            )
+            if row is None:
+                return False
+            channel_ids = list(
+                (
+                    await session.scalars(
+                        select(ChannelInstanceModel.id).where(
+                            ChannelInstanceModel.tenant_id == tenant_id,
+                            ChannelInstanceModel.agent_id == agent_id,
+                        )
+                    )
+                ).all()
+            )
+            secret_ids = list(
+                (
+                    await session.scalars(
+                        select(SecretReference.id).where(
+                            or_(
+                                and_(
+                                    SecretReference.scope_type == "agent",
+                                    SecretReference.scope_id == agent_id,
+                                ),
+                                and_(
+                                    SecretReference.scope_type == "channel",
+                                    SecretReference.scope_id.in_(channel_ids),
+                                ),
+                            )
+                            if channel_ids
+                            else and_(
+                                SecretReference.scope_type == "agent",
+                                SecretReference.scope_id == agent_id,
+                            )
+                        )
+                    )
+                ).all()
+            )
+            if secret_ids:
+                await session.execute(
+                    delete(ConfigurationValue).where(
+                        ConfigurationValue.secret_reference_id.in_(secret_ids)
+                    )
+                )
+                await session.execute(
+                    delete(SecretReference).where(SecretReference.id.in_(secret_ids))
+                )
+            await session.execute(
+                delete(ConversationModel).where(
+                    ConversationModel.tenant_id == tenant_id,
+                    ConversationModel.agent_id == agent_id,
+                )
+            )
+            await session.flush()
+            await session.delete(row)
+            return True
 
     async def list_known_object_keys(self, *, tenant_id: UUID) -> frozenset[str]:
         async with self._session_factory() as session:

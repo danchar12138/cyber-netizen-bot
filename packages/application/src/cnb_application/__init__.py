@@ -76,6 +76,7 @@ from cnb_application.conversation_service import (
     StaticModelProviderResolver,
 )
 from cnb_application.data_lifecycle_service import (
+    AgentRetentionCandidate,
     DataExportArtifact,
     DataLifecycleNotFoundError,
     DataLifecycleOperationError,
@@ -158,6 +159,7 @@ __all__ = [
     "AdministrationRepository",
     "AdministrationService",
     "AdministrationValidationError",
+    "AgentRetentionCandidate",
     "AgentRunNotFoundError",
     "ApiRequestObservation",
     "AttachmentConflictError",

@@ -1,5 +1,7 @@
 import * as apiSdk from './api-client/generated/sdk.gen'
 import type {
+  AgentLifecycleImpactResponse,
+  AgentLifecycleStatus,
   AgentRunResponse,
   AttachmentReservationResponse,
   ConfigDefinitionResponse,
@@ -547,9 +549,14 @@ export interface ManagedAgent {
   id: string
   tenant_id: string
   name: string
-  status: 'active' | 'disabled'
+  status: AgentLifecycleStatus
   created_at: string
+  archived_at: string | null
+  deleted_at: string | null
+  purge_after: string | null
 }
+
+export type AgentLifecycleImpact = AgentLifecycleImpactResponse
 
 export interface ManagedUser {
   id: string
@@ -1278,12 +1285,12 @@ export const recordBackupRestoreDrill = (command: {
   confirmation: string
 }) => apiSdk.postApiV1DataLifecycleBackupDrills({ body: command })
 
-export const getManagedAgents = (search = '', status?: string) =>
+export const getManagedAgents = (search = '', status?: AgentLifecycleStatus) =>
   apiSdk.getApiV1AdministrationAgents({
     query: {
       limit: 100,
       search: search.trim() || undefined,
-      entity_status: status === 'active' || status === 'disabled' ? status : undefined,
+      entity_status: status,
     },
   })
 
@@ -1294,6 +1301,29 @@ export const copyManagedAgent = (agentId: string, name: string) =>
   apiSdk.postApiV1AdministrationAgentsByAgentIdCopy({
     path: { agent_id: agentId },
     body: { name },
+  })
+
+export const renameManagedAgent = (agentId: string, name: string) =>
+  apiSdk.patchApiV1AdministrationAgentsByAgentId({
+    path: { agent_id: agentId },
+    body: { name },
+  })
+
+export const getManagedAgentImpact = (agentId: string) =>
+  apiSdk.getApiV1AdministrationAgentsByAgentIdImpact({
+    path: { agent_id: agentId },
+  })
+
+export const archiveManagedAgent = (agentId: string, confirmation: string) =>
+  apiSdk.postApiV1AdministrationAgentsByAgentIdArchive({
+    path: { agent_id: agentId },
+    body: { confirmation },
+  })
+
+export const softDeleteManagedAgent = (agentId: string, confirmation: string) =>
+  apiSdk.postApiV1AdministrationAgentsByAgentIdDelete({
+    path: { agent_id: agentId },
+    body: { confirmation },
   })
 
 export const updateManagedAgentStatus = (

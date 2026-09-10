@@ -21,6 +21,7 @@ def test_data_lifecycle_settings_are_runtime_managed_and_bounded() -> None:
     definitions = {item.key: item for item in build_default_registry().all()}
 
     expected = {
+        "data.retention.deleted_agent_days",
         "data.retention.deleted_conversation_days",
         "data.retention.deleted_attachment_days",
         "data.retention.orphan_grace_hours",

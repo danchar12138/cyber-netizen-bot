@@ -1,9 +1,14 @@
 """赛博网友机器人的纯领域类型。"""
 
 from cnb_domain.administration import (
+    AGENT_ARCHIVE_CONFIRMATION_PREFIX,
+    AGENT_DELETE_CONFIRMATION_PREFIX,
     AdminPermission,
     AdminPrincipal,
     AdminRole,
+    AgentImpactCounts,
+    AgentLifecycleImpact,
+    AgentLifecycleStatus,
     AuditRecord,
     ManagedAgent,
     ManagedUser,
@@ -143,6 +148,8 @@ from cnb_domain.tasks import (
 )
 
 __all__ = [
+    "AGENT_ARCHIVE_CONFIRMATION_PREFIX",
+    "AGENT_DELETE_CONFIRMATION_PREFIX",
     "BACKUP_RESTORE_CONFIRMATION",
     "CONFIGURATION_PACKAGE_FORMAT",
     "CONFIGURATION_PACKAGE_SCHEMA_VERSION",
@@ -152,6 +159,9 @@ __all__ = [
     "AdminPermission",
     "AdminPrincipal",
     "AdminRole",
+    "AgentImpactCounts",
+    "AgentLifecycleImpact",
+    "AgentLifecycleStatus",
     "AgentRun",
     "AgentRunSloMetrics",
     "AgentRunStatus",

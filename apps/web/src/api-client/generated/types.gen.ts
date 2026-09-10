@@ -160,6 +160,111 @@ export type AdminSessionResponse = {
 };
 
 /**
+ * AgentImpactCountsResponse
+ *
+ * 归档或软删除前按资源类型统计的依赖数量。
+ */
+export type AgentImpactCountsResponse = {
+    /**
+     * Agent Runs
+     */
+    agent_runs: number;
+    /**
+     * Channel Instances
+     */
+    channel_instances: number;
+    /**
+     * Cognition Resource Versions
+     */
+    cognition_resource_versions: number;
+    /**
+     * Conversations
+     */
+    conversations: number;
+    /**
+     * Evaluation Runs
+     */
+    evaluation_runs: number;
+    /**
+     * Evaluation Suites
+     */
+    evaluation_suites: number;
+    /**
+     * Memories
+     */
+    memories: number;
+    /**
+     * Relationships
+     */
+    relationships: number;
+    /**
+     * Scheduled Actions
+     */
+    scheduled_actions: number;
+    /**
+     * Total
+     */
+    total: number;
+};
+
+/**
+ * AgentLifecycleCommand
+ *
+ * 要求逐字匹配服务端预览短语的高风险生命周期命令。
+ */
+export type AgentLifecycleCommand = {
+    /**
+     * Confirmation
+     */
+    confirmation: string;
+};
+
+/**
+ * AgentLifecycleImpactResponse
+ *
+ * 管理后台执行 Agent 生命周期命令所需的完整安全预览。
+ */
+export type AgentLifecycleImpactResponse = {
+    /**
+     * Active Replacement Count
+     */
+    active_replacement_count: number;
+    agent: ManagedAgentResponse;
+    /**
+     * Archive Confirmation
+     */
+    archive_confirmation: string;
+    /**
+     * Blockers
+     */
+    blockers: Array<string>;
+    /**
+     * Can Archive
+     */
+    can_archive: boolean;
+    /**
+     * Can Delete
+     */
+    can_delete: boolean;
+    counts: AgentImpactCountsResponse;
+    /**
+     * Delete Confirmation
+     */
+    delete_confirmation: string;
+    /**
+     * Deleted Agent Retention Days
+     */
+    deleted_agent_retention_days: number;
+};
+
+/**
+ * AgentLifecycleStatus
+ *
+ * Agent 从可运行到保留期等待清理的完整生命周期。
+ */
+export type AgentLifecycleStatus = 'active' | 'disabled' | 'archived' | 'deleted';
+
+/**
  * AgentRunResponse
  *
  * 一次 Agent Run 的安全状态摘要。
@@ -3058,6 +3163,10 @@ export type LifecyclePolicyResponse = {
      */
     batch_size: number;
     /**
+     * Deleted Agent Days
+     */
+    deleted_agent_days: number;
+    /**
      * Deleted Attachment Days
      */
     deleted_attachment_days: number;
@@ -3184,15 +3293,35 @@ export type ManagedAgentListResponse = {
 };
 
 /**
+ * ManagedAgentRenameCommand
+ *
+ * 修改 Agent 显示名称的命令。
+ */
+export type ManagedAgentRenameCommand = {
+    /**
+     * Name
+     */
+    name: string;
+};
+
+/**
  * ManagedAgentResponse
  *
  * Agent 管理列表中的安全摘要。
  */
 export type ManagedAgentResponse = {
     /**
+     * Archived At
+     */
+    archived_at: string | null;
+    /**
      * Created At
      */
     created_at: string;
+    /**
+     * Deleted At
+     */
+    deleted_at: string | null;
     /**
      * Id
      */
@@ -3201,7 +3330,11 @@ export type ManagedAgentResponse = {
      * Name
      */
     name: string;
-    status: EntityStatus;
+    /**
+     * Purge After
+     */
+    purge_after: string | null;
+    status: AgentLifecycleStatus;
     /**
      * Tenant Id
      */
@@ -5042,7 +5175,7 @@ export type GetApiV1AdministrationAgentsData = {
         /**
          * Entity Status
          */
-        entity_status?: EntityStatus | null;
+        entity_status?: AgentLifecycleStatus | null;
         /**
          * Limit
          */
@@ -5219,6 +5352,130 @@ export type PostApiV1AdministrationAgentsStatusResponses = {
 
 export type PostApiV1AdministrationAgentsStatusResponse = PostApiV1AdministrationAgentsStatusResponses[keyof PostApiV1AdministrationAgentsStatusResponses];
 
+export type PatchApiV1AdministrationAgentsByAgentIdData = {
+    body: ManagedAgentRenameCommand;
+    path: {
+        /**
+         * Agent Id
+         */
+        agent_id: string;
+    };
+    query?: never;
+    url: '/api/v1/administration/agents/{agent_id}';
+};
+
+export type PatchApiV1AdministrationAgentsByAgentIdErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PatchApiV1AdministrationAgentsByAgentIdError = PatchApiV1AdministrationAgentsByAgentIdErrors[keyof PatchApiV1AdministrationAgentsByAgentIdErrors];
+
+export type PatchApiV1AdministrationAgentsByAgentIdResponses = {
+    /**
+     * Successful Response
+     */
+    200: ManagedAgentResponse;
+};
+
+export type PatchApiV1AdministrationAgentsByAgentIdResponse = PatchApiV1AdministrationAgentsByAgentIdResponses[keyof PatchApiV1AdministrationAgentsByAgentIdResponses];
+
+export type PostApiV1AdministrationAgentsByAgentIdArchiveData = {
+    body: AgentLifecycleCommand;
+    path: {
+        /**
+         * Agent Id
+         */
+        agent_id: string;
+    };
+    query?: never;
+    url: '/api/v1/administration/agents/{agent_id}/archive';
+};
+
+export type PostApiV1AdministrationAgentsByAgentIdArchiveErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1AdministrationAgentsByAgentIdArchiveError = PostApiV1AdministrationAgentsByAgentIdArchiveErrors[keyof PostApiV1AdministrationAgentsByAgentIdArchiveErrors];
+
+export type PostApiV1AdministrationAgentsByAgentIdArchiveResponses = {
+    /**
+     * Successful Response
+     */
+    200: ManagedAgentResponse;
+};
+
+export type PostApiV1AdministrationAgentsByAgentIdArchiveResponse = PostApiV1AdministrationAgentsByAgentIdArchiveResponses[keyof PostApiV1AdministrationAgentsByAgentIdArchiveResponses];
+
 export type PostApiV1AdministrationAgentsByAgentIdCopyData = {
     body: ManagedAgentCopyCommand;
     path: {
@@ -5280,6 +5537,130 @@ export type PostApiV1AdministrationAgentsByAgentIdCopyResponses = {
 };
 
 export type PostApiV1AdministrationAgentsByAgentIdCopyResponse = PostApiV1AdministrationAgentsByAgentIdCopyResponses[keyof PostApiV1AdministrationAgentsByAgentIdCopyResponses];
+
+export type PostApiV1AdministrationAgentsByAgentIdDeleteData = {
+    body: AgentLifecycleCommand;
+    path: {
+        /**
+         * Agent Id
+         */
+        agent_id: string;
+    };
+    query?: never;
+    url: '/api/v1/administration/agents/{agent_id}/delete';
+};
+
+export type PostApiV1AdministrationAgentsByAgentIdDeleteErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1AdministrationAgentsByAgentIdDeleteError = PostApiV1AdministrationAgentsByAgentIdDeleteErrors[keyof PostApiV1AdministrationAgentsByAgentIdDeleteErrors];
+
+export type PostApiV1AdministrationAgentsByAgentIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: ManagedAgentResponse;
+};
+
+export type PostApiV1AdministrationAgentsByAgentIdDeleteResponse = PostApiV1AdministrationAgentsByAgentIdDeleteResponses[keyof PostApiV1AdministrationAgentsByAgentIdDeleteResponses];
+
+export type GetApiV1AdministrationAgentsByAgentIdImpactData = {
+    body?: never;
+    path: {
+        /**
+         * Agent Id
+         */
+        agent_id: string;
+    };
+    query?: never;
+    url: '/api/v1/administration/agents/{agent_id}/impact';
+};
+
+export type GetApiV1AdministrationAgentsByAgentIdImpactErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1AdministrationAgentsByAgentIdImpactError = GetApiV1AdministrationAgentsByAgentIdImpactErrors[keyof GetApiV1AdministrationAgentsByAgentIdImpactErrors];
+
+export type GetApiV1AdministrationAgentsByAgentIdImpactResponses = {
+    /**
+     * Successful Response
+     */
+    200: AgentLifecycleImpactResponse;
+};
+
+export type GetApiV1AdministrationAgentsByAgentIdImpactResponse = GetApiV1AdministrationAgentsByAgentIdImpactResponses[keyof GetApiV1AdministrationAgentsByAgentIdImpactResponses];
 
 export type GetApiV1AdministrationAuditData = {
     body?: never;

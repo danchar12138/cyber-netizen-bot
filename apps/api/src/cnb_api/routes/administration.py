@@ -22,17 +22,28 @@ from cnb_contracts import (
     AdminRoleListResponse,
     AdminRoleResponse,
     AdminSessionResponse,
+    AgentImpactCountsResponse,
+    AgentLifecycleCommand,
+    AgentLifecycleImpactResponse,
     AuditRecordListResponse,
     AuditRecordResponse,
     BulkStatusUpdateCommand,
     ManagedAgentCopyCommand,
     ManagedAgentCreateCommand,
     ManagedAgentListResponse,
+    ManagedAgentRenameCommand,
     ManagedAgentResponse,
     ManagedUserListResponse,
     ManagedUserResponse,
 )
-from cnb_domain import AdminPermission, AdminPrincipal, AdminRole, EntityStatus
+from cnb_domain import (
+    AdminPermission,
+    AdminPrincipal,
+    AdminRole,
+    AgentLifecycleImpact,
+    AgentLifecycleStatus,
+    EntityStatus,
+)
 
 router = APIRouter(prefix="/administration", tags=["administration"])
 
@@ -88,7 +99,7 @@ async def list_agents(
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
     service: Annotated[AdministrationService, Depends(get_administration_service)],
     search: Annotated[str | None, Query(max_length=200)] = None,
-    entity_status: EntityStatus | None = None,
+    entity_status: AgentLifecycleStatus | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: str | None = None,
 ) -> ManagedAgentListResponse:
@@ -140,6 +151,36 @@ async def create_agent(
     return ManagedAgentResponse.model_validate(item, from_attributes=True)
 
 
+@router.patch(
+    "/agents/{agent_id}",
+    response_model=ManagedAgentResponse,
+    dependencies=[Depends(require_permission(AdminPermission.AGENT_WRITE))],
+)
+async def rename_agent(
+    agent_id: UUID,
+    command: ManagedAgentRenameCommand,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[AdministrationService, Depends(get_administration_service)],
+) -> ManagedAgentResponse:
+    """修改当前租户内未删除 Agent 的显示名称。"""
+    try:
+        item = await service.rename_agent(
+            tenant_id=principal.tenant_id,
+            agent_id=agent_id,
+            name=command.name,
+            actor_id=principal.user_id,
+        )
+    except AdministrationValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    except AdministrationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except AdministrationConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return ManagedAgentResponse.model_validate(item, from_attributes=True)
+
+
 @router.post(
     "/agents/{agent_id}/copy",
     response_model=ManagedAgentResponse,
@@ -159,6 +200,91 @@ async def copy_agent(
             source_agent_id=agent_id,
             name=command.name,
             actor_id=principal.user_id,
+        )
+    except AdministrationValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    except AdministrationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except AdministrationConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return ManagedAgentResponse.model_validate(item, from_attributes=True)
+
+
+@router.get(
+    "/agents/{agent_id}/impact",
+    response_model=AgentLifecycleImpactResponse,
+    dependencies=[Depends(require_permission(AdminPermission.AGENT_READ))],
+)
+async def get_agent_impact(
+    agent_id: UUID,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[AdministrationService, Depends(get_administration_service)],
+) -> AgentLifecycleImpactResponse:
+    """预览归档或软删除 Agent 会影响的安全计数与阻断条件。"""
+    try:
+        impact = await service.get_agent_impact(
+            tenant_id=principal.tenant_id,
+            agent_id=agent_id,
+        )
+    except AdministrationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except AdministrationValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return _impact_response(impact)
+
+
+@router.post(
+    "/agents/{agent_id}/archive",
+    response_model=ManagedAgentResponse,
+    dependencies=[Depends(require_permission(AdminPermission.AGENT_WRITE))],
+)
+async def archive_agent(
+    agent_id: UUID,
+    command: AgentLifecycleCommand,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[AdministrationService, Depends(get_administration_service)],
+) -> ManagedAgentResponse:
+    """经逐字确认后归档 Agent，停止新运行、渠道和主动行为。"""
+    try:
+        item = await service.archive_agent(
+            tenant_id=principal.tenant_id,
+            agent_id=agent_id,
+            actor_id=principal.user_id,
+            confirmation=command.confirmation,
+        )
+    except AdministrationValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    except AdministrationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except AdministrationConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return ManagedAgentResponse.model_validate(item, from_attributes=True)
+
+
+@router.post(
+    "/agents/{agent_id}/delete",
+    response_model=ManagedAgentResponse,
+    dependencies=[Depends(require_permission(AdminPermission.AGENT_WRITE))],
+)
+async def soft_delete_agent(
+    agent_id: UUID,
+    command: AgentLifecycleCommand,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[AdministrationService, Depends(get_administration_service)],
+) -> ManagedAgentResponse:
+    """经逐字确认后软删除已归档 Agent，并登记最早物理清理时间。"""
+    try:
+        item = await service.soft_delete_agent(
+            tenant_id=principal.tenant_id,
+            agent_id=agent_id,
+            actor_id=principal.user_id,
+            confirmation=command.confirmation,
         )
     except AdministrationValidationError as error:
         raise HTTPException(
@@ -196,6 +322,8 @@ async def update_agent_status(
         ) from error
     except AdministrationNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except AdministrationConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     return ManagedAgentListResponse(
         items=tuple(
             ManagedAgentResponse.model_validate(item, from_attributes=True) for item in items
@@ -302,4 +430,31 @@ async def list_audit_records(
             AuditRecordResponse.model_validate(item, from_attributes=True) for item in page.items
         ),
         next_cursor=page.next_cursor,
+    )
+
+
+def _impact_response(impact: AgentLifecycleImpact) -> AgentLifecycleImpactResponse:
+    """显式映射计算属性，保持 OpenAPI 与领域对象同步。"""
+    counts = impact.counts
+    return AgentLifecycleImpactResponse(
+        agent=ManagedAgentResponse.model_validate(impact.agent, from_attributes=True),
+        counts=AgentImpactCountsResponse(
+            conversations=counts.conversations,
+            agent_runs=counts.agent_runs,
+            cognition_resource_versions=counts.cognition_resource_versions,
+            memories=counts.memories,
+            relationships=counts.relationships,
+            evaluation_suites=counts.evaluation_suites,
+            evaluation_runs=counts.evaluation_runs,
+            channel_instances=counts.channel_instances,
+            scheduled_actions=counts.scheduled_actions,
+            total=counts.total,
+        ),
+        active_replacement_count=impact.active_replacement_count,
+        can_archive=impact.can_archive,
+        can_delete=impact.can_delete,
+        blockers=impact.blockers,
+        archive_confirmation=impact.archive_confirmation,
+        delete_confirmation=impact.delete_confirmation,
+        deleted_agent_retention_days=impact.deleted_agent_retention_days,
     )

@@ -50,8 +50,8 @@ from cnb_domain import (
     AdminPermission,
     AdminPrincipal,
     AdminRole,
+    AgentLifecycleStatus,
     DevelopmentIdentity,
-    EntityStatus,
 )
 
 
@@ -65,13 +65,6 @@ def get_administration_repository(request: HTTPConnection) -> AdministrationRepo
     """返回组合根选择的管理资源仓储。"""
     repository: AdministrationRepository = request.app.state.administration_repository
     return repository
-
-
-def get_administration_service(
-    repository: Annotated[AdministrationRepository, Depends(get_administration_repository)],
-) -> AdministrationService:
-    """构建请求级管理资源应用服务。"""
-    return AdministrationService(repository)
 
 
 def get_configuration_repository(request: HTTPConnection) -> ConfigurationRepository:
@@ -98,6 +91,14 @@ def get_configuration_service(
 ) -> ConfigurationService:
     """使用进程级端口构建请求级配置服务。"""
     return ConfigurationService(registry, repository)
+
+
+def get_administration_service(
+    repository: Annotated[AdministrationRepository, Depends(get_administration_repository)],
+    configuration_service: Annotated[ConfigurationService, Depends(get_configuration_service)],
+) -> AdministrationService:
+    """构建请求级管理资源应用服务和 Agent 删除保留策略。"""
+    return AdministrationService(repository, configuration_service)
 
 
 def get_cognition_repository(request: HTTPConnection) -> CognitionRepository:
@@ -271,7 +272,9 @@ async def get_request_identity(
     agent = await repository.get_agent(tenant_id=principal.tenant_id, agent_id=agent_id)
     if agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent 不存在")
-    if agent.status is not EntityStatus.ACTIVE:
+    if agent.status in {AgentLifecycleStatus.ARCHIVED, AgentLifecycleStatus.DELETED}:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent 不存在")
+    if agent.status is not AgentLifecycleStatus.ACTIVE:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="所选 Agent 已停用")
 
     identity = DevelopmentIdentity(

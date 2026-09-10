@@ -676,6 +676,17 @@ def build_default_registry() -> ConfigurationRegistry:
                 maximum=500,
             ),
             ConfigDefinition(
+                key="data.retention.deleted_agent_days",
+                section="data_lifecycle",
+                label="已删除 Agent 保留天数",
+                description="软删除 Agent 及其全部关联数据进入物理清理流程前保留的天数。",
+                value_kind=ConfigValueKind.INTEGER,
+                default=30,
+                scopes=system_and_tenant,
+                minimum=1,
+                maximum=3650,
+            ),
+            ConfigDefinition(
                 key="data.retention.deleted_conversation_days",
                 section="data_lifecycle",
                 label="已删除会话保留天数",

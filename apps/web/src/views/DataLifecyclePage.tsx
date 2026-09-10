@@ -215,6 +215,7 @@ export function DataLifecyclePage() {
       )}
 
       <section className="lifecycle-policy-grid" aria-label="生效策略">
+        <article className="metric-card"><span>已删除 Agent 保留</span><strong>{overview.data?.policy.deleted_agent_days ?? '—'} 天</strong><small>关联数据仅由保留流程物理清理</small></article>
         <article className="metric-card"><span>已删除会话保留</span><strong>{overview.data?.policy.deleted_conversation_days ?? '—'} 天</strong><small>超过截止时间后才物理清理</small></article>
         <article className="metric-card"><span>孤儿对象宽限</span><strong>{overview.data?.policy.orphan_grace_hours ?? '—'} 小时</strong><small>保护在途上传与新对象</small></article>
         <article className="metric-card"><span>单批上限</span><strong>{overview.data?.policy.batch_size ?? '—'} 项</strong><small>限制同步管理请求负载</small></article>
@@ -247,9 +248,9 @@ export function DataLifecyclePage() {
 
         <article className="panel lifecycle-card">
           <div className="panel-heading"><div><p className="eyebrow">受控清理</p><h2>保留期与 MinIO</h2></div><HardDrive size={20} /></div>
-          <p className="lifecycle-help">每次只处理当前租户和配置批量上限。对象删除失败时不会删除对应会话数据库记录。</p>
+          <p className="lifecycle-help">每次只处理当前租户和配置批量上限。对象删除失败时不会物理删除对应会话或 Agent 数据库记录。</p>
           <div className="lifecycle-cleanup-action">
-            <div><strong>保留期清理</strong><span>清理到期软删除会话、对象和过期附件元数据。</span></div>
+            <div><strong>保留期清理</strong><span>清理到期软删除会话、Agent 关联数据、对象和过期附件元数据。</span></div>
             <label><input type="checkbox" checked={retentionConfirmed} onChange={(event) => setRetentionConfirmed(event.target.checked)} /> 我确认执行</label>
             <button className="danger-button" type="button" disabled={!retentionConfirmed || !can('data_lifecycle:retention_manage') || retentionMutation.isPending} onClick={() => retentionMutation.mutate()}>
               <ArchiveRestore size={15} /> 执行保留期清理

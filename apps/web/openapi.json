@@ -255,6 +255,147 @@
         "title": "AdminSessionResponse",
         "type": "object"
       },
+      "AgentImpactCountsResponse": {
+        "description": "归档或软删除前按资源类型统计的依赖数量。",
+        "properties": {
+          "agent_runs": {
+            "title": "Agent Runs",
+            "type": "integer"
+          },
+          "channel_instances": {
+            "title": "Channel Instances",
+            "type": "integer"
+          },
+          "cognition_resource_versions": {
+            "title": "Cognition Resource Versions",
+            "type": "integer"
+          },
+          "conversations": {
+            "title": "Conversations",
+            "type": "integer"
+          },
+          "evaluation_runs": {
+            "title": "Evaluation Runs",
+            "type": "integer"
+          },
+          "evaluation_suites": {
+            "title": "Evaluation Suites",
+            "type": "integer"
+          },
+          "memories": {
+            "title": "Memories",
+            "type": "integer"
+          },
+          "relationships": {
+            "title": "Relationships",
+            "type": "integer"
+          },
+          "scheduled_actions": {
+            "title": "Scheduled Actions",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "conversations",
+          "agent_runs",
+          "cognition_resource_versions",
+          "memories",
+          "relationships",
+          "evaluation_suites",
+          "evaluation_runs",
+          "channel_instances",
+          "scheduled_actions",
+          "total"
+        ],
+        "title": "AgentImpactCountsResponse",
+        "type": "object"
+      },
+      "AgentLifecycleCommand": {
+        "description": "要求逐字匹配服务端预览短语的高风险生命周期命令。",
+        "properties": {
+          "confirmation": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Confirmation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirmation"
+        ],
+        "title": "AgentLifecycleCommand",
+        "type": "object"
+      },
+      "AgentLifecycleImpactResponse": {
+        "description": "管理后台执行 Agent 生命周期命令所需的完整安全预览。",
+        "properties": {
+          "active_replacement_count": {
+            "title": "Active Replacement Count",
+            "type": "integer"
+          },
+          "agent": {
+            "$ref": "#/components/schemas/ManagedAgentResponse"
+          },
+          "archive_confirmation": {
+            "title": "Archive Confirmation",
+            "type": "string"
+          },
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "can_archive": {
+            "title": "Can Archive",
+            "type": "boolean"
+          },
+          "can_delete": {
+            "title": "Can Delete",
+            "type": "boolean"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/AgentImpactCountsResponse"
+          },
+          "delete_confirmation": {
+            "title": "Delete Confirmation",
+            "type": "string"
+          },
+          "deleted_agent_retention_days": {
+            "title": "Deleted Agent Retention Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agent",
+          "counts",
+          "active_replacement_count",
+          "can_archive",
+          "can_delete",
+          "blockers",
+          "archive_confirmation",
+          "delete_confirmation",
+          "deleted_agent_retention_days"
+        ],
+        "title": "AgentLifecycleImpactResponse",
+        "type": "object"
+      },
+      "AgentLifecycleStatus": {
+        "description": "Agent 从可运行到保留期等待清理的完整生命周期。",
+        "enum": [
+          "active",
+          "disabled",
+          "archived",
+          "deleted"
+        ],
+        "title": "AgentLifecycleStatus",
+        "type": "string"
+      },
       "AgentRunResponse": {
         "description": "一次 Agent Run 的安全状态摘要。",
         "properties": {
@@ -5097,6 +5238,10 @@
             "title": "Batch Size",
             "type": "integer"
           },
+          "deleted_agent_days": {
+            "title": "Deleted Agent Days",
+            "type": "integer"
+          },
           "deleted_attachment_days": {
             "title": "Deleted Attachment Days",
             "type": "integer"
@@ -5119,6 +5264,7 @@
           }
         },
         "required": [
+          "deleted_agent_days",
           "deleted_conversation_days",
           "deleted_attachment_days",
           "orphan_grace_hours",
@@ -5315,13 +5461,53 @@
         "title": "ManagedAgentListResponse",
         "type": "object"
       },
+      "ManagedAgentRenameCommand": {
+        "description": "修改 Agent 显示名称的命令。",
+        "properties": {
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ManagedAgentRenameCommand",
+        "type": "object"
+      },
       "ManagedAgentResponse": {
         "description": "Agent 管理列表中的安全摘要。",
         "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
           },
           "id": {
             "format": "uuid",
@@ -5332,8 +5518,20 @@
             "title": "Name",
             "type": "string"
           },
+          "purge_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purge After"
+          },
           "status": {
-            "$ref": "#/components/schemas/EntityStatus"
+            "$ref": "#/components/schemas/AgentLifecycleStatus"
           },
           "tenant_id": {
             "format": "uuid",
@@ -5346,7 +5544,10 @@
           "tenant_id",
           "name",
           "status",
-          "created_at"
+          "created_at",
+          "archived_at",
+          "deleted_at",
+          "purge_after"
         ],
         "title": "ManagedAgentResponse",
         "type": "object"
@@ -8417,7 +8618,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "$ref": "#/components/schemas/EntityStatus"
+                  "$ref": "#/components/schemas/AgentLifecycleStatus"
                 },
                 {
                   "type": "null"
@@ -8805,6 +9006,274 @@
         ]
       }
     },
+    "/api/v1/administration/agents/{agent_id}": {
+      "patch": {
+        "description": "修改当前租户内未删除 Agent 的显示名称。",
+        "operationId": "patch_api_v1_administration_agents_by_agent_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedAgentRenameCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedAgentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "Rename Agent",
+        "tags": [
+          "administration"
+        ]
+      }
+    },
+    "/api/v1/administration/agents/{agent_id}/archive": {
+      "post": {
+        "description": "经逐字确认后归档 Agent，停止新运行、渠道和主动行为。",
+        "operationId": "post_api_v1_administration_agents_by_agent_id_archive",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentLifecycleCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedAgentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "Archive Agent",
+        "tags": [
+          "administration"
+        ]
+      }
+    },
     "/api/v1/administration/agents/{agent_id}/copy": {
       "post": {
         "description": "复制 Agent 及其已发布认知资源，新版本从 1 独立演进。",
@@ -8934,6 +9403,264 @@
           }
         },
         "summary": "Copy Agent",
+        "tags": [
+          "administration"
+        ]
+      }
+    },
+    "/api/v1/administration/agents/{agent_id}/delete": {
+      "post": {
+        "description": "经逐字确认后软删除已归档 Agent，并登记最早物理清理时间。",
+        "operationId": "post_api_v1_administration_agents_by_agent_id_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentLifecycleCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedAgentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "Soft Delete Agent",
+        "tags": [
+          "administration"
+        ]
+      }
+    },
+    "/api/v1/administration/agents/{agent_id}/impact": {
+      "get": {
+        "description": "预览归档或软删除 Agent 会影响的安全计数与阻断条件。",
+        "operationId": "get_api_v1_administration_agents_by_agent_id_impact",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentLifecycleImpactResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "Get Agent Impact",
         "tags": [
           "administration"
         ]

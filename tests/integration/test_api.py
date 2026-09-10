@@ -15,6 +15,7 @@ from cnb_application import AuthenticationError, permissions_for_role
 from cnb_contracts import (
     AdminRoleListResponse,
     AdminSessionResponse,
+    AgentLifecycleImpactResponse,
     ApiErrorResponse,
     BootstrapSettingsResponse,
     CognitionResourceListResponse,
@@ -126,6 +127,7 @@ async def test_data_lifecycle_api_enforces_permissions_and_returns_safe_download
     overview = DataLifecycleOverviewResponse.model_validate(overview_response.json())
     exported = export_response.json()
     assert overview_response.status_code == 200
+    assert overview.policy.deleted_agent_days == 30
     assert overview.policy.deleted_conversation_days == 30
     assert export_response.status_code == 200
     assert export_response.headers["content-disposition"].endswith('.json"')
@@ -593,6 +595,70 @@ async def test_multi_agent_creation_copy_selection_and_conversation_isolation() 
     assert cross_agent_read.status_code == 404
     assert unknown_agent.status_code == 404
     assert disabled_agent.status_code == 409
+
+
+async def test_agent_rename_preview_archive_and_soft_delete_flow() -> None:
+    async with AsyncClient(transport=_transport(), base_url="http://test") as client:
+        source_agent_id = (await client.get("/api/v1/chat/identity")).json()["agent_id"]
+        blocked_archive = await client.post(
+            f"/api/v1/administration/agents/{source_agent_id}/archive",
+            json={"confirmation": f"确认归档 Agent {source_agent_id}"},
+        )
+        replacement = await client.post(
+            "/api/v1/administration/agents",
+            json={"name": "生命周期替代伙伴"},
+        )
+        rename = await client.patch(
+            f"/api/v1/administration/agents/{source_agent_id}",
+            json={"name": "长期伙伴"},
+        )
+        preview_response = await client.get(
+            f"/api/v1/administration/agents/{source_agent_id}/impact"
+        )
+        preview = AgentLifecycleImpactResponse.model_validate(preview_response.json())
+        wrong_confirmation = await client.post(
+            f"/api/v1/administration/agents/{source_agent_id}/archive",
+            json={"confirmation": "确认归档"},
+        )
+        archived = await client.post(
+            f"/api/v1/administration/agents/{source_agent_id}/archive",
+            json={"confirmation": preview.archive_confirmation},
+        )
+        archived_selection = await client.get(
+            "/api/v1/chat/identity",
+            headers={"X-CNB-Agent-ID": source_agent_id},
+        )
+        archived_preview_response = await client.get(
+            f"/api/v1/administration/agents/{source_agent_id}/impact"
+        )
+        archived_preview = AgentLifecycleImpactResponse.model_validate(
+            archived_preview_response.json()
+        )
+        deleted = await client.post(
+            f"/api/v1/administration/agents/{source_agent_id}/delete",
+            json={"confirmation": archived_preview.delete_confirmation},
+        )
+        audit = await client.get(
+            "/api/v1/administration/audit",
+            params={"action": "agent.soft_deleted"},
+        )
+
+    assert blocked_archive.status_code == 409
+    assert replacement.status_code == 201
+    assert rename.json()["name"] == "长期伙伴"
+    assert preview.can_archive is True
+    assert preview.can_delete is False
+    assert preview.deleted_agent_retention_days == 30
+    assert preview.counts.total == 0
+    assert wrong_confirmation.status_code == 422
+    assert archived.json()["status"] == "archived"
+    assert archived.json()["archived_at"] is not None
+    assert archived_selection.status_code == 404
+    assert archived_preview.can_delete is True
+    assert deleted.json()["status"] == "deleted"
+    assert deleted.json()["deleted_at"] is not None
+    assert deleted.json()["purge_after"] is not None
+    assert audit.json()["items"][0]["detail"]["physical_delete_performed"] is False
 
 
 async def test_ready_health_discloses_disabled_deep_checks() -> None:

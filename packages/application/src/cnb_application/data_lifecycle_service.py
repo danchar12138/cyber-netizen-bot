@@ -59,9 +59,18 @@ class RetentionCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class AgentRetentionCandidate:
+    """达到 Agent 保留截止时间且等待先清理私有对象的候选。"""
+
+    agent_id: UUID
+    object_keys: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class DataLifecyclePolicy:
     """从版本化运行配置解析出的生命周期边界。"""
 
+    deleted_agent_days: int
     deleted_conversation_days: int
     deleted_attachment_days: int
     orphan_grace_hours: int
@@ -146,6 +155,22 @@ class DataLifecycleRepository(Protocol):
         limit: int,
     ) -> int: ...
 
+    async def list_agent_retention_candidates(
+        self,
+        *,
+        tenant_id: UUID,
+        purge_before: datetime,
+        limit: int,
+    ) -> tuple[AgentRetentionCandidate, ...]: ...
+
+    async def purge_agent(
+        self,
+        agent_id: UUID,
+        *,
+        tenant_id: UUID,
+        purge_before: datetime,
+    ) -> bool: ...
+
     async def list_known_object_keys(self, *, tenant_id: UUID) -> frozenset[str]: ...
 
 
@@ -194,6 +219,7 @@ class DataLifecycleService:
         )
         values = configuration.values
         return DataLifecyclePolicy(
+            deleted_agent_days=self._integer(values, "data.retention.deleted_agent_days"),
             deleted_conversation_days=self._integer(
                 values, "data.retention.deleted_conversation_days"
             ),
@@ -354,22 +380,59 @@ class DataLifecycleService:
                 deleted_before=attachment_cutoff,
                 limit=policy.batch_size,
             )
+            agent_purge_before = datetime.now(UTC)
+            agent_candidates = await self._repository.list_agent_retention_candidates(
+                tenant_id=self._identity.tenant_id,
+                purge_before=agent_purge_before,
+                limit=policy.batch_size,
+            )
+            agents_purged = 0
+            agent_candidates_failed = 0
+            for candidate in agent_candidates:
+                candidate_failed = False
+                for object_key in candidate.object_keys:
+                    try:
+                        await self._object_storage.delete_object(object_key)
+                        objects_deleted += 1
+                    except Exception:
+                        candidate_failed = True
+                if candidate_failed:
+                    agent_candidates_failed += 1
+                    continue
+                if await self._repository.purge_agent(
+                    candidate.agent_id,
+                    tenant_id=self._identity.tenant_id,
+                    purge_before=agent_purge_before,
+                ):
+                    agents_purged += 1
             counters = {
                 "candidates": len(candidates),
                 "conversations_purged": conversations_purged,
                 "attachment_metadata_purged": attachment_metadata_purged,
+                "agent_candidates": len(agent_candidates),
+                "agents_purged": agents_purged,
                 "objects_deleted": objects_deleted,
                 "candidates_failed": candidates_failed,
+                "agent_candidates_failed": agent_candidates_failed,
             }
             return await self._repository.finish_run(
                 run.id,
                 tenant_id=self._identity.tenant_id,
                 status=(
-                    LifecycleRunStatus.FAILED if candidates_failed else LifecycleRunStatus.SUCCEEDED
+                    LifecycleRunStatus.FAILED
+                    if candidates_failed or agent_candidates_failed
+                    else LifecycleRunStatus.SUCCEEDED
                 ),
                 counters=counters,
-                evidence={"cutoff": deleted_before.isoformat()},
-                error_code="object_cleanup_failed" if candidates_failed else None,
+                evidence={
+                    "conversation_cutoff": deleted_before.isoformat(),
+                    "agent_purge_before": agent_purge_before.isoformat(),
+                },
+                error_code=(
+                    "object_cleanup_failed"
+                    if candidates_failed or agent_candidates_failed
+                    else None
+                ),
             )
         except (DataLifecycleNotFoundError, DataLifecycleValidationError):
             await self._fail_run(run.id, error_code="retention_rejected")
@@ -521,6 +584,7 @@ class DataLifecycleService:
 
 
 __all__ = [
+    "AgentRetentionCandidate",
     "DataExportArtifact",
     "DataLifecycleNotFoundError",
     "DataLifecycleOperationError",

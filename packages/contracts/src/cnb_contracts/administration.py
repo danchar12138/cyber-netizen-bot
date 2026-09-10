@@ -5,7 +5,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from cnb_domain import AdminPermission, AdminRole, EntityStatus, JsonValue
+from cnb_domain import (
+    AdminPermission,
+    AdminRole,
+    AgentLifecycleStatus,
+    EntityStatus,
+    JsonValue,
+)
 
 
 class AdminSessionResponse(BaseModel):
@@ -40,8 +46,11 @@ class ManagedAgentResponse(BaseModel):
     id: UUID
     tenant_id: UUID
     name: str
-    status: EntityStatus
+    status: AgentLifecycleStatus
     created_at: datetime
+    archived_at: datetime | None
+    deleted_at: datetime | None
+    purge_after: datetime | None
 
 
 class ManagedAgentListResponse(BaseModel):
@@ -61,6 +70,47 @@ class ManagedAgentCopyCommand(BaseModel):
     """从已有 Agent 复制已发布认知资源的命令。"""
 
     name: str = Field(min_length=1, max_length=120)
+
+
+class ManagedAgentRenameCommand(BaseModel):
+    """修改 Agent 显示名称的命令。"""
+
+    name: str = Field(min_length=1, max_length=120)
+
+
+class AgentLifecycleCommand(BaseModel):
+    """要求逐字匹配服务端预览短语的高风险生命周期命令。"""
+
+    confirmation: str = Field(min_length=1, max_length=200)
+
+
+class AgentImpactCountsResponse(BaseModel):
+    """归档或软删除前按资源类型统计的依赖数量。"""
+
+    conversations: int
+    agent_runs: int
+    cognition_resource_versions: int
+    memories: int
+    relationships: int
+    evaluation_suites: int
+    evaluation_runs: int
+    channel_instances: int
+    scheduled_actions: int
+    total: int
+
+
+class AgentLifecycleImpactResponse(BaseModel):
+    """管理后台执行 Agent 生命周期命令所需的完整安全预览。"""
+
+    agent: ManagedAgentResponse
+    counts: AgentImpactCountsResponse
+    active_replacement_count: int
+    can_archive: bool
+    can_delete: bool
+    blockers: tuple[str, ...]
+    archive_confirmation: str
+    delete_confirmation: str
+    deleted_agent_retention_days: int
 
 
 class ManagedUserResponse(BaseModel):

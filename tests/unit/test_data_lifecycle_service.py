@@ -8,6 +8,7 @@ from uuid import NAMESPACE_DNS, uuid5
 import pytest
 
 from cnb_application import (
+    AgentRetentionCandidate,
     ConfigurationService,
     DataLifecycleOperationError,
     DataLifecycleService,
@@ -59,6 +60,14 @@ def _all_keys(value: JsonValue) -> set[str]:
         for item in value:
             keys.update(_all_keys(item))
     return keys
+
+
+async def test_lifecycle_policy_exposes_agent_retention_setting() -> None:
+    service, _, _ = _services()
+
+    policy = await service.policy()
+
+    assert policy.deleted_agent_days == 30
 
 
 async def test_user_export_is_bounded_and_excludes_internal_fields_and_object_keys() -> None:
@@ -156,7 +165,32 @@ async def test_retention_cleanup_deletes_objects_before_purging_conversation() -
     assert run.status is LifecycleRunStatus.SUCCEEDED
     assert run.counters["objects_deleted"] == 1
     assert run.counters["conversations_purged"] == 1
+    assert run.counters["agents_purged"] == 0
     assert repeated.counters["candidates"] == 0
+
+
+async def test_retention_cleanup_deletes_agent_objects_before_physical_purge() -> None:
+    service, repository, storage = _services()
+    identity = _identity()
+    object_key = f"tenants/{identity.tenant_id}/attachments/deleted-agent.txt"
+    repository.seed_agent_retention_candidate(
+        AgentRetentionCandidate(agent_id=identity.agent_id, object_keys=(object_key,))
+    )
+    storage.put_for_test(
+        object_key=object_key,
+        content=b"deleted agent",
+        content_type="text/plain",
+        created_at=datetime.now(UTC) - timedelta(days=40),
+    )
+
+    run = await service.run_retention_cleanup(confirmed=True)
+    repeated = await service.run_retention_cleanup(confirmed=True)
+
+    assert run.status is LifecycleRunStatus.SUCCEEDED
+    assert run.counters["agent_candidates"] == 1
+    assert run.counters["agents_purged"] == 1
+    assert run.counters["objects_deleted"] == 1
+    assert repeated.counters["agent_candidates"] == 0
 
 
 async def test_orphan_cleanup_protects_referenced_and_recent_objects() -> None:

@@ -216,10 +216,27 @@ class Agent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    purge_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
-        CheckConstraint("status IN ('active', 'disabled')", name="ck_agents_status"),
+        CheckConstraint(
+            "status IN ('active', 'disabled', 'archived', 'deleted')",
+            name="ck_agents_status",
+        ),
+        CheckConstraint(
+            "(status = 'archived' AND archived_at IS NOT NULL "
+            "AND deleted_at IS NULL AND purge_after IS NULL) OR "
+            "(status = 'deleted' AND archived_at IS NOT NULL "
+            "AND deleted_at IS NOT NULL AND purge_after IS NOT NULL "
+            "AND purge_after >= deleted_at) OR "
+            "(status IN ('active', 'disabled') AND archived_at IS NULL "
+            "AND deleted_at IS NULL AND purge_after IS NULL)",
+            name="ck_agents_lifecycle_timestamps",
+        ),
         Index("ix_agents_tenant", "tenant_id"),
+        Index("ix_agents_purge_after", "tenant_id", "purge_after"),
         Index("uq_agents_tenant_name_ci", "tenant_id", func.lower(name), unique=True),
     )
 

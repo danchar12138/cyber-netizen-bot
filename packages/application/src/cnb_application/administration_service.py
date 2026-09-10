@@ -3,17 +3,29 @@
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import UUID
 
+from cnb_application.configuration_service import ConfigurationService
 from cnb_application.pagination import (
     EntityCursor,
     InvalidCursorError,
     decode_cursor,
     encode_cursor,
 )
-from cnb_domain import AuditRecord, EntityStatus, ManagedAgent, ManagedUser, ManagementOverview
+from cnb_domain import (
+    AGENT_ARCHIVE_CONFIRMATION_PREFIX,
+    AGENT_DELETE_CONFIRMATION_PREFIX,
+    AgentImpactCounts,
+    AgentLifecycleImpact,
+    AgentLifecycleStatus,
+    AuditRecord,
+    EntityStatus,
+    ManagedAgent,
+    ManagedUser,
+    ManagementOverview,
+)
 
 
 class AdministrationValidationError(ValueError):
@@ -54,7 +66,7 @@ class AdministrationRepository(Protocol):
         *,
         tenant_id: UUID,
         search: str | None,
-        status: EntityStatus | None,
+        status: AgentLifecycleStatus | None,
         limit: int,
         cursor: EntityCursor | None,
     ) -> tuple[ManagedAgent, ...]: ...
@@ -76,6 +88,42 @@ class AdministrationRepository(Protocol):
         source_agent_id: UUID,
         name: str,
         actor_id: UUID,
+    ) -> ManagedAgent: ...
+
+    async def rename_agent(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        name: str,
+        actor_id: UUID,
+    ) -> ManagedAgent: ...
+
+    async def get_agent_impact(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+    ) -> tuple[AgentImpactCounts, int]: ...
+
+    async def archive_agent(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        actor_id: UUID,
+        archived_at: datetime,
+    ) -> ManagedAgent: ...
+
+    async def soft_delete_agent(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        actor_id: UUID,
+        deleted_at: datetime,
+        purge_after: datetime,
+        retention_days: int,
     ) -> ManagedAgent: ...
 
     async def update_agent_status(
@@ -120,8 +168,13 @@ class AdministrationRepository(Protocol):
 class AdministrationService:
     """提供搜索、分页和必须显式确认的批量启停操作。"""
 
-    def __init__(self, repository: AdministrationRepository) -> None:
+    def __init__(
+        self,
+        repository: AdministrationRepository,
+        configuration_service: ConfigurationService,
+    ) -> None:
         self._repository = repository
+        self._configuration_service = configuration_service
 
     async def get_overview(self, *, tenant_id: UUID) -> ManagementOverview:
         return await self._repository.get_overview(tenant_id=tenant_id)
@@ -131,7 +184,7 @@ class AdministrationService:
         *,
         tenant_id: UUID,
         search: str | None,
-        status: EntityStatus | None,
+        status: AgentLifecycleStatus | None,
         limit: int,
         cursor: str | None,
     ) -> ManagementPage[ManagedAgent]:
@@ -178,6 +231,102 @@ class AdministrationService:
             source_agent_id=source_agent_id,
             name=self._normalize_agent_name(name),
             actor_id=actor_id,
+        )
+
+    async def rename_agent(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        name: str,
+        actor_id: UUID,
+    ) -> ManagedAgent:
+        """重命名未进入软删除状态的 Agent。"""
+        return await self._repository.rename_agent(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name=self._normalize_agent_name(name),
+            actor_id=actor_id,
+        )
+
+    async def get_agent_impact(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+    ) -> AgentLifecycleImpact:
+        """返回不含正文、密钥或对象键的生命周期影响预览。"""
+        agent = await self.get_agent(tenant_id=tenant_id, agent_id=agent_id)
+        counts, active_replacement_count = await self._repository.get_agent_impact(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+        )
+        retention_days = await self._deleted_agent_retention_days(tenant_id)
+        blockers: list[str] = []
+        can_archive = agent.status in {
+            AgentLifecycleStatus.ACTIVE,
+            AgentLifecycleStatus.DISABLED,
+        }
+        if not can_archive:
+            blockers.append("只有已启用或已停用的 Agent 可以归档")
+        if can_archive and active_replacement_count < 1:
+            can_archive = False
+            blockers.append("归档前必须保留至少一个其他已启用 Agent")
+        can_delete = agent.status is AgentLifecycleStatus.ARCHIVED
+        if not can_delete:
+            blockers.append("只有已归档的 Agent 可以进入软删除保留期")
+        return AgentLifecycleImpact(
+            agent=agent,
+            counts=counts,
+            active_replacement_count=active_replacement_count,
+            can_archive=can_archive,
+            can_delete=can_delete,
+            blockers=tuple(blockers),
+            archive_confirmation=f"{AGENT_ARCHIVE_CONFIRMATION_PREFIX}{agent.id}",
+            delete_confirmation=f"{AGENT_DELETE_CONFIRMATION_PREFIX}{agent.id}",
+            deleted_agent_retention_days=retention_days,
+        )
+
+    async def archive_agent(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        actor_id: UUID,
+        confirmation: str,
+    ) -> ManagedAgent:
+        """显式确认后归档 Agent，并阻断新运行及主动触达。"""
+        expected = f"{AGENT_ARCHIVE_CONFIRMATION_PREFIX}{agent_id}"
+        if confirmation != expected:
+            raise AdministrationValidationError(f"归档操作必须准确输入：{expected}")
+        return await self._repository.archive_agent(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            actor_id=actor_id,
+            archived_at=datetime.now(UTC),
+        )
+
+    async def soft_delete_agent(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        actor_id: UUID,
+        confirmation: str,
+    ) -> ManagedAgent:
+        """显式确认后软删除已归档 Agent，物理清理交给保留期流程。"""
+        expected = f"{AGENT_DELETE_CONFIRMATION_PREFIX}{agent_id}"
+        if confirmation != expected:
+            raise AdministrationValidationError(f"删除操作必须准确输入：{expected}")
+        retention_days = await self._deleted_agent_retention_days(tenant_id)
+        deleted_at = datetime.now(UTC)
+        return await self._repository.soft_delete_agent(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            actor_id=actor_id,
+            deleted_at=deleted_at,
+            purge_after=deleted_at + timedelta(days=retention_days),
+            retention_days=retention_days,
         )
 
     async def update_agent_status(
@@ -282,6 +431,13 @@ class AdministrationService:
         if any(ord(character) < 32 for character in normalized):
             raise AdministrationValidationError("Agent 名称不能包含控制字符")
         return normalized
+
+    async def _deleted_agent_retention_days(self, tenant_id: UUID) -> int:
+        configuration = await self._configuration_service.resolve_effective(tenant_id=tenant_id)
+        value = configuration.values.get("data.retention.deleted_agent_days")
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise AdministrationValidationError("Agent 删除保留期配置类型无效")
+        return value
 
     @staticmethod
     def _entity_page[T](

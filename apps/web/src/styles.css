@@ -89,6 +89,24 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .agent-create-panel strong { color: #bdd3ca; font-size: 11px; }
   .agent-create-panel span { margin-top: 4px; color: #66877b; font-size: 8px; line-height: 1.5; }
   .agent-create-panel input, .agent-create-panel select { min-width: 0; width: 100%; padding: 9px 10px; color: #bdd2ca; border: 1px solid #285043; outline: 0; background: #091713; border-radius: 7px; }
+.agent-lifecycle-panel { display: grid; gap: 15px; margin-bottom: 16px; }
+.agent-lifecycle-panel .panel-heading { margin-bottom: 0; }
+.agent-rename-form { display: grid; grid-template-columns: auto minmax(220px, 1fr) auto; align-items: center; gap: 10px; }
+.agent-rename-form label, .agent-confirmation-box label { color: #78998d; font-size: 9px; }
+.agent-rename-form input, .agent-confirmation-box input { min-width: 0; width: 100%; padding: 9px 10px; color: #bdd2ca; border: 1px solid #285043; outline: 0; background: #091713; border-radius: 7px; }
+.agent-impact-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.agent-impact-grid > div { display: grid; gap: 5px; padding: 11px; border: 1px solid #1d3b31; background: #091713; border-radius: 7px; }
+.agent-impact-grid span { color: #66877b; font-size: 8px; }
+.agent-impact-grid strong { color: #b3d6c8; font-size: 15px; }
+.agent-impact-grid .total { border-color: #376a56; background: #0d241b; }
+.agent-lifecycle-panel .notice { margin-bottom: 0; }
+.agent-lifecycle-panel .notice div { display: grid; gap: 3px; }
+.agent-lifecycle-panel .notice span { font-size: 9px; line-height: 1.6; }
+.agent-lifecycle-blockers { margin: 0; padding: 11px 11px 11px 28px; color: #d2aa75; border: 1px solid #584526; background: #211b0f; border-radius: 7px; font-size: 9px; line-height: 1.7; }
+.agent-purge-time { margin: 0; color: #d2aa75; font-size: 10px; }
+.agent-confirmation-box { display: grid; grid-template-columns: minmax(160px, .55fr) minmax(260px, 1.45fr); gap: 9px 12px; align-items: center; padding: 13px; border: 1px solid #623a2e; background: #241511; border-radius: 8px; }
+.agent-confirmation-box code { color: #e0aa97; font-size: 9px; overflow-wrap: anywhere; }
+.agent-confirmation-box input, .agent-confirmation-box .heading-actions { grid-column: 2; }
 .notice { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; padding: 12px 14px; border-radius: 9px; font-size: 11px; }
 .notice.warning { color: #d8b979; border: 1px solid #665026; background: #261e0e; }
 .notice.error { color: #e9a08b; border: 1px solid #6b3528; background: #2b1511; }
@@ -223,6 +241,8 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .entity-status { display: inline-flex; padding: 3px 7px; border: 1px solid #3a4f47; border-radius: 999px; font-size: 8px; }
 .entity-status.active { color: #77dca0; border-color: #2b6748; background: #113020; }
 .entity-status.disabled { color: #a99477; border-color: #574936; background: #211c14; }
+.entity-status.archived { color: #d8b979; border-color: #665026; background: #261e0e; }
+.entity-status.deleted { color: #e29a84; border-color: #643c31; background: #2a1814; }
 .entity-status.task-succeeded, .entity-status.task-completed, .entity-status.task-dispatched { color: #77dca0; border-color: #2b6748; background: #113020; }
 .entity-status.task-running, .entity-status.task-retrying, .entity-status.task-pending { color: #8fc8df; border-color: #31586b; background: #102631; }
 .entity-status.task-failed, .entity-status.task-dead_letter, .entity-status.task-expired { color: #e29a84; border-color: #643c31; background: #2a1814; }
@@ -566,6 +586,7 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .lifecycle-grid, .lifecycle-drill-form { grid-template-columns: 1fr; }
     .evaluation-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .agent-create-panel { grid-template-columns: 1fr; }
+    .agent-impact-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .evaluation-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lifecycle-manifest, .lifecycle-confirmation, .lifecycle-verifications { grid-column: auto; }
   .config-sections { display: none; }
@@ -599,6 +620,9 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .memory-tabs { width: 100%; overflow-x: auto; }
     .memory-toolbar, .memory-form-grid, .recall-results { grid-template-columns: 1fr; }
     .agent-create-panel form, .agent-create-panel form:first-child { grid-template-columns: 1fr; }
+  .agent-rename-form, .agent-confirmation-box { grid-template-columns: 1fr; }
+  .agent-confirmation-box input, .agent-confirmation-box .heading-actions { grid-column: auto; }
+  .agent-impact-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .task-create-form { grid-template-columns: 1fr; }
   .channel-catalog-grid, .channel-lab-grid { grid-template-columns: 1fr; }
   .channel-create-form, .channel-credential-form { grid-template-columns: 1fr; }

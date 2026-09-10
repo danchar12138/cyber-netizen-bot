@@ -8,6 +8,18 @@ from uuid import UUID
 from cnb_domain.configuration import JsonValue
 from cnb_domain.conversation import EntityStatus
 
+AGENT_ARCHIVE_CONFIRMATION_PREFIX = "确认归档 Agent "
+AGENT_DELETE_CONFIRMATION_PREFIX = "确认删除 Agent "
+
+
+class AgentLifecycleStatus(StrEnum):
+    """Agent 从可运行到保留期等待清理的完整生命周期。"""
+
+    ACTIVE = "active"
+    DISABLED = "disabled"
+    ARCHIVED = "archived"
+    DELETED = "deleted"
+
 
 class AdminRole(StrEnum):
     """首期内置管理角色；正式身份源接入后仍保持稳定语义。"""
@@ -68,13 +80,63 @@ class AdminPrincipal:
 
 @dataclass(frozen=True, slots=True)
 class ManagedAgent:
-    """管理后台可查看和启停的 Agent 摘要。"""
+    """管理后台可查看的 Agent 生命周期摘要。"""
 
     id: UUID
     tenant_id: UUID
     name: str
-    status: EntityStatus
+    status: AgentLifecycleStatus
     created_at: datetime
+    archived_at: datetime | None = None
+    deleted_at: datetime | None = None
+    purge_after: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AgentImpactCounts:
+    """归档或软删除 Agent 前可安全公开的依赖数量。"""
+
+    conversations: int = 0
+    agent_runs: int = 0
+    cognition_resource_versions: int = 0
+    memories: int = 0
+    relationships: int = 0
+    evaluation_suites: int = 0
+    evaluation_runs: int = 0
+    channel_instances: int = 0
+    scheduled_actions: int = 0
+
+    @property
+    def total(self) -> int:
+        """返回各类顶层依赖记录的合计，仅用于影响规模提示。"""
+        return sum(
+            (
+                self.conversations,
+                self.agent_runs,
+                self.cognition_resource_versions,
+                self.memories,
+                self.relationships,
+                self.evaluation_suites,
+                self.evaluation_runs,
+                self.channel_instances,
+                self.scheduled_actions,
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AgentLifecycleImpact:
+    """Agent 生命周期命令执行前的影响、阻断原因与确认短语。"""
+
+    agent: ManagedAgent
+    counts: AgentImpactCounts
+    active_replacement_count: int
+    can_archive: bool
+    can_delete: bool
+    blockers: tuple[str, ...]
+    archive_confirmation: str
+    delete_confirmation: str
+    deleted_agent_retention_days: int
 
 
 @dataclass(frozen=True, slots=True)
