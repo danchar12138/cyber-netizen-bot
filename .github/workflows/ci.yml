@@ -94,7 +94,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}
           provenance: false
       - name: 扫描高危与严重镜像漏洞
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: cyber-netizen-${{ matrix.target }}:ci
           format: table
@@ -102,7 +102,7 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
       - name: 生成 SPDX JSON SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@v0.24.2
         with:
           image: cyber-netizen-${{ matrix.target }}:ci
           format: spdx-json
