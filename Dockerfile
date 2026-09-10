@@ -105,7 +105,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 COPY apps/web apps/web
 RUN pnpm --filter @cnb/web build
 
-FROM nginxinc/nginx-unprivileged:1.30.0-alpine AS web
+FROM nginxinc/nginx-unprivileged:1.31.5-alpine AS web
 
 USER root
 # Alpine 安全修复可能早于 Nginx 镜像重建；Trivy 仍对升级后的最终层执行阻断扫描。
