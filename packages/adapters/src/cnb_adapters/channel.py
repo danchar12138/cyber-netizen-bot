@@ -4,7 +4,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID
 
 from cnb_domain import (
@@ -36,11 +36,19 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 class ChannelAdapterError(RuntimeError):
     """可安全向管理端报告的 Adapter 失败，不包含远端响应或凭证明文。"""
 
-    def __init__(self, code: str, safe_message: str, *, retryable: bool = False) -> None:
+    def __init__(
+        self,
+        code: str,
+        safe_message: str,
+        *,
+        retryable: bool = False,
+        retry_after_seconds: int | None = None,
+    ) -> None:
         super().__init__(safe_message)
         self.code = code
         self.safe_message = safe_message
         self.retryable = retryable
+        self.retry_after_seconds = retry_after_seconds
 
 
 class ChannelNotConfiguredError(ChannelAdapterError):
@@ -61,7 +69,12 @@ class ChannelRateLimitError(ChannelAdapterError):
     """确定性本地限流拒绝。"""
 
     def __init__(self) -> None:
-        super().__init__("rate_limited", "渠道已达到每分钟发送上限", retryable=True)
+        super().__init__(
+            "rate_limited",
+            "渠道已达到每分钟发送上限",
+            retryable=True,
+            retry_after_seconds=60,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +148,11 @@ class ChannelAdapter(Protocol):
     @property
     def capabilities(self) -> ChannelCapabilities: ...
 
+    @property
+    def implementation_status(self) -> Literal["ready", "placeholder"]: ...
+
+    def validate_credential(self, credential: str) -> None: ...
+
     async def test_connection(self, *, credential: str | None) -> AdapterHealth: ...
 
     async def deliver(
@@ -149,6 +167,8 @@ class ChannelAdapter(Protocol):
         self,
         payload: Mapping[str, JsonValue],
     ) -> ChannelInboundEvent: ...
+
+    async def aclose(self) -> None: ...
 
 
 def negotiate_capabilities(
@@ -296,7 +316,14 @@ def _attachment_fallback(
 
 def _markdown_to_text(value: str | None) -> str:
     text = value or ""
+    text = re.sub(r"```[^\n]*\n?(.*?)```", r"\1", text, flags=re.DOTALL)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
     text = re.sub(r"!\[([^]]*)\]\([^)]+\)", r"\1", text)
     text = re.sub(r"\[([^]]+)\]\([^)]+\)", r"\1", text)
-    text = re.sub(r"(^|\s)[#>*_`~]+", r"\1", text)
+    text = re.sub(r"^\s{0,3}#{1,6}\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s{0,3}>\s?", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*(?:[-+*]|\d+[.)])\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"(\*\*|__|~~)(.+?)\1", r"\2", text, flags=re.DOTALL)
+    text = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"\1", text)
+    text = re.sub(r"(?<!_)_([^_\n]+)_(?!_)", r"\1", text)
     return text.strip()

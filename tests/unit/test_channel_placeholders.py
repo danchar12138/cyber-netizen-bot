@@ -1,18 +1,23 @@
 """多模态能力协商和渠道控制平面测试。"""
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import httpx
 import pytest
 
 from cnb_adapters import (
     ChannelAdapter,
+    ChannelAdapterError,
+    ChannelAdapterRegistry,
     ChannelCapabilities,
     ChannelCapabilityError,
     ChannelDeliveryCommand,
     ChannelNotConfiguredError,
     ChannelRateLimitError,
     PlaceholderAdapter,
+    TelegramChannelAdapter,
     build_default_channel_registry,
     negotiate_capabilities,
     summarize_blocks,
@@ -25,6 +30,35 @@ from cnb_domain import (
     MultimodalContentBlock,
 )
 from cnb_infrastructure import MemoryChannelRepository, MemorySecretStore
+
+_TELEGRAM_TOKEN = "123456789:" + ("A" * 35)
+
+
+class RecordingTelegramTransport:
+    """记录出站形状但不访问公网的 Telegram Transport。"""
+
+    def __init__(
+        self,
+        responses: list[httpx.Response | httpx.HTTPError],
+    ) -> None:
+        self.responses = responses
+        self.requests: list[tuple[str, Mapping[str, object] | None]] = []
+        self.closed = False
+
+    async def post(
+        self,
+        url: str,
+        *,
+        json: Mapping[str, object] | None = None,
+    ) -> httpx.Response:
+        self.requests.append((url, json))
+        result = self.responses.pop(0)
+        if isinstance(result, httpx.HTTPError):
+            raise result
+        return result
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 class MetadataOnlySecretStore(MemorySecretStore):
@@ -60,13 +94,12 @@ def test_placeholder_never_claims_configuration() -> None:
     (
         ChannelPlatform.FEISHU,
         ChannelPlatform.DISCORD,
-        ChannelPlatform.TELEGRAM,
     ),
 )
 async def test_placeholder_adapters_follow_contract_without_external_side_effects(
     platform: ChannelPlatform,
 ) -> None:
-    """三个占位包均完整实现契约，并在所有外部边界明确停止。"""
+    """两个占位包均完整实现契约，并在所有外部边界明确停止。"""
     adapter: ChannelAdapter = build_default_channel_registry().get(platform)
     health = await adapter.test_connection(credential="只用于契约测试")
     command = ChannelDeliveryCommand(
@@ -87,6 +120,231 @@ async def test_placeholder_adapters_follow_contract_without_external_side_effect
         )
     with pytest.raises(ChannelNotConfiguredError, match="未消费任何外部事件"):
         await adapter.normalize_inbound({"token": "不会被处理"})
+
+
+async def test_telegram_adapter_tests_connection_sends_threads_and_edits() -> None:
+    transport = RecordingTelegramTransport(
+        [
+            httpx.Response(200, json={"ok": True, "result": {"id": 123456789}}),
+            httpx.Response(200, json={"ok": True, "result": {"message_id": 41}}),
+            httpx.Response(200, json={"ok": True, "result": {"message_id": 41}}),
+        ]
+    )
+    adapter = TelegramChannelAdapter(transport=transport)
+    health = await adapter.test_connection(credential=_TELEGRAM_TOKEN)
+    command = ChannelDeliveryCommand(
+        channel_id=uuid4(),
+        recipient_id="-1001234567890",
+        blocks=(MultimodalContentBlock(kind=ContentBlockKind.MARKDOWN, text="**你好**"),),
+        idempotency_key="telegram:delivery:1",
+        request_streaming=True,
+        thread_id="17",
+        proactive=True,
+    )
+    negotiation = negotiate_capabilities(command, adapter.capabilities)
+    sent = await adapter.deliver(
+        command=command,
+        negotiation=negotiation,
+        credential=_TELEGRAM_TOKEN,
+    )
+    edit_command = ChannelDeliveryCommand(
+        channel_id=command.channel_id,
+        recipient_id="@example_channel",
+        blocks=(MultimodalContentBlock(kind=ContentBlockKind.TEXT, text="修改后"),),
+        idempotency_key="telegram:delivery:2",
+        edit_message_id="41",
+        proactive=True,
+    )
+    edited = await adapter.deliver(
+        command=edit_command,
+        negotiation=negotiate_capabilities(edit_command, adapter.capabilities),
+        credential=_TELEGRAM_TOKEN,
+    )
+
+    assert health.status.value == "healthy"
+    assert sent.status.value == "degraded"
+    assert sent.external_message_id == edited.external_message_id == "41"
+    assert set(sent.degradations) == {"markdown_to_text", "streaming_to_buffered"}
+    assert transport.requests[0][0].endswith("/getMe")
+    assert transport.requests[1][0].endswith("/sendMessage")
+    assert transport.requests[1][1] == {
+        "chat_id": -1001234567890,
+        "text": "你好",
+        "message_thread_id": 17,
+    }
+    assert transport.requests[2][0].endswith("/editMessageText")
+    assert transport.requests[2][1] == {
+        "chat_id": "@example_channel",
+        "text": "修改后",
+        "message_id": 41,
+    }
+
+
+@pytest.mark.parametrize(
+    ("credential", "recipient_id", "thread_id", "message"),
+    (
+        ("invalid", "-1001234567890", None, "Token 格式无效"),
+        (_TELEGRAM_TOKEN, "https://example.invalid", None, "chat ID"),
+        (_TELEGRAM_TOKEN, "-1001234567890", "not-an-id", "话题 ID"),
+    ),
+)
+async def test_telegram_adapter_rejects_invalid_identifiers_before_network(
+    credential: str,
+    recipient_id: str,
+    thread_id: str | None,
+    message: str,
+) -> None:
+    transport = RecordingTelegramTransport([])
+    adapter = TelegramChannelAdapter(transport=transport)
+    command = ChannelDeliveryCommand(
+        channel_id=uuid4(),
+        recipient_id=recipient_id,
+        blocks=(MultimodalContentBlock(kind=ContentBlockKind.TEXT, text="不会发出"),),
+        idempotency_key="telegram:invalid",
+        thread_id=thread_id,
+    )
+
+    with pytest.raises(ChannelAdapterError, match=message):
+        await adapter.deliver(
+            command=command,
+            negotiation=negotiate_capabilities(command, adapter.capabilities),
+            credential=credential,
+        )
+    assert transport.requests == []
+
+
+@pytest.mark.parametrize(
+    ("response", "code"),
+    (
+        (
+            httpx.Response(429, json={"description": "secret remote detail"}),
+            "telegram_rate_limited",
+        ),
+        (httpx.Response(503, text="secret remote detail"), "telegram_unavailable"),
+        (httpx.Response(403, json={"description": "secret remote detail"}), "telegram_rejected"),
+        (httpx.Response(200, text="secret remote detail"), "telegram_invalid_response"),
+        (httpx.ReadTimeout("secret transport detail"), "telegram_unavailable"),
+    ),
+)
+async def test_telegram_errors_are_stable_and_do_not_expose_sensitive_context(
+    response: httpx.Response | httpx.HTTPError,
+    code: str,
+) -> None:
+    transport = RecordingTelegramTransport([response])
+    adapter = TelegramChannelAdapter(transport=transport)
+
+    with pytest.raises(ChannelAdapterError) as captured:
+        await adapter.test_connection(credential=_TELEGRAM_TOKEN)
+
+    assert captured.value.code == code
+    assert captured.value.__cause__ is None
+    serialized = f"{captured.value!s} {captured.value!r}"
+    assert _TELEGRAM_TOKEN not in serialized
+    assert "secret" not in serialized
+    assert "api.telegram.org" not in serialized
+
+
+async def test_telegram_inbound_remains_explicitly_disabled() -> None:
+    adapter = TelegramChannelAdapter(transport=RecordingTelegramTransport([]))
+
+    with pytest.raises(ChannelNotConfiguredError, match="入站接收尚未启用"):
+        await adapter.normalize_inbound({"update_id": 1})
+
+
+async def test_telegram_service_reports_ready_and_replays_without_duplicate_send() -> None:
+    transport = RecordingTelegramTransport(
+        [
+            httpx.Response(200, json={"ok": True, "result": {"id": 123456789}}),
+            httpx.Response(200, json={"ok": True, "result": {"message_id": 88}}),
+        ]
+    )
+    adapter = TelegramChannelAdapter(transport=transport)
+    repository = MemoryChannelRepository()
+    service = ChannelService(
+        repository,
+        ChannelAdapterRegistry((adapter,)),
+        MemorySecretStore(),
+    )
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
+    created = await service.create(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        name="Telegram 正式出站",
+        platform=ChannelPlatform.TELEGRAM,
+        status=ChannelInstanceStatus.ENABLED,
+        rate_limit_per_minute=10,
+        settings={},
+        credential=_TELEGRAM_TOKEN,
+        actor_id=actor_id,
+    )
+    tested = await service.test_connection(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        channel_id=created.instance.id,
+        actor_id=actor_id,
+    )
+    first = await service.deliver(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        channel_id=created.instance.id,
+        recipient_id="-1001234567890",
+        blocks=(MultimodalContentBlock(kind=ContentBlockKind.TEXT, text="安全发送"),),
+        idempotency_key="telegram:service:1",
+        request_streaming=False,
+        thread_id=None,
+        edit_message_id=None,
+        proactive=True,
+    )
+    replay = await service.deliver(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        channel_id=created.instance.id,
+        recipient_id="-1001234567890",
+        blocks=(MultimodalContentBlock(kind=ContentBlockKind.TEXT, text="安全发送"),),
+        idempotency_key="telegram:service:1",
+        request_streaming=False,
+        thread_id=None,
+        edit_message_id=None,
+        proactive=True,
+    )
+    events = await service.events(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        channel_id=created.instance.id,
+        limit=10,
+    )
+
+    assert service.catalog()[0].implementation_status == "ready"
+    assert tested.implementation_status == "ready"
+    assert tested.instance.health_status.value == "healthy"
+    assert first.external_message_id == replay.external_message_id == "88"
+    assert replay.idempotent_replay is True
+    assert len(transport.requests) == 2
+    assert all(_TELEGRAM_TOKEN not in str(event.payload_summary) for event in events)
+    assert all("安全发送" not in str(event.payload_summary) for event in events)
+
+
+async def test_invalid_telegram_credential_is_rejected_before_instance_creation() -> None:
+    repository = MemoryChannelRepository()
+    service = ChannelService(
+        repository,
+        ChannelAdapterRegistry((TelegramChannelAdapter(transport=RecordingTelegramTransport([])),)),
+        MemorySecretStore(),
+    )
+
+    with pytest.raises(ChannelValidationError, match="Token 格式无效"):
+        await service.create(
+            tenant_id=uuid4(),
+            agent_id=uuid4(),
+            name="无效 Telegram",
+            platform=ChannelPlatform.TELEGRAM,
+            status=ChannelInstanceStatus.ENABLED,
+            rate_limit_per_minute=10,
+            settings={},
+            credential="invalid",
+            actor_id=uuid4(),
+        )
+    assert repository.instances == {}
 
 
 @pytest.mark.parametrize(

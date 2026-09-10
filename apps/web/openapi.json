@@ -2572,7 +2572,7 @@
         "type": "object"
       },
       "ChannelPlatform": {
-        "description": "首期稳定的平台标识；外部 IM 当前仅提供占位实现。",
+        "description": "稳定的平台标识；Telegram 已提供正式出站实现。",
         "enum": [
           "web",
           "feishu",
@@ -12833,7 +12833,7 @@
     },
     "/api/v1/channels/catalog": {
       "get": {
-        "description": "列出正式 Web Adapter 与全部 IM 占位能力。",
+        "description": "列出正式 Web/Telegram Adapter 与其余 IM 占位能力。",
         "operationId": "get_api_v1_channels_catalog",
         "responses": {
           "200": {

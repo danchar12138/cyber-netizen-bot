@@ -121,20 +121,43 @@ class MemoryChannelRepository:
                 None,
             )
             if existing is not None:
-                if existing.status not in {
-                    ChannelEventStatus.DELIVERED,
-                    ChannelEventStatus.DEGRADED,
-                    ChannelEventStatus.ACCEPTED,
-                } and event.status in {
-                    ChannelEventStatus.DELIVERED,
-                    ChannelEventStatus.DEGRADED,
-                }:
+                if (
+                    existing.status is ChannelEventStatus.ACCEPTED
+                    and event.status is not ChannelEventStatus.ACCEPTED
+                ) or (
+                    existing.status
+                    not in {ChannelEventStatus.DELIVERED, ChannelEventStatus.DEGRADED}
+                    and event.status in {ChannelEventStatus.DELIVERED, ChannelEventStatus.DEGRADED}
+                ):
                     updated = replace(event, id=existing.id)
                     self.events[existing.id] = updated
                     return updated
                 return existing
             self.events[event.id] = event
             return event
+
+    async def reserve_delivery(self, event: ChannelDiagnosticEvent) -> bool:
+        """原子占用出站幂等键；失败终态允许显式重试。"""
+        async with self._lock:
+            existing = next(
+                (
+                    item
+                    for item in self.events.values()
+                    if item.channel_id == event.channel_id
+                    and item.direction is event.direction
+                    and item.idempotency_key == event.idempotency_key
+                ),
+                None,
+            )
+            if existing is None:
+                self.events[event.id] = event
+                return True
+            if existing.status in {ChannelEventStatus.DELIVERED, ChannelEventStatus.DEGRADED}:
+                return False
+            if existing.status is ChannelEventStatus.ACCEPTED:
+                return False
+            self.events[existing.id] = replace(event, id=existing.id)
+            return True
 
     async def get_event_by_idempotency(
         self,
@@ -304,14 +327,18 @@ class SqlAlchemyChannelRepository:
                     .with_for_update()
                 )
                 if existing is not None:
-                    if existing.status not in {
-                        ChannelEventStatus.DELIVERED.value,
-                        ChannelEventStatus.DEGRADED.value,
-                        ChannelEventStatus.ACCEPTED.value,
-                    } and event.status in {
-                        ChannelEventStatus.DELIVERED,
-                        ChannelEventStatus.DEGRADED,
-                    }:
+                    if (
+                        existing.status == ChannelEventStatus.ACCEPTED.value
+                        and event.status is not ChannelEventStatus.ACCEPTED
+                    ) or (
+                        existing.status
+                        not in {
+                            ChannelEventStatus.DELIVERED.value,
+                            ChannelEventStatus.DEGRADED.value,
+                        }
+                        and event.status
+                        in {ChannelEventStatus.DELIVERED, ChannelEventStatus.DEGRADED}
+                    ):
                         existing.event_type = event.event_type
                         existing.status = event.status.value
                         existing.external_message_id = event.external_message_id
@@ -333,6 +360,39 @@ class SqlAlchemyChannelRepository:
                 raise
             return existing
         return event
+
+    async def reserve_delivery(self, event: ChannelDiagnosticEvent) -> bool:
+        """用数据库唯一键和行锁原子占用出站幂等键。"""
+        try:
+            async with self._session_factory.begin() as session:
+                existing = await session.scalar(
+                    select(ChannelDiagnosticEventModel)
+                    .where(
+                        ChannelDiagnosticEventModel.channel_id == event.channel_id,
+                        ChannelDiagnosticEventModel.direction == event.direction.value,
+                        ChannelDiagnosticEventModel.idempotency_key == event.idempotency_key,
+                    )
+                    .with_for_update()
+                )
+                if existing is None:
+                    session.add(self._event_model(event))
+                    return True
+                if existing.status in {
+                    ChannelEventStatus.DELIVERED.value,
+                    ChannelEventStatus.DEGRADED.value,
+                    ChannelEventStatus.ACCEPTED.value,
+                }:
+                    return False
+                existing.event_type = event.event_type
+                existing.status = event.status.value
+                existing.external_message_id = None
+                existing.payload_summary = event.payload_summary
+                existing.error_code = None
+                existing.degradations = list(event.degradations)
+                existing.occurred_at = event.occurred_at
+                return True
+        except IntegrityError:
+            return False
 
     async def get_event_by_idempotency(
         self,

@@ -121,6 +121,8 @@ class ChannelRepository(Protocol):
         event: ChannelDiagnosticEvent,
     ) -> ChannelDiagnosticEvent: ...
 
+    async def reserve_delivery(self, event: ChannelDiagnosticEvent) -> bool: ...
+
     async def get_event_by_idempotency(
         self,
         *,
@@ -175,9 +177,7 @@ class ChannelService:
             ChannelCatalogItem(
                 platform=adapter.platform,
                 display_name=adapter.display_name,
-                implementation_status=(
-                    "ready" if adapter.platform is ChannelPlatform.WEB else "placeholder"
-                ),
+                implementation_status=adapter.implementation_status,
                 credential_required=adapter.platform is not ChannelPlatform.WEB,
                 capabilities=adapter.capabilities,
             )
@@ -199,6 +199,10 @@ class ChannelService:
     ) -> ChannelInstanceView:
         now = datetime.now(UTC)
         normalized_settings = self._settings(settings)
+        if credential is not None:
+            if platform is ChannelPlatform.WEB:
+                raise ChannelValidationError("内部 Web Adapter 不使用外部凭证")
+            self._validate_credential(platform, credential)
         instance = ChannelInstance(
             id=uuid4(),
             tenant_id=tenant_id,
@@ -316,6 +320,7 @@ class ChannelService:
             raise ChannelConflictError("内部 Web Adapter 不使用外部凭证")
         if not plaintext:
             raise ChannelValidationError("渠道凭证不能为空")
+        self._validate_credential(instance.platform, plaintext)
         await self._secret_store.set_secret(
             key=_CREDENTIAL_KEYS[instance.platform],
             scope_type=ConfigScope.CHANNEL,
@@ -372,6 +377,7 @@ class ChannelService:
             agent_id=agent_id,
             channel_id=channel_id,
         )
+        connection_error_code: str | None = None
         if instance.status is ChannelInstanceStatus.DISABLED:
             health_status = ChannelHealthStatus.DISABLED
             detail = "渠道实例已停用，未执行连接测试。"
@@ -383,12 +389,18 @@ class ChannelService:
                 detail = "渠道尚未写入凭证，未访问外部 API。"
                 checked_at = datetime.now(UTC)
             else:
-                health = await self._adapters.get(instance.platform).test_connection(
-                    credential=credential
-                )
-                health_status = health.status
-                detail = health.detail
-                checked_at = health.checked_at
+                try:
+                    health = await self._adapters.get(instance.platform).test_connection(
+                        credential=credential
+                    )
+                    health_status = health.status
+                    detail = health.detail
+                    checked_at = health.checked_at
+                except ChannelAdapterError as error:
+                    health_status = ChannelHealthStatus.DEGRADED
+                    detail = error.safe_message
+                    connection_error_code = error.code
+                    checked_at = datetime.now(UTC)
         updated = replace(
             instance,
             health_status=health_status,
@@ -413,9 +425,8 @@ class ChannelService:
                 ),
                 idempotency_key=f"connection-test:{uuid4()}",
                 payload_summary={"health_status": health_status.value},
-                error_code=None
-                if health_status is ChannelHealthStatus.HEALTHY
-                else health_status.value,
+                error_code=connection_error_code
+                or (None if health_status is ChannelHealthStatus.HEALTHY else health_status.value),
                 degradations=(),
                 external_message_id=None,
                 occurred_at=checked_at,
@@ -495,6 +506,8 @@ class ChannelService:
                 delivered_at=existing.occurred_at,
                 idempotent_replay=True,
             )
+        if existing is not None and existing.status is ChannelEventStatus.ACCEPTED:
+            raise ChannelConflictError("相同幂等键的渠道发送正在处理中")
         if instance.status is ChannelInstanceStatus.DISABLED:
             raise ChannelConflictError("渠道实例已停用")
         command = ChannelDeliveryCommand(
@@ -513,6 +526,43 @@ class ChannelService:
         except ChannelAdapterError as error:
             await self._record_failed_delivery(instance, normalized_key, blocks, error)
             raise
+        credential = await self._resolve_credential(instance)
+        if instance.platform is not ChannelPlatform.WEB and credential is None:
+            error = ChannelNotConfiguredError("渠道凭证尚未配置，未发送任何外部消息")
+            await self._record_failed_delivery(instance, normalized_key, blocks, error)
+            raise error
+        reservation = self._event(
+            instance=instance,
+            direction=ChannelEventDirection.OUTBOUND,
+            event_type="message.delivery_started",
+            status=ChannelEventStatus.ACCEPTED,
+            idempotency_key=normalized_key,
+            payload_summary=summarize_blocks(negotiation.blocks),
+            error_code=None,
+            degradations=negotiation.degradations,
+            external_message_id=None,
+            occurred_at=datetime.now(UTC),
+        )
+        if not await self._repository.reserve_delivery(reservation):
+            concurrent = await self._repository.get_event_by_idempotency(
+                tenant_id=tenant_id,
+                channel_id=channel_id,
+                direction=ChannelEventDirection.OUTBOUND,
+                idempotency_key=normalized_key,
+            )
+            if (
+                concurrent is not None
+                and concurrent.status in {ChannelEventStatus.DELIVERED, ChannelEventStatus.DEGRADED}
+                and concurrent.external_message_id is not None
+            ):
+                return ChannelDeliveryReceipt(
+                    status=concurrent.status,
+                    external_message_id=concurrent.external_message_id,
+                    degradations=concurrent.degradations,
+                    delivered_at=concurrent.occurred_at,
+                    idempotent_replay=True,
+                )
+            raise ChannelConflictError("相同幂等键的渠道发送正在处理中")
         allowed = await self._repository.reserve_rate_limit(
             tenant_id=tenant_id,
             channel_id=channel_id,
@@ -524,9 +574,6 @@ class ChannelService:
             await self._record_failed_delivery(instance, normalized_key, blocks, error)
             raise error
         try:
-            credential = await self._resolve_credential(instance)
-            if instance.platform is not ChannelPlatform.WEB and credential is None:
-                raise ChannelNotConfiguredError("渠道凭证尚未配置，未发送任何外部消息")
             result = await adapter.deliver(
                 command=command,
                 negotiation=negotiation,
@@ -641,9 +688,7 @@ class ChannelService:
         return ChannelInstanceView(
             instance=instance,
             display_name=adapter.display_name,
-            implementation_status=(
-                "ready" if instance.platform is ChannelPlatform.WEB else "placeholder"
-            ),
+            implementation_status=adapter.implementation_status,
             credential_configured=configured,
             capabilities=adapter.capabilities,
         )
@@ -685,7 +730,7 @@ class ChannelService:
                 event_type="message.delivery_failed",
                 status=(
                     ChannelEventStatus.RATE_LIMITED
-                    if isinstance(error, ChannelRateLimitError)
+                    if error.code in {"rate_limited", "telegram_rate_limited"}
                     else ChannelEventStatus.REJECTED
                     if isinstance(error, ChannelCapabilityError)
                     else ChannelEventStatus.FAILED
@@ -778,3 +823,9 @@ class ChannelService:
         if not 1 <= value <= 10_000:
             raise ChannelValidationError("每分钟限流必须位于 1 到 10000 之间")
         return value
+
+    def _validate_credential(self, platform: ChannelPlatform, credential: str) -> None:
+        try:
+            self._adapters.get(platform).validate_credential(credential)
+        except ChannelAdapterError as error:
+            raise ChannelValidationError(error.safe_message) from None

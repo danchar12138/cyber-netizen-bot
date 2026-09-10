@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
 
 from cnb_adapters.channel import (
     AdapterDeliveryResult,
@@ -30,6 +31,14 @@ class PlaceholderAdapter:
     @property
     def status(self) -> str:
         return ChannelHealthStatus.NOT_CONFIGURED.value
+
+    @property
+    def implementation_status(self) -> Literal["placeholder"]:
+        return "placeholder"
+
+    def validate_credential(self, credential: str) -> None:
+        """占位平台尚无可校验的厂商凭证格式。"""
+        del credential
 
     async def test_connection(self, *, credential: str | None) -> AdapterHealth:
         del credential
@@ -59,3 +68,6 @@ class PlaceholderAdapter:
         raise ChannelNotConfiguredError(
             f"{self.display_name} Adapter 当前为占位实现，未消费任何外部事件"
         )
+
+    async def aclose(self) -> None:
+        """占位实现没有需要释放的外部资源。"""

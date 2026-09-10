@@ -111,7 +111,7 @@ def _event_response(value: ChannelDiagnosticEvent) -> ChannelDiagnosticEventResp
 async def list_catalog(
     service: Annotated[ChannelService, Depends(get_channel_service)],
 ) -> ChannelCatalogListResponse:
-    """列出正式 Web Adapter 与全部 IM 占位能力。"""
+    """列出正式 Web/Telegram Adapter 与其余 IM 占位能力。"""
     return ChannelCatalogListResponse(
         items=tuple(
             ChannelCatalogResponse(
@@ -388,12 +388,17 @@ async def deliver(
         raise HTTPException(
             status_code=(
                 status.HTTP_429_TOO_MANY_REQUESTS
-                if error.code == "rate_limited"
+                if error.code in {"rate_limited", "telegram_rate_limited"}
                 else status.HTTP_422_UNPROCESSABLE_CONTENT
                 if error.code == "unsupported_capability"
                 else status.HTTP_503_SERVICE_UNAVAILABLE
             ),
             detail=error.safe_message,
+            headers=(
+                {"Retry-After": str(error.retry_after_seconds)}
+                if error.retry_after_seconds is not None
+                else None
+            ),
         ) from error
     return ChannelDeliveryResponse(**asdict(result))
 

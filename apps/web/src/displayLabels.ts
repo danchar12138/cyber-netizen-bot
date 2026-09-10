@@ -213,6 +213,7 @@ export const channelCapabilityLabels = {
 export const channelEventTypeLabels: Readonly<Record<string, string>> = {
   'connection.tested': '连接测试',
   'message.created': '消息已创建',
+  'message.delivery_started': '消息发送中',
   'message.delivered': '消息已送达',
   'message.delivery_failed': '消息发送失败',
   'message.received': '收到消息',

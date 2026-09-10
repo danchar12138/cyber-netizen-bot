@@ -263,10 +263,14 @@ version = "0.1.0"
 source = { editable = "packages/adapters" }
 dependencies = [
     { name = "cnb-domain" },
+    { name = "httpx" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "cnb-domain", editable = "packages/domain" }]
+requires-dist = [
+    { name = "cnb-domain", editable = "packages/domain" },
+    { name = "httpx", specifier = ">=0.28,<1" },
+]
 
 [[package]]
 name = "cnb-api"

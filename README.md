@@ -50,7 +50,7 @@
 - Episode 巩固、记忆提取、embedding 重建、关系更新与对话后 Reflection 异步处理，以及按安静时段、活跃度、关系边界和每日社交预算治理的主动行为。
 - 任务、尝试、Worker 心跳、死信与定时行为管理 API 和后台；主动行为默认关闭，所有运行参数均由配置中心校验、发布和回滚。
 - 厂商无关的多模态内容块与 `ChannelAdapter` Protocol，以及能力协商、长文本拆分、流式缓冲、Markdown/附件透明降级和结构化安全错误。
-- 正式内部 Web Adapter、飞书/Discord/Telegram 零外部副作用占位包，以及渠道能力与模型能力矩阵、平台模拟器和 Adapter 契约测试。
+- 正式内部 Web Adapter、Telegram Bot API 安全出站 Adapter、飞书/Discord 零外部副作用占位包，以及渠道能力与模型能力矩阵、平台模拟器和 Adapter 契约测试。
 - 租户与 Agent 双重隔离的渠道实例、信封加密凭证、启停、连接测试、健康状态、原子限流、幂等发送和不含正文/密钥的诊断事件管理 API 与后台。
 - 租户与 Agent 双重隔离的外部主体映射、会话/线程路由、版本化净化 Envelope 和 PostgreSQL 幂等 Inbox；管理诊断仅暴露 UUID、内容块类型/数量与 SHA-256 标识摘要。
 - 入站 Worker 以确定性消息 ID 复用现有 Conversation 与认知运行时，安全吸收平台重试、Worker 重投和人工重放；渠道配置/密钥作用域、多模态附件复核及中断 Run 防重复输出已接通。
@@ -182,11 +182,13 @@ OpenTelemetry 的启用状态、服务名、OTLP endpoint/Header 和 Trace 采�
 
 管理后台的“任务与主动行为”页面可查看任务状态、尝试记录、反思安全决策与 Worker 心跳，取消未完成任务，确认重放失败或死信任务，并创建、查看和取消定时主动行为。反思任务只保存 Run、消息和作用域 UUID，Worker 执行时从 PostgreSQL 复核并读取来源；任务载荷不复制消息正文或运行配置值，错误与结果摘要也不回显正文。重复投递由去重键、行锁、执行租约和基于 Run ID 的确定性副作用 ID 吸收。
 
-主动行为默认关闭。启用后仍会在执行时按最新配置重新检查评分阈值、安静时段、用户近期活跃度、关系边界和每日社交预算；正式 Web Channel Adapter 已位于这一确定性策略边界之后，外部 IM Adapter 仍为明确不访问平台 API 的占位实现。
+主动行为默认关闭。启用后仍会在执行时按最新配置重新检查评分阈值、安静时段、用户近期活跃度、关系边界和每日社交预算；正式 Web Channel Adapter 与 Telegram 安全出站 Adapter 已位于这一确定性策略边界之后，飞书和 Discord 仍为明确不访问平台 API 的占位实现。
 
 ## 渠道与多模态
 
 管理后台的“渠道与适配器”页面可查看平台与模型能力矩阵，创建、启停渠道实例，安全写入或清除凭证，执行连接测试、幂等发送测试、能力降级模拟，并查看不含消息正文、文件名、凭证和远端原始响应的诊断事件。每个渠道实例不可变地归属创建时所选 Agent；列表、详情、变更、凭证、收发模拟和诊断事件均由服务端按租户与 Agent 双重过滤，同租户不同 Agent 可使用相同渠道名称。图片和常用文档只能通过已复核的附件 ID、媒体类型、大小与 SHA-256 元数据进入渠道边界；凭证状态展示只读取不可逆元数据，不触发解密。
+
+Telegram 已支持 Bot Token 连接测试、纯文本主动发送、Forum 话题回复和消息编辑。Token 只进入信封加密存储；Adapter 固定访问官方 HTTPS 端点，并将限流、服务异常、网络失败、平台拒绝和非法响应转换为不含 Token、请求 URL、消息正文与远端描述的稳定错误。当前不宣称 Markdown、媒体、反应或入站能力：Markdown、附件与流式请求通过能力矩阵透明降级，真实 Webhook/入站事件将在后续阶段接通。管理后台“出站消息联调”可填写目标 chat ID、话题 ID 和编辑消息 ID；向外部渠道发送前会要求显式确认。
 
 内部对话的图片和文档会在模型调用前再次执行租户、用户、附件状态和内容完整性复核。单图片字节数、单文档字节数、请求附件总量、文档正文字符数和 PDF 提取页数均可在配置中心的“多模态”分区按系统、租户或 Agent 作用域发布和回滚，无需修改配置文件。对象键、二进制正文和提取正文不会进入 API、运行轨迹或模型调用错误。
 
@@ -194,7 +196,7 @@ OpenTelemetry 的启用状态、服务名、OTLP endpoint/Header 和 Trace 采�
 
 管理后台“外部身份与 Inbox”页面可绑定平台稳定主体 ID 与本地用户，并将平台会话/线程显式路由到内部 Conversation。标准化入站事件通过签名结果、时效和大小边界后，以渠道和外部消息 ID 的 SHA-256 组合幂等落库，再投递 `inbound` Worker 队列。所有运行设置位于配置中心，映射变更与重放受 RBAC 和审计保护。
 
-当前 `POST /api/v1/integrations/inbound/{channel_id}/simulate` 只是内部 Web Adapter 管理联调入口，不是真实 IM Webhook。Worker 会严格解析净化后的 Envelope，以租户、渠道和外部消息 ID 生成确定性 `client_message_id`，复用现有 Conversation、长期记忆、多模态和自研认知运行时创建并处理 Agent Run；平台重试、Worker 重投和人工重放不会重复生成消息或 Run。管理后台可查看内部消息/Run ID、终态和幂等结果，但不展示正文、附件对象键、凭证或模型原始响应。飞书、Discord 和 Telegram Adapter 仍然是零外部副作用占位，不访问平台 API。
+当前 `POST /api/v1/integrations/inbound/{channel_id}/simulate` 只是内部 Web Adapter 管理联调入口，不是真实 IM Webhook。Worker 会严格解析净化后的 Envelope，以租户、渠道和外部消息 ID 生成确定性 `client_message_id`，复用现有 Conversation、长期记忆、多模态和自研认知运行时创建并处理 Agent Run；平台重试、Worker 重投和人工重放不会重复生成消息或 Run。管理后台可查看内部消息/Run ID、终态和幂等结果，但不展示正文、附件对象键、凭证或模型原始响应。Telegram 目前仅开放正式出站，入站会安全拒绝；飞书和 Discord 仍然是零外部副作用占位，不访问平台 API。
 
 ## GitHub
 

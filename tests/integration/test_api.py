@@ -1,6 +1,7 @@
 """无需外部基础设施的 API 契约冒烟测试。"""
 
 import asyncio
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import cast
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient, Response
 from pydantic import SecretStr
 
+from cnb_adapters import ChannelAdapterRegistry, TelegramChannelAdapter
 from cnb_api.main import create_app
 from cnb_application import AuthenticationError, permissions_for_role
 from cnb_contracts import (
@@ -63,6 +65,26 @@ from cnb_infrastructure import (
     MemoryObservabilityRepository,
     Settings,
 )
+
+
+class ApiTelegramTransport:
+    """API 级测试使用的单响应 Telegram Transport。"""
+
+    def __init__(self, response: Response) -> None:
+        self.response = response
+        self.requests: list[tuple[str, Mapping[str, object] | None]] = []
+
+    async def post(
+        self,
+        url: str,
+        *,
+        json: Mapping[str, object] | None = None,
+    ) -> Response:
+        self.requests.append((url, json))
+        return self.response
+
+    async def aclose(self) -> None:
+        """注入 Transport 不持有连接池。"""
 
 
 async def test_observability_dashboard_records_only_safe_request_metadata() -> None:
@@ -2099,6 +2121,14 @@ async def test_channel_management_simulation_delivery_and_secret_boundary_api() 
         "discord",
         "telegram",
     ]
+    assert {
+        item["platform"]: item["implementation_status"] for item in catalog.json()["items"]
+    } == {
+        "web": "ready",
+        "feishu": "placeholder",
+        "discord": "placeholder",
+        "telegram": "ready",
+    }
     assert model_capabilities.json()["items"][1]["document_input"] is True
     assert web.status_code == 201
     assert web.json()["agent_id"] == default_agent_id
@@ -2125,6 +2155,62 @@ async def test_channel_management_simulation_delivery_and_secret_boundary_api() 
     assert all("text" not in item["payload_summary"] for item in events.json()["items"])
     assert other_events.json()["items"] == []
     assert viewer_create.status_code == 403
+
+
+async def test_telegram_remote_rate_limit_is_safe_and_recorded_by_api() -> None:
+    token = "123456789:" + ("A" * 35)
+    remote_description = "remote secret diagnostic"
+    transport = ApiTelegramTransport(
+        Response(
+            429,
+            json={
+                "ok": False,
+                "description": remote_description,
+                "parameters": {"retry_after": 7},
+            },
+        )
+    )
+    registry = ChannelAdapterRegistry((TelegramChannelAdapter(transport=transport),))
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+        channel_adapter_registry=registry,
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        channel = await client.post(
+            "/api/v1/channels",
+            json={
+                "name": "Telegram 限流测试",
+                "platform": "telegram",
+                "status": "enabled",
+                "rate_limit_per_minute": 10,
+                "credential": token,
+            },
+        )
+        delivery = await client.post(
+            f"/api/v1/channels/{channel.json()['id']}/deliveries",
+            json={
+                "recipient_id": "-1001234567890",
+                "blocks": [{"kind": "text", "text": "不得进入诊断的正文"}],
+                "idempotency_key": "telegram:api:rate-limit",
+                "proactive": True,
+            },
+        )
+        events = await client.get("/api/v1/channels/diagnostics/events")
+
+    assert channel.status_code == 201
+    assert delivery.status_code == 429
+    assert delivery.json()["error"]["code"] == "rate_limited"
+    assert delivery.json()["error"]["message"] == "Telegram 已限制发送频率"
+    assert delivery.headers["retry-after"] == "7"
+    assert token not in delivery.text
+    assert remote_description not in delivery.text
+    diagnostic = events.json()["items"][0]
+    assert diagnostic["status"] == "rate_limited"
+    assert diagnostic["error_code"] == "telegram_rate_limited"
+    assert "不得进入诊断" not in str(diagnostic["payload_summary"])
+    assert len(transport.requests) == 1
 
 
 def test_internal_chat_websocket_replays_from_sequence_and_responds_to_ping() -> None:

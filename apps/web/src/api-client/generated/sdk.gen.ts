@@ -296,7 +296,7 @@ export const postApiV1Channels = <ThrowOnError extends boolean = true>(options: 
 /**
  * List Catalog
  *
- * 列出正式 Web Adapter 与全部 IM 占位能力。
+ * 列出正式 Web/Telegram Adapter 与其余 IM 占位能力。
  */
 export const getApiV1ChannelsCatalog = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1ChannelsCatalogData, ThrowOnError>): RequestResult<GetApiV1ChannelsCatalogResponses, GetApiV1ChannelsCatalogErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1ChannelsCatalogResponses, GetApiV1ChannelsCatalogErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',

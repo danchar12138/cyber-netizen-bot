@@ -9,7 +9,7 @@ from cnb_domain.configuration import JsonValue
 
 
 class ChannelPlatform(StrEnum):
-    """首期稳定的平台标识；外部 IM 当前仅提供占位实现。"""
+    """稳定的平台标识；Telegram 已提供正式出站实现。"""
 
     WEB = "web"
     FEISHU = "feishu"

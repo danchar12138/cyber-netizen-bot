@@ -1,10 +1,11 @@
 [project]
 name = "cnb-adapters"
 version = "0.1.0"
-description = "渠道 Adapter 契约与占位实现"
+description = "渠道 Adapter 契约与平台实现"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "cnb-domain",
+  "httpx>=0.28,<1",
 ]
 
 [tool.uv.sources]

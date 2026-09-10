@@ -1242,6 +1242,8 @@ export const deliverChannelMessage = (
     blocks: Array<{ kind: 'text' | 'markdown'; text: string }>
     idempotency_key: string
     request_streaming: boolean
+    thread_id?: string | null
+    edit_message_id?: string | null
     proactive: boolean
   },
 ) => apiSdk.postApiV1ChannelsByChannelIdDeliveries({

@@ -947,7 +947,10 @@ def build_default_registry() -> ConfigurationRegistry:
                 key="channel.telegram.bot_token",
                 section="channel",
                 label="Telegram Bot Token",
-                description="Telegram Adapter 使用的不透明 Token；当前占位实现不会访问外部 API。",
+                description=(
+                    "Telegram 正式出站 Adapter 使用的 Bot Token；只写入加密存储，"
+                    "不通过 API、日志或诊断回显。"
+                ),
                 value_kind=ConfigValueKind.SECRET,
                 default=None,
                 scopes=(ConfigScope.CHANNEL,),

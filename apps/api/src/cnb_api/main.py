@@ -131,6 +131,7 @@ def create_app(
                 task.cancel()
             if agent_run_tasks:
                 await asyncio.gather(*agent_run_tasks.values(), return_exceptions=True)
+            await application.state.channel_adapter_registry.aclose()
             telemetry_runtime.shutdown()
 
     error_responses: dict[int | str, dict[str, Any]] = {

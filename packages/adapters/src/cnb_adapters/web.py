@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import NAMESPACE_URL, uuid5
 
 from cnb_adapters.channel import (
@@ -42,6 +43,7 @@ class WebChannelAdapter:
 
     platform = ChannelPlatform.WEB
     display_name = "内部 Web"
+    implementation_status: Literal["ready"] = "ready"
     capabilities = ChannelCapabilities(
         markdown=True,
         images=True,
@@ -56,6 +58,10 @@ class WebChannelAdapter:
         max_attachment_bytes=250 * 1024 * 1024,
         accepted_content_types=_WEB_CONTENT_TYPES,
     )
+
+    def validate_credential(self, credential: str) -> None:
+        """内部 Web 不使用凭证，由应用服务拒绝写入操作。"""
+        del credential
 
     async def test_connection(self, *, credential: str | None) -> AdapterHealth:
         del credential
@@ -130,3 +136,6 @@ class WebChannelAdapter:
                 else ExternalConversationKind.DIRECT
             ),
         )
+
+    async def aclose(self) -> None:
+        """内部 Web 实现没有需要释放的外部资源。"""

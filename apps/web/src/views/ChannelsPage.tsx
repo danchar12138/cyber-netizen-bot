@@ -73,6 +73,11 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
   const [requestThread, setRequestThread] = useState(true)
   const [requestEdit, setRequestEdit] = useState(true)
   const [requestProactive, setRequestProactive] = useState(false)
+  const [deliveryChannelId, setDeliveryChannelId] = useState('')
+  const [recipientId, setRecipientId] = useState('')
+  const [deliveryText, setDeliveryText] = useState('这是一条来自赛博网友管理后台的测试消息。')
+  const [deliveryThreadId, setDeliveryThreadId] = useState('')
+  const [deliveryEditMessageId, setDeliveryEditMessageId] = useState('')
   const [formError, setFormError] = useState('')
 
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
@@ -89,6 +94,7 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
   const canWrite = session.data?.permissions.includes('channel:write') ?? false
   const canSend = session.data?.permissions.includes('channel:send') ?? false
   const canManageCredential = session.data?.permissions.includes('channel_credential:manage') ?? false
+  const deliveryTarget = instances.data?.items.find((item) => item.id === deliveryChannelId)
 
   const refresh = async () => {
     await Promise.all([
@@ -126,12 +132,14 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     }),
   })
   const delivery = useMutation({
-    mutationFn: (channelId: string) => deliverChannelMessage(channelId, {
-      recipient_id: 'management-simulator',
-      blocks: [{ kind: 'markdown', text: simulationText }],
+    mutationFn: () => deliverChannelMessage(deliveryChannelId, {
+      recipient_id: recipientId.trim(),
+      blocks: [{ kind: 'text', text: deliveryText }],
       idempotency_key: crypto.randomUUID(),
-      request_streaming: requestStreaming,
-      proactive: requestProactive,
+      request_streaming: false,
+      thread_id: deliveryThreadId.trim() || null,
+      edit_message_id: deliveryEditMessageId.trim() || null,
+      proactive: true,
     }),
     onSuccess: refresh,
   })
@@ -178,11 +186,11 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       render: (row) => <div className="table-actions">
         <button disabled={!canWrite || testMutation.isPending} onClick={() => testMutation.mutate(row.id)}><RefreshCw size={12} />连接测试</button>
         <button disabled={!canWrite} onClick={() => runToggle(row)}>{row.status === 'enabled' ? <Unplug size={12} /> : <RadioTower size={12} />}{row.status === 'enabled' ? '停用' : '启用'}</button>
-        <button disabled={!canSend || row.status !== 'enabled'} onClick={() => delivery.mutate(row.id)}><Send size={12} />发送测试</button>
+        <button disabled={!canSend || row.status !== 'enabled' || row.implementation_status !== 'ready' || (row.platform !== 'web' && !row.credential_configured)} onClick={() => setDeliveryChannelId(row.id)}><Send size={12} />选择发送</button>
         {row.platform !== 'web' && row.credential_configured && <button disabled={!canManageCredential} onClick={() => runClearCredential(row)}><KeyRound size={12} />清除凭证</button>}
       </div>,
     },
-  ], [canManageCredential, canSend, canWrite, delivery, runClearCredential, runToggle, testMutation])
+  ], [canManageCredential, canSend, canWrite, runClearCredential, runToggle, testMutation])
   const eventColumns = useMemo<Array<AdminTableColumn<ChannelDiagnosticEvent>>>(() => [
     { key: 'event', label: '事件', render: (row) => <div className="table-primary"><strong>{displayLabel(channelEventTypeLabels, row.event_type)}</strong><code>{channelEventDirectionLabels[row.direction]} · {row.id}</code></div> },
     { key: 'status', label: '结果', render: (row) => <span className={`entity-status task-${row.status}`}>{channelEventStatusLabels[row.status]}</span> },
@@ -195,14 +203,15 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
   return (
     <div className="page">
       <section className="page-heading compact">
-        <div><p className="eyebrow">多模态与平台接入控制平面</p><h1>渠道与适配器</h1><p>统一管理能力协商、实例、凭证、健康、限流和安全诊断；外部 IM 占位实现绝不访问平台 API。</p></div>
-        <span className="phase-tag">统一渠道协议</span>
+        <div><p className="eyebrow">多模态与平台接入控制平面</p><h1>渠道与适配器</h1><p>统一管理能力协商、实例、凭证、健康、限流和安全诊断；Telegram 已开放正式出站，飞书与 Discord 仍为零副作用占位。</p></div>
+        <span className="phase-tag">Telegram 出站就绪</span>
       </section>
 
       {(catalog.isError || models.isError || instances.isError || events.isError) && <div className="notice error">渠道数据读取失败，请检查 API 与迁移状态。</div>}
       {(formError || operationError) && <div className="notice error">{formError || operationError?.message}</div>}
       <div className="notice info"><ShieldCheck size={17} /><div><strong>凭证只写入信封加密存储</strong><span>API、页面、诊断事件和审计记录只展示是否已配置；能力降级会明确列出，不会静默丢弃图片、文件、线程或流式语义。</span></div></div>
       <div className="notice info"><RadioTower size={17} /><div><strong>渠道严格归属当前 Agent</strong><span>创建、凭证、连接测试、收发模拟和诊断事件均按全局选择隔离；当前标识：{selectedAgentId ?? '默认 Agent'}。</span></div></div>
+      <div className="notice info"><Send size={17} /><div><strong>Telegram 当前只开放安全出站</strong><span>支持纯文本主动消息、Forum 话题和消息编辑；Markdown、流式与附件会透明降级，真实入站将在后续独立阶段接通。</span></div></div>
 
       <section className="channel-catalog-grid" aria-label="Adapter 能力目录">
         {(catalog.data?.items ?? []).map((item) => <article className="panel channel-catalog-card" key={item.platform}>
@@ -254,6 +263,22 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
           <div className="panel-heading"><div><span>输入与运行能力</span><h2>模型能力矩阵</h2></div></div>
           <div className="model-capability-list">{(models.data?.items ?? []).map((item) => <div key={`${item.provider}:${item.model_family}`}><strong>{item.provider} / {item.model_family}</strong><span>输入：{modelInputs(item)}</span><small>{item.streaming ? '流式' : '非流式'} · {item.structured_output ? '结构化输出' : '文本输出'} · {item.tool_calling ? '工具调用' : '无工具调用'}</small></div>)}</div>
         </article>
+      </section>
+
+      <section className="panel channel-form-panel">
+        <div className="panel-heading"><div><span>真实外部副作用</span><h2>出站消息联调</h2></div><Send size={19} /></div>
+        <form className="channel-create-form" onSubmit={(event) => {
+          event.preventDefault()
+          if (deliveryTarget?.platform !== 'web' && !window.confirm(`确认通过“${deliveryTarget?.name ?? '外部渠道'}”向 ${recipientId.trim()} 发送真实外部消息？`)) return
+          delivery.mutate()
+        }}>
+          <label><span>启用的正式渠道</span><select value={deliveryChannelId} onChange={(event) => setDeliveryChannelId(event.target.value)} required><option value="">选择渠道实例</option>{instances.data?.items.filter((item) => item.status === 'enabled' && item.implementation_status === 'ready' && (item.platform === 'web' || item.credential_configured)).map((item) => <option value={item.id} key={item.id}>{item.name} · {channelPlatformLabels[item.platform]}</option>)}</select></label>
+          <label><span>收件人 / chat ID</span><input value={recipientId} maxLength={255} onChange={(event) => setRecipientId(event.target.value)} placeholder="Telegram 整数 chat ID 或 @channel_username" required /></label>
+          <label><span>话题 ID（可选）</span><input value={deliveryThreadId} inputMode="numeric" maxLength={255} onChange={(event) => setDeliveryThreadId(event.target.value)} placeholder="Forum message_thread_id" /></label>
+          <label><span>编辑消息 ID（可选）</span><input value={deliveryEditMessageId} inputMode="numeric" maxLength={255} onChange={(event) => setDeliveryEditMessageId(event.target.value)} placeholder="填写后执行 editMessageText" /></label>
+          <label className="channel-json-field"><span>纯文本消息</span><textarea value={deliveryText} maxLength={deliveryTarget?.capabilities.max_text_chars ?? 20_000} onChange={(event) => setDeliveryText(event.target.value)} rows={4} required /></label>
+          <button className="primary-button" type="submit" disabled={!canSend || !deliveryChannelId || !recipientId.trim() || !deliveryText.trim() || delivery.isPending}><Send size={14} />确认发送</button>
+        </form>
       </section>
 
       {delivery.data && <div className="notice success"><Send size={17} /><div><strong>发送测试已由渠道适配器接收</strong><span>{channelEventStatusLabels[delivery.data.status]} · {delivery.data.external_message_id} · {degradationLabels(delivery.data.degradations).join('、') || '无降级'}</span></div></div>}

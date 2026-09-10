@@ -1,4 +1,4 @@
-"""Channel Adapter 注册表与首期默认实现集合。"""
+"""Channel Adapter 注册表与默认实现集合。"""
 
 from collections.abc import Iterable
 
@@ -27,12 +27,17 @@ class ChannelAdapterRegistry:
             self._adapters[platform] for platform in ChannelPlatform if platform in self._adapters
         )
 
+    async def aclose(self) -> None:
+        """释放实现可选提供的异步资源。"""
+        for adapter in self._adapters.values():
+            await adapter.aclose()
+
 
 def build_default_channel_registry() -> ChannelAdapterRegistry:
-    """构建 Web 正式实现和三个明确不访问网络的 IM 占位实现。"""
+    """构建 Web、Telegram 正式实现和两个零副作用 IM 占位实现。"""
     from cnb_adapters.discord import DiscordPlaceholderAdapter
     from cnb_adapters.feishu import FeishuPlaceholderAdapter
-    from cnb_adapters.telegram import TelegramPlaceholderAdapter
+    from cnb_adapters.telegram import TelegramChannelAdapter
     from cnb_adapters.web import WebChannelAdapter
 
     return ChannelAdapterRegistry(
@@ -40,6 +45,6 @@ def build_default_channel_registry() -> ChannelAdapterRegistry:
             WebChannelAdapter(),
             FeishuPlaceholderAdapter(),
             DiscordPlaceholderAdapter(),
-            TelegramPlaceholderAdapter(),
+            TelegramChannelAdapter(),
         )
     )

@@ -1,4 +1,4 @@
-"""渠道 Adapter 协议、能力协商、正式 Web 实现与 IM 占位实现。"""
+"""渠道 Adapter 协议、能力协商、正式实现与 IM 占位实现。"""
 
 from cnb_adapters.channel import (
     SAFE_ATTACHMENT_CONTENT_TYPES,
@@ -19,6 +19,7 @@ from cnb_adapters.channel import (
 )
 from cnb_adapters.placeholder import PlaceholderAdapter
 from cnb_adapters.registry import ChannelAdapterRegistry, build_default_channel_registry
+from cnb_adapters.telegram import TelegramChannelAdapter, TelegramTransport
 from cnb_adapters.web import WebChannelAdapter
 from cnb_domain import ChannelCapabilities
 
@@ -39,6 +40,8 @@ __all__ = [
     "ChannelNotConfiguredError",
     "ChannelRateLimitError",
     "PlaceholderAdapter",
+    "TelegramChannelAdapter",
+    "TelegramTransport",
     "WebChannelAdapter",
     "build_default_channel_registry",
     "negotiate_capabilities",
