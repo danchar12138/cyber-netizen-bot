@@ -1,13 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-ARG PYTHON_IMAGE=python:3.12.14-slim-bookworm
-ARG NODE_IMAGE=node:24.16.0-alpine
-ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30.0-alpine
-ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.10
+FROM ghcr.io/astral-sh/uv:0.12.10 AS uv
 
-FROM ${UV_IMAGE} AS uv
-
-FROM ${PYTHON_IMAGE} AS python-dependencies
+FROM python:3.12.14-slim-bookworm AS python-dependencies
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -43,7 +38,7 @@ COPY packages packages
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable --package cnb-worker
 
-FROM ${PYTHON_IMAGE} AS api
+FROM python:3.12.14-slim-bookworm AS api
 
 ARG VERSION=0.0.0-dev
 ARG VCS_REF=unknown
@@ -71,7 +66,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=3).read()"]
 CMD ["python", "-m", "uvicorn", "cnb_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
 
-FROM ${PYTHON_IMAGE} AS worker
+FROM python:3.12.14-slim-bookworm AS worker
 
 ARG VERSION=0.0.0-dev
 ARG VCS_REF=unknown
@@ -96,7 +91,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD ["python", "-c", "from cnb_infrastructure import get_settings; from redis import Redis; client = Redis.from_url(get_settings().redis_url.get_secret_value(), socket_timeout=3); assert client.ping()"]
 CMD ["python", "-m", "dramatiq", "cnb_worker.tasks", "--processes", "1", "--threads", "8"]
 
-FROM ${NODE_IMAGE} AS web-builder
+FROM node:24.16.0-alpine AS web-builder
 
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:${PATH}
@@ -110,7 +105,12 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 COPY apps/web apps/web
 RUN pnpm --filter @cnb/web build
 
-FROM ${NGINX_IMAGE} AS web
+FROM nginxinc/nginx-unprivileged:1.30.0-alpine AS web
+
+USER root
+# Alpine 安全修复可能早于 Nginx 镜像重建；Trivy 仍对升级后的最终层执行阻断扫描。
+# hadolint ignore=DL3017
+RUN apk upgrade --no-cache
 
 ARG VERSION=0.0.0-dev
 ARG VCS_REF=unknown

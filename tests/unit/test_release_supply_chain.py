@@ -62,6 +62,7 @@ def test_web_runtime_only_renders_configuration_into_tmp() -> None:
     assert "NGINX_ENVSUBST_OUTPUT_DIR=/tmp/nginx/conf.d" in dockerfile
     assert "include /tmp/nginx/conf.d/*.conf;" in nginx
     assert "pid /tmp/nginx.pid;" in nginx
+    assert "RUN apk upgrade --no-cache" in _docker_stage("web")
 
 
 def test_release_workflow_produces_signed_attested_sboms() -> None:
