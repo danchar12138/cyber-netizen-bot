@@ -2,7 +2,7 @@
 
 以自研 Agent 认知运行时为核心的“赛博网友”项目。Web 首发形态是统一管理后台，其中包含内部全功能对话工作台；后续 IM 平台通过统一 Channel Adapter 接入。
 
-当前已完成 P1 至 P7，包括身份安全、数据生命周期、可观测性/性能/成本、拟人评测，以及生产镜像与发布供应链；后续增强已完成多模态模型输入、多 Agent 管理、渠道归属隔离、Agent 安全生命周期、外部身份/会话映射、入站消息到 Agent Run 的可靠闭环、高精度反思与关系校准，以及长对话分层摘要与上下文压缩。P0 的生产式 Docker Compose、全链迁移、服务闭环和隔离备份恢复也已由 Linux CI 实跑通过；仅 GitHub `main` 分支保护因私有仓库当前套餐限制而待处理。最新开发计划见 [`docs/plans/2026-09-10-v8.md`](docs/plans/2026-09-10-v8.md)。
+当前已完成 P1 至 P7，包括身份安全、数据生命周期、可观测性/性能/成本、拟人评测，以及生产镜像与发布供应链；后续增强已完成多模态模型输入、多 Agent 管理、渠道归属隔离、Agent 安全生命周期、外部身份/会话映射、入站消息到 Agent Run 的可靠闭环、高精度反思与关系校准、长对话分层摘要与上下文压缩，以及多模型同源回放与并列质量对比。P0 的生产式 Docker Compose、全链迁移、服务闭环和隔离备份恢复也已由 Linux CI 实跑通过；仅 GitHub `main` 分支保护因私有仓库当前套餐限制而待处理。最新开发计划见 [`docs/plans/2026-09-10-v9.md`](docs/plans/2026-09-10-v9.md)。
 
 ## 已建立的能力
 
@@ -54,11 +54,12 @@
 - OpenTelemetry OTLP Trace、SQLAlchemy 与模型调用链路、路由模板请求指标、API/Agent SLO、数据库队列积压、模型 Token 与调用时冻结成本、确定性阈值告警和可观测管理页面。
 - Locust 分层性能场景、可配置失败率/P95 质量门，以及 PostgreSQL、Redis、MinIO、模型服务、队列、成本和 OTLP 故障处置手册。
 - 版本化拟人评测集、当前认知/模型真实回放、确定性自动质量门、冻结版本/Token/成本，以及来源随机化的匿名 A/B 双侧多维评分和聚合报告。
+- 当前已发布 `chat.realizer` 路由内的多模型同源对比：一次冻结评测集、配置、人格、Prompt、策略、路由与事件时间，原子保存各候选运行，并在后台并列展示通过率、延迟、Token、成本和逐用例回答；候选上限由配置中心管理。
 - API、Worker、Web 非 root 多阶段生产镜像，同源 HTTP/WebSocket 反向代理，以及只读文件系统、最小权限和健康探针生产 Compose 覆盖层。
 - 生产式 Compose 自动验收：全链 Alembic 迁移、三服务深度健康检查、PostgreSQL/MinIO 合成备份与隔离恢复、完整性比对和恢复后 API 冒烟。
 - Python/Node 依赖审计、Hadolint、Trivy 镜像门禁、SPDX SBOM、GitHub provenance/SBOM attestation、Cosign OIDC 无密钥签名和多架构 GHCR 发布。
 - Markdown/GFM 消息、自动保存草稿、图片/文件选择、键盘跳转和 axe 无障碍回归。
-- Alembic 配置、对话、附件、多模态消息块、加密密钥、审计、认知运行、长期记忆、可靠异步任务、渠道控制平面、OIDC、数据生命周期、可观测成本、拟人评测、多 Agent 管理、渠道归属、Agent 生命周期与外部入站路由迁移，当前 head 为 `20260910_0019`。
+- Alembic 配置、对话、附件、多模态消息块、加密密钥、审计、认知运行、长期记忆、可靠异步任务、渠道控制平面、OIDC、数据生命周期、可观测成本、拟人评测、多模型对比、多 Agent 管理、渠道归属、Agent 生命周期与外部入站路由迁移，当前 head 为 `20260910_0020`。
 - Python/Web 测试、静态检查和 GitHub Actions。
 
 ## 环境要求
@@ -146,6 +147,8 @@ uv run python -c "import base64,secrets; print(base64.b64encode(secrets.token_by
 ## 拟人表现评测
 
 “评测实验室”支持直接运行内置拟人安全基线，也可在后台创建、发布和选择不可变评测集版本。每次回放使用当前发布的认知资源和模型生成候选回答，冻结配置、Persona、Prompt、Policy、模型路由、Token 与估算成本，并用行动匹配、回复存在性和显式短语规则形成自动质量门。
+
+多模型同源对比只允许选择当前 Agent 已发布 `chat.realizer` 路由引用的模型档案，不接受任意 Provider 或模型名。一次实验中的所有候选共享评测用例与认知快照，并使用确定性一致的事件和会话标识；对比历史只返回无正文指标摘要，受评测权限保护的详情才返回完整候选回答。后台可直接勾选至少两个候选，查看通过率、总延迟、输入/输出 Token、估算成本和同一用例的并列回答；`evaluation.comparison.max_candidates` 可在配置中心按 Agent 发布和回滚。
 
 可回复用例会进入匿名 A/B 队列。评审提交前只看到随机化的两侧回答，不会得到候选位置、模型或自动判定；服务端去盲后聚合人格一致、自然度、共情理解、边界尊重四维评分与总体胜/平/负。数据规范和操作流程见 [`docs/runbooks/anthropomorphic-evaluation.md`](docs/runbooks/anthropomorphic-evaluation.md)。
 

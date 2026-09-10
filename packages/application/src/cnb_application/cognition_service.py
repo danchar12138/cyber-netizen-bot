@@ -74,6 +74,8 @@ class ModelRouteProfile:
     model: str
     input_usd_per_million_tokens: float = 0.0
     output_usd_per_million_tokens: float = 0.0
+    profile_key: str | None = None
+    profile_version: int | None = None
 
 
 class CognitionRepository(Protocol):
@@ -513,6 +515,8 @@ class CognitionService:
                     output_usd_per_million_tokens=float(
                         cast(int | float, pricing.get("output_usd_per_million_tokens", 0))
                     ),
+                    profile_key=resource.key,
+                    profile_version=resource.version,
                 )
             )
         return ModelRoutePlan(

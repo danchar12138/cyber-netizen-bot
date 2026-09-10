@@ -265,6 +265,17 @@ def build_default_registry() -> ConfigurationRegistry:
                 maximum=0.2,
             ),
             ConfigDefinition(
+                key="evaluation.comparison.max_candidates",
+                section="evaluation",
+                label="单次模型对比候选上限",
+                description="同一评测快照允许并列回放的最大已发布模型档案数量。",
+                value_kind=ConfigValueKind.INTEGER,
+                default=4,
+                scopes=per_agent,
+                minimum=2,
+                maximum=8,
+            ),
+            ConfigDefinition(
                 key="tasks.max_attempts",
                 section="tasks",
                 label="任务最大尝试次数",

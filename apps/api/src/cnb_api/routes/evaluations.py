@@ -22,6 +22,12 @@ from cnb_contracts import (
     BlindReviewAssignmentResponse,
     BlindReviewResponse,
     BlindReviewSubmit,
+    EvaluationComparisonCreate,
+    EvaluationComparisonListResponse,
+    EvaluationComparisonResponse,
+    EvaluationComparisonSummaryResponse,
+    EvaluationModelTargetListResponse,
+    EvaluationModelTargetResponse,
     EvaluationReportResponse,
     EvaluationRunCreate,
     EvaluationRunListResponse,
@@ -34,6 +40,25 @@ from cnb_contracts import (
 from cnb_domain import AdminPermission, AdminPrincipal, BlindReviewScore
 
 router = APIRouter(prefix="/evaluations", tags=["evaluations"])
+
+
+@router.get(
+    "/comparison-targets",
+    response_model=EvaluationModelTargetListResponse,
+    dependencies=[Depends(require_permission(AdminPermission.COGNITION_EVALUATE))],
+)
+async def list_evaluation_comparison_targets(
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[EvaluationService, Depends(get_evaluation_service)],
+) -> EvaluationModelTargetListResponse:
+    """列出当前发布路由允许用于同源回放的模型档案。"""
+    items = await service.list_comparison_targets(tenant_id=principal.tenant_id)
+    return EvaluationModelTargetListResponse(
+        items=tuple(
+            EvaluationModelTargetResponse.model_validate(item, from_attributes=True)
+            for item in items
+        )
+    )
 
 
 @router.get(
@@ -184,6 +209,80 @@ async def get_evaluation_run(
     except EvaluationNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     return EvaluationRunResponse.model_validate(run, from_attributes=True)
+
+
+@router.post(
+    "/comparisons",
+    response_model=EvaluationComparisonResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(AdminPermission.COGNITION_EVALUATE))],
+)
+async def run_evaluation_comparison(
+    command: EvaluationComparisonCreate,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[EvaluationService, Depends(get_evaluation_service)],
+) -> EvaluationComparisonResponse:
+    """在同一冻结资源快照上运行多个已发布模型档案。"""
+    try:
+        comparison = await service.run_comparison(
+            tenant_id=principal.tenant_id,
+            actor_id=principal.user_id,
+            suite_id=command.suite_id,
+            profile_keys=command.profile_keys,
+        )
+    except EvaluationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except EvaluationConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except EvaluationValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return EvaluationComparisonResponse.model_validate(comparison, from_attributes=True)
+
+
+@router.get(
+    "/comparisons",
+    response_model=EvaluationComparisonListResponse,
+    dependencies=[Depends(require_permission(AdminPermission.COGNITION_EVALUATE))],
+)
+async def list_evaluation_comparisons(
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[EvaluationService, Depends(get_evaluation_service)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> EvaluationComparisonListResponse:
+    """列出不携带回答正文的最近多模型对比摘要。"""
+    comparisons = await service.list_comparisons(
+        tenant_id=principal.tenant_id,
+        limit=limit,
+    )
+    return EvaluationComparisonListResponse(
+        items=tuple(
+            EvaluationComparisonSummaryResponse.model_validate(item, from_attributes=True)
+            for item in comparisons
+        )
+    )
+
+
+@router.get(
+    "/comparisons/{comparison_id}",
+    response_model=EvaluationComparisonResponse,
+    dependencies=[Depends(require_permission(AdminPermission.COGNITION_EVALUATE))],
+)
+async def get_evaluation_comparison(
+    comparison_id: UUID,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[EvaluationService, Depends(get_evaluation_service)],
+) -> EvaluationComparisonResponse:
+    """读取受权限保护的多模型对比及逐用例完整回答。"""
+    try:
+        comparison = await service.get_comparison(
+            comparison_id=comparison_id,
+            tenant_id=principal.tenant_id,
+        )
+    except EvaluationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    return EvaluationComparisonResponse.model_validate(comparison, from_attributes=True)
 
 
 @router.post(

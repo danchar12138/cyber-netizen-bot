@@ -24,6 +24,9 @@ from cnb_domain import (
     EvaluationCaseDefinition,
     EvaluationCaseRunResult,
     EvaluationCheck,
+    EvaluationComparison,
+    EvaluationComparisonEntry,
+    EvaluationComparisonStatus,
     EvaluationReport,
     EvaluationRun,
     EvaluationRunStatus,
@@ -36,6 +39,8 @@ from cnb_infrastructure.models import (
     BlindReviewModel,
     EvaluationCaseModel,
     EvaluationCaseResultModel,
+    EvaluationComparisonEntryModel,
+    EvaluationComparisonModel,
     EvaluationRunModel,
     EvaluationSuiteModel,
 )
@@ -47,6 +52,7 @@ class MemoryEvaluationRepository:
     def __init__(self) -> None:
         self._suites: dict[UUID, EvaluationSuiteDefinition] = {}
         self._runs: dict[UUID, EvaluationRun] = {}
+        self._comparisons: dict[UUID, EvaluationComparison] = {}
         self._assignments: dict[UUID, BlindReviewAssignment] = {}
         self._reviews: dict[UUID, BlindReview] = {}
         self._lock = asyncio.Lock()
@@ -165,6 +171,61 @@ class MemoryEvaluationRepository:
         async with self._lock:
             self._runs[run.id] = run
             return run
+
+    async def save_comparison(self, comparison: EvaluationComparison) -> EvaluationComparison:
+        async with self._lock:
+            if comparison.id in self._comparisons:
+                raise EvaluationConflictError("模型对比实验已经存在")
+            if len(comparison.entries) < 2:
+                raise EvaluationConflictError("模型对比实验至少需要两个候选运行")
+            if any(
+                entry.run.tenant_id != comparison.tenant_id
+                or entry.run.agent_id != comparison.agent_id
+                for entry in comparison.entries
+            ):
+                raise EvaluationConflictError("模型对比候选运行不属于实验作用域")
+            run_ids = {entry.run.id for entry in comparison.entries}
+            if len(run_ids) != len(comparison.entries) or run_ids & self._runs.keys():
+                raise EvaluationConflictError("模型对比候选运行已经存在或发生重复")
+            for entry in comparison.entries:
+                self._runs[entry.run.id] = entry.run
+            self._comparisons[comparison.id] = comparison
+            return comparison
+
+    async def list_comparisons(
+        self, *, tenant_id: UUID, agent_id: UUID, limit: int
+    ) -> tuple[EvaluationComparison, ...]:
+        async with self._lock:
+            rows = (
+                item
+                for item in self._comparisons.values()
+                if item.tenant_id == tenant_id and item.agent_id == agent_id
+            )
+            return tuple(
+                replace(
+                    comparison,
+                    entries=tuple(
+                        replace(entry, run=replace(entry.run, results=()))
+                        for entry in comparison.entries
+                    ),
+                )
+                for comparison in sorted(rows, key=lambda item: item.created_at, reverse=True)[
+                    :limit
+                ]
+            )
+
+    async def get_comparison(
+        self, *, comparison_id: UUID, tenant_id: UUID, agent_id: UUID
+    ) -> EvaluationComparison | None:
+        async with self._lock:
+            comparison = self._comparisons.get(comparison_id)
+            if (
+                comparison is None
+                or comparison.tenant_id != tenant_id
+                or comparison.agent_id != agent_id
+            ):
+                return None
+            return comparison
 
     async def list_runs(
         self, *, tenant_id: UUID, agent_id: UUID, limit: int
@@ -501,58 +562,7 @@ class SqlAlchemyEvaluationRepository:
 
     async def save_run(self, run: EvaluationRun) -> EvaluationRun:
         async with self._session_factory() as session, session.begin():
-            session.add(
-                EvaluationRunModel(
-                    id=run.id,
-                    tenant_id=run.tenant_id,
-                    agent_id=run.agent_id,
-                    suite_id=run.suite_id,
-                    suite_key=run.suite_key,
-                    suite_version=run.suite_version,
-                    suite_name=run.suite_name,
-                    status=run.status.value,
-                    passed=run.passed,
-                    total=run.total,
-                    pass_rate=run.pass_rate,
-                    gate_passed=run.gate_passed,
-                    minimum_pass_rate=run.minimum_pass_rate,
-                    configuration_version=run.configuration_version,
-                    persona_version=run.persona_version,
-                    prompt_version=run.prompt_version,
-                    policy_version=run.policy_version,
-                    model_route_version=run.model_route_version,
-                    provider=run.provider,
-                    model=run.model,
-                    input_tokens=run.input_tokens,
-                    output_tokens=run.output_tokens,
-                    estimated_cost_microusd=run.estimated_cost_microusd,
-                    error_code=run.error_code,
-                    created_by=run.created_by,
-                    created_at=run.created_at,
-                    completed_at=run.completed_at,
-                )
-            )
-            session.add_all(
-                EvaluationCaseResultModel(
-                    id=item.id,
-                    run_id=run.id,
-                    case_key=item.case_key,
-                    category=item.category,
-                    input_text=item.input_text,
-                    expected_action=item.expected_action,
-                    actual_action=item.actual_action,
-                    candidate_response=item.candidate_response,
-                    reference_response=item.reference_response,
-                    passed=item.passed,
-                    checks=[
-                        {"key": check.key, "passed": check.passed, "detail": check.detail}
-                        for check in item.checks
-                    ],
-                    summary=item.summary,
-                    latency_ms=item.latency_ms,
-                )
-                for item in run.results
-            )
+            self._add_run(session, run)
             self._audit(
                 session,
                 tenant_id=run.tenant_id,
@@ -570,6 +580,88 @@ class SqlAlchemyEvaluationRepository:
                 },
             )
         return run
+
+    async def save_comparison(self, comparison: EvaluationComparison) -> EvaluationComparison:
+        async with self._session_factory() as session, session.begin():
+            session.add(
+                EvaluationComparisonModel(
+                    id=comparison.id,
+                    tenant_id=comparison.tenant_id,
+                    agent_id=comparison.agent_id,
+                    suite_id=comparison.suite_id,
+                    suite_key=comparison.suite_key,
+                    suite_version=comparison.suite_version,
+                    suite_name=comparison.suite_name,
+                    status=comparison.status.value,
+                    configuration_version=comparison.configuration_version,
+                    persona_version=comparison.persona_version,
+                    prompt_version=comparison.prompt_version,
+                    policy_version=comparison.policy_version,
+                    model_route_version=comparison.model_route_version,
+                    created_by=comparison.created_by,
+                    created_at=comparison.created_at,
+                    completed_at=comparison.completed_at,
+                )
+            )
+            for entry in comparison.entries:
+                self._add_run(session, entry.run)
+                session.add(
+                    EvaluationComparisonEntryModel(
+                        comparison_id=comparison.id,
+                        run_id=entry.run.id,
+                        position=entry.position,
+                        profile_key=entry.profile_key,
+                        profile_version=entry.profile_version,
+                    )
+                )
+            self._audit(
+                session,
+                tenant_id=comparison.tenant_id,
+                actor_id=comparison.created_by,
+                action="evaluation.comparison_completed",
+                resource_id=comparison.id,
+                detail={
+                    "suite_key": comparison.suite_key,
+                    "suite_version": comparison.suite_version,
+                    "candidate_count": len(comparison.entries),
+                    "model_route_version": comparison.model_route_version,
+                },
+            )
+        return comparison
+
+    async def list_comparisons(
+        self, *, tenant_id: UUID, agent_id: UUID, limit: int
+    ) -> tuple[EvaluationComparison, ...]:
+        async with self._session_factory() as session:
+            rows = (
+                await session.scalars(
+                    select(EvaluationComparisonModel)
+                    .where(
+                        EvaluationComparisonModel.tenant_id == tenant_id,
+                        EvaluationComparisonModel.agent_id == agent_id,
+                    )
+                    .order_by(EvaluationComparisonModel.created_at.desc())
+                    .limit(limit)
+                )
+            ).all()
+            return tuple(
+                [await self._comparison(session, row, include_results=False) for row in rows]
+            )
+
+    async def get_comparison(
+        self, *, comparison_id: UUID, tenant_id: UUID, agent_id: UUID
+    ) -> EvaluationComparison | None:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(EvaluationComparisonModel).where(
+                    EvaluationComparisonModel.id == comparison_id,
+                    EvaluationComparisonModel.tenant_id == tenant_id,
+                    EvaluationComparisonModel.agent_id == agent_id,
+                )
+            )
+            if row is None:
+                return None
+            return await self._comparison(session, row, include_results=True)
 
     async def list_runs(
         self, *, tenant_id: UUID, agent_id: UUID, limit: int
@@ -800,6 +892,124 @@ class SqlAlchemyEvaluationRepository:
                 reviews=reviews,
                 pending_reviews=len(eligible_ids - reviewed_ids),
             )
+
+    @staticmethod
+    def _add_run(session: AsyncSession, run: EvaluationRun) -> None:
+        """在调用方事务内写入一次完整回放，不单独提交。"""
+        session.add(
+            EvaluationRunModel(
+                id=run.id,
+                tenant_id=run.tenant_id,
+                agent_id=run.agent_id,
+                suite_id=run.suite_id,
+                suite_key=run.suite_key,
+                suite_version=run.suite_version,
+                suite_name=run.suite_name,
+                status=run.status.value,
+                passed=run.passed,
+                total=run.total,
+                pass_rate=run.pass_rate,
+                gate_passed=run.gate_passed,
+                minimum_pass_rate=run.minimum_pass_rate,
+                configuration_version=run.configuration_version,
+                persona_version=run.persona_version,
+                prompt_version=run.prompt_version,
+                policy_version=run.policy_version,
+                model_route_version=run.model_route_version,
+                provider=run.provider,
+                model=run.model,
+                input_tokens=run.input_tokens,
+                output_tokens=run.output_tokens,
+                estimated_cost_microusd=run.estimated_cost_microusd,
+                error_code=run.error_code,
+                created_by=run.created_by,
+                created_at=run.created_at,
+                completed_at=run.completed_at,
+            )
+        )
+        session.add_all(
+            EvaluationCaseResultModel(
+                id=item.id,
+                run_id=run.id,
+                case_key=item.case_key,
+                category=item.category,
+                input_text=item.input_text,
+                expected_action=item.expected_action,
+                actual_action=item.actual_action,
+                candidate_response=item.candidate_response,
+                reference_response=item.reference_response,
+                passed=item.passed,
+                checks=[
+                    {"key": check.key, "passed": check.passed, "detail": check.detail}
+                    for check in item.checks
+                ],
+                summary=item.summary,
+                latency_ms=item.latency_ms,
+            )
+            for item in run.results
+        )
+
+    async def _comparison(
+        self,
+        session: AsyncSession,
+        row: EvaluationComparisonModel,
+        *,
+        include_results: bool,
+    ) -> EvaluationComparison:
+        selected = (
+            await session.execute(
+                select(EvaluationComparisonEntryModel, EvaluationRunModel)
+                .join(
+                    EvaluationRunModel,
+                    EvaluationRunModel.id == EvaluationComparisonEntryModel.run_id,
+                )
+                .where(EvaluationComparisonEntryModel.comparison_id == row.id)
+                .order_by(EvaluationComparisonEntryModel.position)
+            )
+        ).all()
+        results_by_run: dict[UUID, list[EvaluationCaseResultModel]] = {}
+        if include_results:
+            run_ids = tuple(run.id for _, run in selected)
+            if run_ids:
+                result_rows = (
+                    await session.scalars(
+                        select(EvaluationCaseResultModel)
+                        .where(EvaluationCaseResultModel.run_id.in_(run_ids))
+                        .order_by(
+                            EvaluationCaseResultModel.run_id,
+                            EvaluationCaseResultModel.case_key,
+                        )
+                    )
+                ).all()
+                for result in result_rows:
+                    results_by_run.setdefault(result.run_id, []).append(result)
+        return EvaluationComparison(
+            id=row.id,
+            tenant_id=row.tenant_id,
+            agent_id=row.agent_id,
+            suite_id=row.suite_id,
+            suite_key=row.suite_key,
+            suite_version=row.suite_version,
+            suite_name=row.suite_name,
+            status=EvaluationComparisonStatus(row.status),
+            configuration_version=row.configuration_version,
+            persona_version=row.persona_version,
+            prompt_version=row.prompt_version,
+            policy_version=row.policy_version,
+            model_route_version=row.model_route_version,
+            entries=tuple(
+                EvaluationComparisonEntry(
+                    position=entry.position,
+                    profile_key=entry.profile_key,
+                    profile_version=entry.profile_version,
+                    run=self._run_from_row(run, results_by_run.get(run.id, ())),
+                )
+                for entry, run in selected
+            ),
+            created_by=row.created_by,
+            created_at=row.created_at,
+            completed_at=row.completed_at,
+        )
 
     async def _suite(
         self, session: AsyncSession, row: EvaluationSuiteModel

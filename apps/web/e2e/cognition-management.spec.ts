@@ -7,6 +7,7 @@ const agentId = '33333333-3333-4333-8333-333333333333'
 const draftId = '55555555-5555-4555-8555-555555555555'
 const historicalId = '66666666-6666-4666-8666-666666666666'
 const runId = '77777777-7777-4777-8777-777777777777'
+const comparisonId = '99999999-9999-4999-8999-999999999999'
 const timestamp = '2026-09-10T08:00:00Z'
 
 async function mockAdminSession(page: Page) {
@@ -139,6 +140,51 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
     created_at: timestamp,
     completed_at: timestamp,
   }
+  const qualityRun = {
+    ...evaluationRun,
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    model: 'friendly-quality-v1',
+    input_tokens: 135,
+    output_tokens: 58,
+    estimated_cost_microusd: 753,
+    results: evaluationRun.results.map((result) => ({
+      ...result,
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      candidate_response: '质量候选回答：先看你更想休息，还是找一点新鲜感。',
+      latency_ms: 31,
+    })),
+  }
+  const comparison = {
+    id: comparisonId,
+    suite_id: null,
+    suite_key: 'anthropomorphic-baseline',
+    suite_name: '内置拟人安全基线',
+    suite_version: 1,
+    status: 'completed',
+    configuration_version: 3,
+    persona_version: 2,
+    prompt_version: 4,
+    policy_version: 2,
+    model_route_version: 1,
+    entries: [
+      {
+        position: 1,
+        profile_key: 'fast',
+        profile_version: 1,
+        run: {
+          ...evaluationRun,
+          results: evaluationRun.results.map((result) => ({
+            ...result,
+            candidate_response: '速度候选回答：我们先看看你更想放松还是找点新鲜感。',
+          })),
+        },
+      },
+      { position: 2, profile_key: 'quality', profile_version: 1, run: qualityRun },
+    ],
+    created_by: userId,
+    created_at: timestamp,
+    completed_at: timestamp,
+  }
   await page.route('**/api/v1/evaluations/suites', async (route) => {
     if (route.request().method() === 'POST') {
       const draft = route.request().postDataJSON() as Record<string, unknown>
@@ -176,6 +222,43 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
   await page.route('**/api/v1/evaluations/runs', async (route) => {
     expect(route.request().postDataJSON()).toEqual({ suite_id: null })
     await route.fulfill({ status: 201, json: evaluationRun })
+  })
+  await page.route('**/api/v1/evaluations/comparison-targets', async (route) => {
+    await route.fulfill({ json: { items: [
+      { profile_key: 'fast', profile_version: 1, provider: 'development', model: 'friendly-fast-v1' },
+      { profile_key: 'quality', profile_version: 1, provider: 'development', model: 'friendly-quality-v1' },
+    ] } })
+  })
+  await page.route('**/api/v1/evaluations/comparisons?limit=20', async (route) => {
+    await route.fulfill({ json: { items: [{
+      ...comparison,
+      entries: comparison.entries.map((entry) => ({
+        ...entry,
+        run: {
+          id: entry.run.id,
+          suite_name: entry.run.suite_name,
+          suite_version: entry.run.suite_version,
+          status: entry.run.status,
+          passed: entry.run.passed,
+          total: entry.run.total,
+          pass_rate: entry.run.pass_rate,
+          gate_passed: entry.run.gate_passed,
+          provider: entry.run.provider,
+          model: entry.run.model,
+          created_at: entry.run.created_at,
+        },
+      })),
+    }] } })
+  })
+  await page.route(`**/api/v1/evaluations/comparisons/${comparisonId}`, async (route) => {
+    await route.fulfill({ json: comparison })
+  })
+  await page.route('**/api/v1/evaluations/comparisons', async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      profile_keys: ['fast', 'quality'],
+      suite_id: null,
+    })
+    await route.fulfill({ status: 201, json: comparison })
   })
   await page.route('**/api/v1/evaluations/report', async (route) => {
     await route.fulfill({
@@ -229,6 +312,13 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
   await expect(page.getByText('自然度', { exact: true })).toBeVisible()
   await expect(page.getByText('期望 回复 · 实际 回复 · 18 ms')).toBeVisible()
   await expect(page.getByText('通过 · 期望回复，实际回复')).toBeVisible()
+  await page.getByLabel('fast · v1').check()
+  await page.getByLabel('quality · v1').check()
+  await page.getByRole('button', { name: '运行同源对比' }).click()
+  await expect(page.getByText('速度候选回答：我们先看看你更想放松还是找点新鲜感。')).toBeVisible()
+  await expect(page.getByText('质量候选回答：先看你更想休息，还是找一点新鲜感。')).toBeVisible()
+  await expect(page.getByText('120 / 42')).toBeVisible()
+  await expect(page.getByText('$0.000753')).toBeVisible()
   await page.getByRole('button', { name: '领取下一条' }).click()
   await expect(page.locator('.blind-responses > article > strong').filter({ hasText: '回答 A' })).toBeVisible()
   await expect(page.locator('.blind-responses > article > strong').filter({ hasText: '回答 B' })).toBeVisible()

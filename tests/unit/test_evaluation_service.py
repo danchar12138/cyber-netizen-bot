@@ -1,5 +1,6 @@
 """拟人自动回放、版本质量门与人工盲评服务测试。"""
 
+from datetime import datetime
 from uuid import UUID, uuid4
 
 import pytest
@@ -15,14 +16,115 @@ from cnb_application import (
     StaticModelProviderResolver,
     build_default_registry,
 )
-from cnb_cognition import AnthropomorphicCognitiveRuntime
-from cnb_domain import BlindReviewScore, EvaluationSuiteStatus
+from cnb_cognition import (
+    AgentDecision,
+    AgentEvent,
+    AnthropomorphicCognitiveRuntime,
+    CognitiveContext,
+)
+from cnb_domain import (
+    BlindReviewScore,
+    CognitionResourceKind,
+    EvaluationSuiteStatus,
+    JsonValue,
+)
 from cnb_infrastructure import (
     DevelopmentModelProvider,
     MemoryCognitionRepository,
     MemoryConfigurationRepository,
     MemoryEvaluationRepository,
 )
+
+
+class EventRecordingRuntime:
+    """记录多候选回放事件，并复用真实拟人认知内核。"""
+
+    def __init__(self) -> None:
+        self._delegate = AnthropomorphicCognitiveRuntime()
+        self.events: list[tuple[UUID, UUID, datetime]] = []
+
+    async def run(self, event: AgentEvent, context: CognitiveContext) -> AgentDecision:
+        self.events.append((event.event_id, event.conversation_id, event.occurred_at))
+        return await self._delegate.run(event, context)
+
+
+async def _comparison_service() -> tuple[
+    EvaluationService,
+    EventRecordingRuntime,
+    MemoryEvaluationRepository,
+    UUID,
+]:
+    """建立包含两个已发布档案的真实模型路由。"""
+    agent_id = uuid4()
+    tenant_id = uuid4()
+    actor_id = uuid4()
+    cognition_repository = MemoryCognitionRepository()
+    cognition = CognitionService(cognition_repository, agent_id=agent_id)
+    references: list[JsonValue] = []
+    for key, model, input_price, output_price in (
+        ("fast", "friendly-fast-v1", 1.0, 2.0),
+        ("quality", "friendly-quality-v1", 3.0, 6.0),
+    ):
+        draft = await cognition.create_draft(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            kind=CognitionResourceKind.MODEL_PROFILE,
+            key=key,
+            name=f"{key} 对比档案",
+            payload={
+                "provider": "development",
+                "model": model,
+                "purposes": ["chat.realizer"],
+                "pricing": {
+                    "input_usd_per_million_tokens": input_price,
+                    "output_usd_per_million_tokens": output_price,
+                },
+            },
+            note=None,
+            actor_id=actor_id,
+        )
+        published = await cognition.publish(
+            resource_id=draft.id,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            actor_id=actor_id,
+        )
+        references.append({"key": key, "version": published.version})
+    route = await cognition.create_draft(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        kind=CognitionResourceKind.MODEL_ROUTE,
+        key="chat.realizer",
+        name="多模型对比路由",
+        payload={
+            "purpose": "chat.realizer",
+            "primary_profile": references[0],
+            "fallback_profiles": references[1:],
+            "timeout_seconds": 30,
+            "max_attempts": 2,
+        },
+        note=None,
+        actor_id=actor_id,
+    )
+    await cognition.publish(
+        resource_id=route.id,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        actor_id=actor_id,
+    )
+    repository = MemoryEvaluationRepository()
+    runtime = EventRecordingRuntime()
+    service = EvaluationService(
+        repository,
+        runtime=runtime,
+        cognition_service=cognition,
+        configuration_service=ConfigurationService(
+            build_default_registry(), MemoryConfigurationRepository()
+        ),
+        model_provider_resolver=StaticModelProviderResolver(DevelopmentModelProvider()),
+        agent_id=agent_id,
+    )
+    return service, runtime, repository, tenant_id
 
 
 def _service(agent_id: UUID | None = None) -> EvaluationService:
@@ -186,4 +288,98 @@ async def test_suite_validation_requires_reference_for_repliable_cases() -> None
                 ),
             ),
             actor_id=uuid4(),
+        )
+
+
+async def test_multi_model_comparison_uses_shared_snapshot_and_events() -> None:
+    service, runtime, _, tenant_id = await _comparison_service()
+    actor_id = uuid4()
+
+    targets = await service.list_comparison_targets(tenant_id=tenant_id)
+    comparison = await service.run_comparison(
+        tenant_id=tenant_id,
+        actor_id=actor_id,
+        profile_keys=("fast", "quality"),
+    )
+
+    assert [(item.profile_key, item.profile_version) for item in targets] == [
+        ("fast", 1),
+        ("quality", 1),
+    ]
+    assert [entry.profile_key for entry in comparison.entries] == ["fast", "quality"]
+    assert [entry.run.model for entry in comparison.entries] == [
+        "friendly-fast-v1",
+        "friendly-quality-v1",
+    ]
+    assert all(entry.run.total == 5 for entry in comparison.entries)
+    assert all(
+        entry.run.configuration_version == comparison.configuration_version
+        and entry.run.persona_version == comparison.persona_version
+        and entry.run.prompt_version == comparison.prompt_version
+        and entry.run.policy_version == comparison.policy_version
+        and entry.run.model_route_version == comparison.model_route_version
+        for entry in comparison.entries
+    )
+    first_events = runtime.events[:5]
+    second_events = runtime.events[5:]
+    assert first_events == second_events
+    assert comparison.entries[1].run.estimated_cost_microusd > (
+        comparison.entries[0].run.estimated_cost_microusd
+    )
+
+    summaries = await service.list_comparisons(tenant_id=tenant_id)
+    detail = await service.get_comparison(
+        comparison_id=comparison.id,
+        tenant_id=tenant_id,
+    )
+    assert summaries[0].id == comparison.id
+    assert all(not entry.run.results for entry in summaries[0].entries)
+    assert detail == comparison
+    with pytest.raises(EvaluationNotFoundError):
+        await service.get_comparison(
+            comparison_id=comparison.id,
+            tenant_id=uuid4(),
+        )
+
+
+async def test_multi_model_comparison_rejects_invalid_or_unpublished_targets() -> None:
+    service, _, _, tenant_id = await _comparison_service()
+    actor_id = uuid4()
+
+    with pytest.raises(EvaluationValidationError, match="至少需要选择两个"):
+        await service.run_comparison(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            profile_keys=("fast",),
+        )
+    with pytest.raises(EvaluationValidationError, match="不能重复"):
+        await service.run_comparison(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            profile_keys=("fast", "fast"),
+        )
+    with pytest.raises(EvaluationValidationError, match="不能超过 4 个"):
+        await service.run_comparison(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            profile_keys=("fast", "quality", "third", "fourth", "fifth"),
+        )
+    with pytest.raises(EvaluationValidationError, match="不属于当前已发布路由"):
+        await service.run_comparison(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            profile_keys=("fast", "未发布档案"),
+        )
+
+
+async def test_multi_model_comparison_requires_published_route() -> None:
+    service = _service()
+    tenant_id = uuid4()
+
+    assert await service.list_comparison_targets(tenant_id=tenant_id) == ()
+    with pytest.raises(EvaluationValidationError, match="尚未发布"):
+        await service.run_comparison(
+            tenant_id=tenant_id,
+            actor_id=uuid4(),
+            profile_keys=("fast", "quality"),
         )

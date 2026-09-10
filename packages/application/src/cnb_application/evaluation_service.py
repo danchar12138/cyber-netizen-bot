@@ -5,10 +5,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Protocol
+from typing import Protocol, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from cnb_application.cognition_service import CognitionService, ModelRouteProfile
+from cnb_application.cognition_service import (
+    CognitionService,
+    ModelRouteProfile,
+    RuntimeCognitionBundle,
+)
 from cnb_application.configuration_service import ConfigurationService
 from cnb_application.conversation_service import ModelProviderResolver
 from cnb_cognition import (
@@ -35,6 +39,10 @@ from cnb_domain import (
     EvaluationCaseDefinition,
     EvaluationCaseRunResult,
     EvaluationCheck,
+    EvaluationComparison,
+    EvaluationComparisonEntry,
+    EvaluationComparisonStatus,
+    EvaluationModelTarget,
     EvaluationReport,
     EvaluationRun,
     EvaluationRunStatus,
@@ -103,6 +111,16 @@ class EvaluationRepository(Protocol):
     ) -> EvaluationSuiteDefinition | None: ...
 
     async def save_run(self, run: EvaluationRun) -> EvaluationRun: ...
+
+    async def save_comparison(self, comparison: EvaluationComparison) -> EvaluationComparison: ...
+
+    async def list_comparisons(
+        self, *, tenant_id: UUID, agent_id: UUID, limit: int
+    ) -> tuple[EvaluationComparison, ...]: ...
+
+    async def get_comparison(
+        self, *, comparison_id: UUID, tenant_id: UUID, agent_id: UUID
+    ) -> EvaluationComparison | None: ...
 
     async def list_runs(
         self, *, tenant_id: UUID, agent_id: UUID, limit: int
@@ -234,14 +252,10 @@ class EvaluationService:
         suite_id: UUID | None = None,
     ) -> EvaluationRun:
         """按当前已发布认知与模型配置运行并冻结全部回放产物。"""
-        suite = (
-            await self._published_suite(suite_id=suite_id, tenant_id=tenant_id)
-            if suite_id
-            else self._builtin_suite(
-                tenant_id=tenant_id,
-                agent_id=self._agent_id,
-                actor_id=actor_id,
-            )
+        suite = await self._resolve_suite(
+            suite_id=suite_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
         )
         configuration = await self._configuration_service.resolve_effective(
             tenant_id=tenant_id,
@@ -251,10 +265,165 @@ class EvaluationService:
             tenant_id=tenant_id,
             agent_id=self._agent_id,
         )
-        provider_name, model_name, pricing = self._model_selection(
-            configuration.values,
-            bundle.model_route.profiles[0] if bundle.model_route else None,
+        run = await self._execute_suite(
+            suite=suite,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            configuration_version=configuration.version,
+            configuration=configuration.values,
+            bundle=bundle,
+            profile=bundle.model_route.profiles[0] if bundle.model_route else None,
         )
+        return await self._repository.save_run(run)
+
+    async def list_comparison_targets(
+        self, *, tenant_id: UUID
+    ) -> tuple[EvaluationModelTarget, ...]:
+        """列出当前发布路由中允许参加同源对比的模型档案。"""
+        bundle = await self._cognition_service.resolve_runtime_bundle(
+            tenant_id=tenant_id,
+            agent_id=self._agent_id,
+        )
+        if bundle.model_route is None:
+            return ()
+        return tuple(
+            EvaluationModelTarget(
+                profile_key=profile.profile_key,
+                profile_version=profile.profile_version,
+                provider=profile.provider,
+                model=profile.model,
+            )
+            for profile in bundle.model_route.profiles
+            if profile.profile_key is not None and profile.profile_version is not None
+        )
+
+    async def run_comparison(
+        self,
+        *,
+        tenant_id: UUID,
+        actor_id: UUID,
+        profile_keys: tuple[str, ...],
+        suite_id: UUID | None = None,
+    ) -> EvaluationComparison:
+        """对选定发布档案执行共享事件与资源快照的同源回放。"""
+        normalized_keys = tuple(key.strip() for key in profile_keys)
+        if len(normalized_keys) < 2:
+            raise EvaluationValidationError("多模型对比至少需要选择两个模型档案")
+        if any(not key for key in normalized_keys) or len(set(normalized_keys)) != len(
+            normalized_keys
+        ):
+            raise EvaluationValidationError("模型档案键不能为空且不能重复")
+
+        suite = await self._resolve_suite(
+            suite_id=suite_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+        )
+        configuration = await self._configuration_service.resolve_effective(
+            tenant_id=tenant_id,
+            agent_id=self._agent_id,
+        )
+        maximum_candidates = self._integer_setting(
+            configuration.values,
+            "evaluation.comparison.max_candidates",
+        )
+        if len(normalized_keys) > maximum_candidates:
+            raise EvaluationValidationError(f"单次模型对比不能超过 {maximum_candidates} 个候选")
+        bundle = await self._cognition_service.resolve_runtime_bundle(
+            tenant_id=tenant_id,
+            agent_id=self._agent_id,
+        )
+        if bundle.model_route is None:
+            raise EvaluationValidationError("当前 Agent 尚未发布可用于对比的模型路由")
+        profiles_by_key = {
+            profile.profile_key: profile
+            for profile in bundle.model_route.profiles
+            if profile.profile_key is not None and profile.profile_version is not None
+        }
+        missing = tuple(key for key in normalized_keys if key not in profiles_by_key)
+        if missing:
+            raise EvaluationValidationError(f"模型档案不属于当前已发布路由：{', '.join(missing)}")
+
+        comparison_id = uuid4()
+        started_at = datetime.now(UTC)
+        entries: list[EvaluationComparisonEntry] = []
+        for position, key in enumerate(normalized_keys, start=1):
+            profile = profiles_by_key[key]
+            run = await self._execute_suite(
+                suite=suite,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                configuration_version=configuration.version,
+                configuration=configuration.values,
+                bundle=bundle,
+                profile=profile,
+                event_namespace=comparison_id,
+                event_occurred_at=started_at,
+            )
+            entries.append(
+                EvaluationComparisonEntry(
+                    position=position,
+                    profile_key=key,
+                    profile_version=cast(int, profile.profile_version),
+                    run=run,
+                )
+            )
+
+        comparison = EvaluationComparison(
+            id=comparison_id,
+            tenant_id=tenant_id,
+            agent_id=self._agent_id,
+            suite_id=None if suite.id == self._BUILTIN_SUITE_ID else suite.id,
+            suite_key=suite.key,
+            suite_version=suite.version,
+            suite_name=suite.name,
+            status=EvaluationComparisonStatus.COMPLETED,
+            configuration_version=configuration.version,
+            persona_version=bundle.persona.version,
+            prompt_version=bundle.prompt_version,
+            policy_version=bundle.policy.version,
+            model_route_version=bundle.model_route.version,
+            entries=tuple(entries),
+            created_by=actor_id,
+            created_at=started_at,
+            completed_at=datetime.now(UTC),
+        )
+        return await self._repository.save_comparison(comparison)
+
+    async def list_comparisons(
+        self, *, tenant_id: UUID, limit: int = 20
+    ) -> tuple[EvaluationComparison, ...]:
+        return await self._repository.list_comparisons(
+            tenant_id=tenant_id,
+            agent_id=self._agent_id,
+            limit=max(1, min(limit, 100)),
+        )
+
+    async def get_comparison(self, *, comparison_id: UUID, tenant_id: UUID) -> EvaluationComparison:
+        comparison = await self._repository.get_comparison(
+            comparison_id=comparison_id,
+            tenant_id=tenant_id,
+            agent_id=self._agent_id,
+        )
+        if comparison is None:
+            raise EvaluationNotFoundError(f"模型对比实验不存在：{comparison_id}")
+        return comparison
+
+    async def _execute_suite(
+        self,
+        *,
+        suite: EvaluationSuiteDefinition,
+        tenant_id: UUID,
+        actor_id: UUID,
+        configuration_version: int,
+        configuration: Mapping[str, object],
+        bundle: RuntimeCognitionBundle,
+        profile: ModelRouteProfile | None,
+        event_namespace: UUID | None = None,
+        event_occurred_at: datetime | None = None,
+    ) -> EvaluationRun:
+        """在已解析快照上执行一次候选回放，不负责持久化。"""
+        provider_name, model_name, pricing = self._model_selection(configuration, profile)
         run_id = uuid4()
         started_at = datetime.now(UTC)
         input_tokens = 0
@@ -266,16 +435,18 @@ class EvaluationService:
                 tenant_id=tenant_id,
                 actor_id=actor_id,
                 case=case,
-                configuration_version=configuration.version,
+                configuration_version=configuration_version,
                 persona=bundle.persona,
                 prompt=bundle.prompt,
                 prompt_version=bundle.prompt_version,
                 policy=bundle.policy,
                 provider_name=provider_name,
                 model_name=model_name,
-                system_prompt=self._string_setting(configuration.values, "persona.system_prompt"),
+                system_prompt=self._string_setting(configuration, "persona.system_prompt"),
                 max_output_tokens=suite.max_output_tokens,
                 timeout_seconds=(bundle.model_route.timeout_seconds if bundle.model_route else 60),
+                event_namespace=event_namespace or run_id,
+                event_occurred_at=event_occurred_at,
             )
             results.append(result)
             if usage:
@@ -298,7 +469,7 @@ class EvaluationService:
             pass_rate=pass_rate,
             gate_passed=pass_rate >= suite.minimum_pass_rate,
             minimum_pass_rate=suite.minimum_pass_rate,
-            configuration_version=configuration.version,
+            configuration_version=configuration_version,
             persona_version=bundle.persona.version,
             prompt_version=bundle.prompt_version,
             policy_version=bundle.policy.version,
@@ -318,7 +489,7 @@ class EvaluationService:
             created_at=started_at,
             completed_at=completed_at,
         )
-        return await self._repository.save_run(run)
+        return run
 
     async def list_runs(self, *, tenant_id: UUID, limit: int = 20) -> tuple[EvaluationRun, ...]:
         return await self._repository.list_runs(
@@ -420,6 +591,21 @@ class EvaluationService:
             raise EvaluationConflictError("只有已发布评测集可以运行")
         return suite
 
+    async def _resolve_suite(
+        self,
+        *,
+        suite_id: UUID | None,
+        tenant_id: UUID,
+        actor_id: UUID,
+    ) -> EvaluationSuiteDefinition:
+        if suite_id is not None:
+            return await self._published_suite(suite_id=suite_id, tenant_id=tenant_id)
+        return self._builtin_suite(
+            tenant_id=tenant_id,
+            agent_id=self._agent_id,
+            actor_id=actor_id,
+        )
+
     async def _run_case(
         self,
         *,
@@ -437,16 +623,18 @@ class EvaluationService:
         system_prompt: str,
         max_output_tokens: int,
         timeout_seconds: int,
+        event_namespace: UUID,
+        event_occurred_at: datetime | None,
     ) -> tuple[EvaluationCaseRunResult, ModelUsage | None]:
         started_at = datetime.now(UTC)
         decision = await self._runtime.run(
             AgentEvent(
-                event_id=uuid4(),
+                event_id=uuid5(event_namespace, f"event:{case.case_key}"),
                 tenant_id=tenant_id,
                 agent_id=self._agent_id,
-                conversation_id=uuid4(),
+                conversation_id=uuid5(event_namespace, f"conversation:{case.case_key}"),
                 actor_id=actor_id,
-                occurred_at=started_at,
+                occurred_at=event_occurred_at or started_at,
                 event_type="message.received",
                 text=case.input_text,
             ),
@@ -698,6 +886,13 @@ class EvaluationService:
     def _string_setting(values: Mapping[str, object], key: str) -> str:
         value = values.get(key)
         if not isinstance(value, str):
+            raise EvaluationValidationError(f"评测所需配置无效：{key}")
+        return value
+
+    @staticmethod
+    def _integer_setting(values: Mapping[str, object], key: str) -> int:
+        value = values.get(key)
+        if not isinstance(value, int) or isinstance(value, bool):
             raise EvaluationValidationError(f"评测所需配置无效：{key}")
         return value
 

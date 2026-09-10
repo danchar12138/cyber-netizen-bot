@@ -29,6 +29,8 @@ from cnb_contracts import (
     ConversationListResponse,
     ConversationResponse,
     DataLifecycleOverviewResponse,
+    EvaluationComparisonResponse,
+    EvaluationModelTargetListResponse,
     EvaluationReportResponse,
     EvaluationRunResponse,
     EvaluationSuiteResponse,
@@ -452,6 +454,100 @@ async def test_persisted_evaluation_replay_and_blind_review_api() -> None:
     assert report.completed_reviews == 1
     assert report.pending_reviews == 3
     assert viewer_suite_create.status_code == 403
+
+
+async def test_multi_model_comparison_api_exposes_governed_targets_and_isolated_detail() -> None:
+    """对比 API 只接收已发布路由档案，列表不携带回答，详情按 Agent 隔离。"""
+    async with AsyncClient(transport=_transport(), base_url="http://test") as client:
+        references: list[dict[str, object]] = []
+        for key, model in (("fast", "friendly-fast-v1"), ("quality", "friendly-quality-v1")):
+            draft_response = await client.post(
+                "/api/v1/cognition/resources",
+                json={
+                    "kind": "model_profile",
+                    "key": key,
+                    "name": f"{key} 对比档案",
+                    "payload": {
+                        "provider": "development",
+                        "model": model,
+                        "purposes": ["chat.realizer"],
+                        "pricing": {
+                            "input_usd_per_million_tokens": 1,
+                            "output_usd_per_million_tokens": 2,
+                        },
+                    },
+                },
+            )
+            assert draft_response.status_code == 201
+            published_response = await client.post(
+                f"/api/v1/cognition/resources/{draft_response.json()['id']}/publish"
+            )
+            assert published_response.status_code == 200
+            references.append({"key": key, "version": published_response.json()["version"]})
+
+        route_draft = await client.post(
+            "/api/v1/cognition/resources",
+            json={
+                "kind": "model_route",
+                "key": "chat.realizer",
+                "name": "同源对比路由",
+                "payload": {
+                    "purpose": "chat.realizer",
+                    "primary_profile": references[0],
+                    "fallback_profiles": references[1:],
+                    "timeout_seconds": 30,
+                    "max_attempts": 2,
+                },
+            },
+        )
+        assert route_draft.status_code == 201
+        route_publish = await client.post(
+            f"/api/v1/cognition/resources/{route_draft.json()['id']}/publish"
+        )
+        assert route_publish.status_code == 200
+
+        targets_response = await client.get("/api/v1/evaluations/comparison-targets")
+        comparison_response = await client.post(
+            "/api/v1/evaluations/comparisons",
+            json={"profile_keys": ["fast", "quality"]},
+        )
+        comparison = EvaluationComparisonResponse.model_validate(comparison_response.json())
+        history_response = await client.get("/api/v1/evaluations/comparisons")
+        detail_response = await client.get(f"/api/v1/evaluations/comparisons/{comparison.id}")
+        invalid_target = await client.post(
+            "/api/v1/evaluations/comparisons",
+            json={"profile_keys": ["fast", "unpublished"]},
+        )
+        second_agent_response = await client.post(
+            "/api/v1/administration/agents",
+            json={"name": "隔离验证 Agent"},
+        )
+        isolated_detail = await client.get(
+            f"/api/v1/evaluations/comparisons/{comparison.id}",
+            headers={"X-CNB-Agent-ID": second_agent_response.json()["id"]},
+        )
+        viewer_targets = await client.get(
+            "/api/v1/evaluations/comparison-targets",
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+
+    targets = EvaluationModelTargetListResponse.model_validate(targets_response.json())
+    assert [(item.profile_key, item.model) for item in targets.items] == [
+        ("fast", "friendly-fast-v1"),
+        ("quality", "friendly-quality-v1"),
+    ]
+    assert comparison_response.status_code == 201
+    assert len(comparison.entries) == 2
+    assert all(len(entry.run.results) == 5 for entry in comparison.entries)
+    assert all(entry.run.model_route_version == 1 for entry in comparison.entries)
+    assert history_response.status_code == 200
+    assert "candidate_response" not in history_response.text
+    assert history_response.json()["items"][0]["id"] == str(comparison.id)
+    assert len(detail_response.json()["entries"][0]["run"]["results"]) == 5
+    assert invalid_target.status_code == 422
+    assert second_agent_response.status_code == 201
+    assert isolated_detail.status_code == 404
+    assert viewer_targets.status_code == 403
 
 
 async def test_rbac_rejects_viewer_changes_and_operator_secret_access() -> None:

@@ -1011,6 +1011,81 @@ class EvaluationRunModel(Base):
     )
 
 
+class EvaluationComparisonModel(Base):
+    """一次多模型同源回放的共享资源与评测快照。"""
+
+    __tablename__ = "evaluation_comparisons"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    suite_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("evaluation_suites.id", ondelete="SET NULL")
+    )
+    suite_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    suite_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    suite_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    configuration_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    persona_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    prompt_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    policy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    model_route_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('completed')", name="ck_evaluation_comparisons_status"),
+        Index(
+            "ix_evaluation_comparisons_tenant_created",
+            "tenant_id",
+            "agent_id",
+            "created_at",
+        ),
+    )
+
+
+class EvaluationComparisonEntryModel(Base):
+    """对比实验与有序候选回放的不可变关联。"""
+
+    __tablename__ = "evaluation_comparison_entries"
+
+    comparison_id: Mapped[UUID] = mapped_column(
+        ForeignKey("evaluation_comparisons.id", ondelete="CASCADE"), primary_key=True
+    )
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("evaluation_runs.id", ondelete="CASCADE"),
+        primary_key=True,
+        unique=True,
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    profile_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    profile_version: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("position > 0", name="ck_evaluation_comparison_entries_position"),
+        CheckConstraint(
+            "profile_version > 0", name="ck_evaluation_comparison_entries_profile_version"
+        ),
+        UniqueConstraint(
+            "comparison_id", "position", name="uq_evaluation_comparison_entries_position"
+        ),
+        UniqueConstraint(
+            "comparison_id",
+            "profile_key",
+            name="uq_evaluation_comparison_entries_profile",
+        ),
+        Index("ix_evaluation_comparison_entries_run", "run_id"),
+    )
+
+
 class EvaluationCaseResultModel(Base):
     """一次运行中冻结的单条回答与确定性检查。"""
 

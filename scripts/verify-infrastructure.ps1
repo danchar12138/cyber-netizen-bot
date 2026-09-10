@@ -203,6 +203,81 @@ try {
             -ContentType "application/json" `
             -Body '{"title":"基础设施验收会话"}' `
             -TimeoutSec 10
+
+        $profileReferences = @()
+        foreach ($profile in @(
+            @{ key = "acceptance-fast"; model = "friendly-fast-v1"; inputPrice = 1; outputPrice = 2 },
+            @{ key = "acceptance-quality"; model = "friendly-quality-v1"; inputPrice = 3; outputPrice = 6 }
+        )) {
+            $profileDraftBody = @{
+                kind = "model_profile"
+                key = $profile.key
+                name = "$($profile.key) PostgreSQL 验收档案"
+                payload = @{
+                    provider = "development"
+                    model = $profile.model
+                    purposes = @("chat.realizer")
+                    pricing = @{
+                        input_usd_per_million_tokens = $profile.inputPrice
+                        output_usd_per_million_tokens = $profile.outputPrice
+                    }
+                }
+            } | ConvertTo-Json -Depth 6 -Compress
+            $profileDraft = Invoke-RestMethod `
+                -Method Post `
+                -Uri "$baseUri/api/v1/cognition/resources" `
+                -ContentType "application/json" `
+                -Body $profileDraftBody `
+                -TimeoutSec 10
+            $publishedProfile = Invoke-RestMethod `
+                -Method Post `
+                -Uri "$baseUri/api/v1/cognition/resources/$($profileDraft.id)/publish" `
+                -TimeoutSec 10
+            $profileReferences += @{
+                key = $publishedProfile.key
+                version = $publishedProfile.version
+            }
+        }
+        $routeDraftBody = @{
+            kind = "model_route"
+            key = "chat.realizer"
+            name = "PostgreSQL 多模型验收路由"
+            payload = @{
+                purpose = "chat.realizer"
+                primary_profile = $profileReferences[0]
+                fallback_profiles = @($profileReferences[1])
+                timeout_seconds = 30
+                max_attempts = 2
+            }
+        } | ConvertTo-Json -Depth 6 -Compress
+        $routeDraft = Invoke-RestMethod `
+            -Method Post `
+            -Uri "$baseUri/api/v1/cognition/resources" `
+            -ContentType "application/json" `
+            -Body $routeDraftBody `
+            -TimeoutSec 10
+        $null = Invoke-RestMethod `
+            -Method Post `
+            -Uri "$baseUri/api/v1/cognition/resources/$($routeDraft.id)/publish" `
+            -TimeoutSec 10
+        $comparisonTargets = Invoke-RestMethod `
+            -Uri "$baseUri/api/v1/evaluations/comparison-targets" `
+            -TimeoutSec 10
+        $comparisonBody = @{
+            profile_keys = @("acceptance-fast", "acceptance-quality")
+        } | ConvertTo-Json -Compress
+        $comparison = Invoke-RestMethod `
+            -Method Post `
+            -Uri "$baseUri/api/v1/evaluations/comparisons" `
+            -ContentType "application/json" `
+            -Body $comparisonBody `
+            -TimeoutSec 30
+        $comparisonList = Invoke-RestMethod `
+            -Uri "$baseUri/api/v1/evaluations/comparisons?limit=20" `
+            -TimeoutSec 10
+        $comparisonDetail = Invoke-RestMethod `
+            -Uri "$baseUri/api/v1/evaluations/comparisons/$($comparison.id)" `
+            -TimeoutSec 10
     } catch {
         & docker @composeArguments logs --no-color --tail 100 api web
         throw
@@ -215,6 +290,28 @@ try {
         [string]::IsNullOrWhiteSpace($conversation.id)
     ) {
         throw "生产式 Compose 的 API、依赖或持久化冒烟未通过。"
+    }
+    $comparisonSummaryRunProperties = @($comparisonList.items)[0].entries[0].run.PSObject.Properties.Name
+    if (
+        @($comparisonTargets.items).Count -ne 2 -or
+        @($comparison.entries).Count -ne 2 -or
+        @($comparisonDetail.entries).Count -ne 2 -or
+        @($comparisonDetail.entries[0].run.results).Count -ne 5 -or
+        $comparisonSummaryRunProperties -contains "results"
+    ) {
+        throw "PostgreSQL 多模型对比的目标、完整详情或无正文摘要契约不一致。"
+    }
+    $comparisonDatabaseCounts = Get-Scalar `
+        -Label "PostgreSQL 多模型对比原子持久化" `
+        -DockerArguments (
+            $composeArguments + @(
+                "exec", "-T", "postgres", "psql", "--username=cyber_netizen",
+                "--dbname=cyber_netizen", "--tuples-only", "--no-align",
+                "--command=SELECT concat((SELECT count(*) FROM evaluation_comparisons), ':', (SELECT count(*) FROM evaluation_comparison_entries), ':', (SELECT count(*) FROM evaluation_runs), ':', (SELECT count(*) FROM evaluation_case_results));"
+            )
+        )
+    if ($comparisonDatabaseCounts -ne "1:2:2:10") {
+        throw "PostgreSQL 多模型对比没有原子保存实验、两个运行及其十条用例结果。"
     }
 
     $seedObjectScript = @'
@@ -441,6 +538,8 @@ if not conversations.get("items"):
         postgresql_integrity = $true
         minio_object_integrity = $true
         restored_application_smoke = $true
+        evaluation_comparison_persisted = $true
+        evaluation_comparison_counts = $comparisonDatabaseCounts
     }
 } finally {
     & docker rm --force $restoreApi $restoreRedis $restoreMinio $restorePostgres *> $null

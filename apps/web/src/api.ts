@@ -6,6 +6,9 @@ import type {
   AttachmentReservationResponse,
   ConfigDefinitionResponse,
   ConversationResponse,
+  EvaluationComparisonResponse,
+  EvaluationComparisonSummaryResponse,
+  EvaluationModelTargetResponse,
   ExternalConversationMappingResponse,
   ExternalIdentityMappingResponse,
   InboxEventResponse,
@@ -846,6 +849,10 @@ export interface EvaluationReport {
   reference_average_score: number | null
 }
 
+export type EvaluationModelTarget = EvaluationModelTargetResponse
+export type EvaluationComparison = EvaluationComparisonResponse
+export type EvaluationComparisonSummary = EvaluationComparisonSummaryResponse
+
 export type MemoryKind =
   | 'working'
   | 'episodic'
@@ -1466,6 +1473,24 @@ export const getEvaluationRuns = () =>
 
 export const getEvaluationRun = (runId: string) =>
   apiSdk.getApiV1EvaluationsRunsByRunId({ path: { run_id: runId } })
+
+export const getEvaluationComparisonTargets = () =>
+  apiSdk.getApiV1EvaluationsComparisonTargets()
+
+export const runEvaluationComparison = (
+  profileKeys: string[],
+  suiteId: string | null = null,
+) => apiSdk.postApiV1EvaluationsComparisons({
+  body: { profile_keys: profileKeys, suite_id: suiteId },
+})
+
+export const getEvaluationComparisons = () =>
+  apiSdk.getApiV1EvaluationsComparisons({ query: { limit: 20 } })
+
+export const getEvaluationComparison = (comparisonId: string) =>
+  apiSdk.getApiV1EvaluationsComparisonsByComparisonId({
+    path: { comparison_id: comparisonId },
+  })
 
 export const getEvaluationReport = () =>
   apiSdk.getApiV1EvaluationsReport()

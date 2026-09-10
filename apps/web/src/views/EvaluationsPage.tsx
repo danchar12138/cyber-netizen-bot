@@ -6,12 +6,16 @@ import {
   claimBlindReviewAssignment,
   createEvaluationSuite,
   getAdminSession,
+  getEvaluationComparison,
+  getEvaluationComparisons,
+  getEvaluationComparisonTargets,
   getEvaluationReport,
   getEvaluationRun,
   getEvaluationRuns,
   getEvaluationSuites,
   publishEvaluationSuite,
   runEvaluation,
+  runEvaluationComparison,
   submitBlindReview,
   type BlindReviewAssignment,
   type BlindReviewScore,
@@ -54,6 +58,10 @@ function scoreLabel(value: number) {
   return ['不可用', '很差', '较差', '一般', '良好', '优秀'][value]
 }
 
+function formatCost(microusd: number) {
+  return `$${(microusd / 1_000_000).toFixed(6)}`
+}
+
 function ScoreEditor({
   label,
   value,
@@ -93,6 +101,8 @@ export function EvaluationsPage() {
   const [editing, setEditing] = useState(false)
   const [selectedSuite, setSelectedSuite] = useState('')
   const [selectedRun, setSelectedRun] = useState<string | null>(null)
+  const [selectedProfileKeys, setSelectedProfileKeys] = useState<string[]>([])
+  const [selectedComparison, setSelectedComparison] = useState<string | null>(null)
   const [assignment, setAssignment] = useState<BlindReviewAssignment | null>(null)
   const [scoreA, setScoreA] = useState(neutralScore)
   const [scoreB, setScoreB] = useState(neutralScore)
@@ -109,13 +119,30 @@ export function EvaluationsPage() {
   const suites = useQuery({ queryKey: ['evaluation-suites', selectedAgentId], queryFn: getEvaluationSuites })
   const runs = useQuery({ queryKey: ['evaluation-runs', selectedAgentId], queryFn: getEvaluationRuns })
   const report = useQuery({ queryKey: ['evaluation-report', selectedAgentId], queryFn: getEvaluationReport })
+  const comparisonTargets = useQuery({
+    queryKey: ['evaluation-comparison-targets', selectedAgentId],
+    queryFn: getEvaluationComparisonTargets,
+  })
+  const comparisons = useQuery({
+    queryKey: ['evaluation-comparisons', selectedAgentId],
+    queryFn: getEvaluationComparisons,
+  })
   const runDetail = useQuery({
     queryKey: ['evaluation-run', selectedAgentId, selectedRun],
     queryFn: () => getEvaluationRun(selectedRun ?? ''),
     enabled: Boolean(selectedRun),
   })
+  const comparisonDetail = useQuery({
+    queryKey: ['evaluation-comparison', selectedAgentId, selectedComparison],
+    queryFn: () => getEvaluationComparison(selectedComparison ?? ''),
+    enabled: Boolean(selectedComparison),
+  })
 
-  useEffect(() => setSelectedRun(null), [selectedAgentId])
+  useEffect(() => {
+    setSelectedRun(null)
+    setSelectedComparison(null)
+    setSelectedProfileKeys([])
+  }, [selectedAgentId])
   const canManage = session.data?.permissions.includes('cognition:write') ?? false
   const canRun = session.data?.permissions.includes('cognition:evaluate') ?? false
   const canReview = session.data?.permissions.includes('evaluation:review') ?? false
@@ -161,6 +188,14 @@ export function EvaluationsPage() {
       await refresh()
     },
   })
+  const runComparison = useMutation({
+    mutationFn: () => runEvaluationComparison(selectedProfileKeys, selectedSuite || null),
+    onSuccess: async (value) => {
+      setSelectedComparison(value.id)
+      await invalidateAcrossTabs(queryClient, ['evaluation-comparisons'])
+      await refresh()
+    },
+  })
   const claimReview = useMutation({
     mutationFn: () => claimBlindReviewAssignment(selectedRun),
     onSuccess: (value) => {
@@ -188,7 +223,14 @@ export function EvaluationsPage() {
   })
 
   const operationError = createSuite.error ?? publishSuite.error ?? runSuite.error
+    ?? runComparison.error
     ?? claimReview.error ?? submitReview.error
+
+  const toggleProfile = (profileKey: string) => {
+    setSelectedProfileKeys((current) => current.includes(profileKey)
+      ? current.filter((item) => item !== profileKey)
+      : [...current, profileKey])
+  }
 
   return (
     <div className="page">
@@ -238,6 +280,73 @@ export function EvaluationsPage() {
           {suite.status === 'draft' && <button disabled={!canManage || publishSuite.isPending} onClick={() => publishSuite.mutate(suite.id)}><Rocket size={12} /> 发布</button>}
         </article>)}
       </section>
+
+      <section className="panel comparison-panel">
+        <div className="panel-heading">
+          <div><h2>多模型同源对比</h2><span className="subtle">同一评测集、事件时间与认知快照</span></div>
+          <button
+            className="primary-button"
+            disabled={!canRun || selectedProfileKeys.length < 2 || runComparison.isPending}
+            onClick={() => runComparison.mutate()}
+          >
+            <FlaskConical size={14} /> {runComparison.isPending ? '对比中…' : '运行同源对比'}
+          </button>
+        </div>
+        {comparisonTargets.data && comparisonTargets.data.items.length < 2 && <div className="empty-state compact">当前 Agent 的已发布 chat.realizer 路由不足两个模型档案，请先在认知资源中发布完整路由。</div>}
+        <div className="comparison-targets" role="group" aria-label="对比模型候选">
+          {comparisonTargets.data?.items.map((target) => <label className={selectedProfileKeys.includes(target.profile_key) ? 'selected' : ''} key={target.profile_key}>
+            <input
+              type="checkbox"
+              checked={selectedProfileKeys.includes(target.profile_key)}
+              onChange={() => toggleProfile(target.profile_key)}
+            />
+            <span><strong>{target.profile_key} · v{target.profile_version}</strong><small>{target.provider}/{target.model}</small></span>
+          </label>)}
+        </div>
+        {!!comparisonTargets.data?.items.length && <p className="comparison-selection-note">已选择 {selectedProfileKeys.length} 个候选，至少选择 2 个；实际候选上限由配置中心控制。</p>}
+      </section>
+
+      <div className="evaluation-workspace comparison-workspace">
+        <section className="panel evaluation-history comparison-history">
+          <div className="panel-heading"><h2>对比历史</h2><span className="subtle">{comparisons.data?.items.length ?? 0} 次</span></div>
+          {!comparisons.data?.items.length && <div className="empty-state">完成一次同源对比后，这里只展示指标摘要，不包含回答正文。</div>}
+          {comparisons.data?.items.map((comparison) => <button className={selectedComparison === comparison.id ? 'selected' : ''} key={comparison.id} onClick={() => setSelectedComparison(comparison.id)}>
+            <CheckCircle2 className="passed" size={17} />
+            <span><strong>{comparison.suite_name} · v{comparison.suite_version}</strong><small>{comparison.entries.map((entry) => `${entry.profile_key} ${entry.run.pass_rate.toFixed(1)}%`).join(' · ')}</small></span>
+          </button>)}
+        </section>
+
+        <section className="panel comparison-detail">
+          <div className="panel-heading"><h2>候选指标与逐用例回答</h2><span className="subtle">{comparisonDetail.data ? `配置 v${comparisonDetail.data.configuration_version} · 路由 v${comparisonDetail.data.model_route_version}` : '选择一次对比'}</span></div>
+          {!comparisonDetail.data && <div className="empty-state">选择左侧实验查看各候选通过率、延迟、Token、成本和并列回答。</div>}
+          <div className="comparison-metrics">
+            {comparisonDetail.data?.entries.map((entry) => <article className="comparison-entry-card" key={entry.profile_key}>
+              <div><strong>{entry.profile_key} · v{entry.profile_version}</strong><span>{entry.run.provider}/{entry.run.model}</span></div>
+              <dl>
+                <div><dt>通过率</dt><dd>{entry.run.pass_rate.toFixed(1)}%</dd></div>
+                <div><dt>总延迟</dt><dd>{entry.run.results.reduce((total, item) => total + item.latency_ms, 0)} ms</dd></div>
+                <div><dt>输入 / 输出 Token</dt><dd>{entry.run.input_tokens} / {entry.run.output_tokens}</dd></div>
+                <div><dt>估算成本</dt><dd>{formatCost(entry.run.estimated_cost_microusd)}</dd></div>
+              </dl>
+            </article>)}
+          </div>
+          <div className="comparison-cases">
+            {comparisonDetail.data?.entries[0]?.run.results.map((reference) => <article className="comparison-case" key={reference.case_key}>
+              <header><strong>{reference.category}</strong><code>{reference.case_key}</code><p>“{reference.input_text}”</p></header>
+              <div className="comparison-responses">
+                {comparisonDetail.data?.entries.map((entry) => {
+                  const result = entry.run.results.find((item) => item.case_key === reference.case_key)
+                  return <article key={entry.profile_key}>
+                    <strong>{entry.profile_key} · v{entry.profile_version}</strong>
+                    <p>{result?.candidate_response || '（无回复）'}</p>
+                    <small>{result ? `${displayLabel(cognitiveActionLabels, result.actual_action)} · ${result.latency_ms} ms · ${result.passed ? '通过' : '未通过'}` : '结果缺失'}</small>
+                  </article>
+                })}
+              </div>
+            </article>)}
+          </div>
+        </section>
+      </div>
 
       <div className="evaluation-workspace">
         <section className="panel evaluation-history">

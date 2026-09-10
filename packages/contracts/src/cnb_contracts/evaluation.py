@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from cnb_domain import (
     BlindReviewPreference,
+    EvaluationComparisonStatus,
     EvaluationRunStatus,
     EvaluationSuiteStatus,
 )
@@ -165,6 +166,97 @@ class EvaluationRunListResponse(BaseModel):
     """最近自动回放历史。"""
 
     items: tuple[EvaluationRunSummaryResponse, ...]
+
+
+class EvaluationModelTargetResponse(BaseModel):
+    """当前已发布模型路由中的一个可比较档案。"""
+
+    profile_key: str
+    profile_version: int
+    provider: str
+    model: str
+
+
+class EvaluationModelTargetListResponse(BaseModel):
+    """当前 Agent 允许参加同源对比的模型档案。"""
+
+    items: tuple[EvaluationModelTargetResponse, ...]
+
+
+class EvaluationComparisonCreate(BaseModel):
+    """使用指定发布模型档案运行一次同源对比。"""
+
+    suite_id: UUID | None = None
+    profile_keys: tuple[str, ...] = Field(min_length=2, max_length=8)
+
+    @model_validator(mode="after")
+    def profile_keys_are_unique(self) -> "EvaluationComparisonCreate":
+        """在进入应用层前拒绝空白或重复档案键。"""
+        normalized = [key.strip() for key in self.profile_keys]
+        if any(not key for key in normalized) or len(normalized) != len(set(normalized)):
+            raise ValueError("模型档案键不能为空且不能重复")
+        return self
+
+
+class EvaluationComparisonEntryResponse(BaseModel):
+    """对比实验中的一个候选及完整回放。"""
+
+    position: int
+    profile_key: str
+    profile_version: int
+    run: EvaluationRunResponse
+
+
+class EvaluationComparisonResponse(BaseModel):
+    """带共享快照和逐候选结果的多模型对比详情。"""
+
+    id: UUID
+    suite_id: UUID | None
+    suite_key: str
+    suite_version: int
+    suite_name: str
+    status: EvaluationComparisonStatus
+    configuration_version: int
+    persona_version: int
+    prompt_version: int
+    policy_version: int
+    model_route_version: int
+    entries: tuple[EvaluationComparisonEntryResponse, ...]
+    created_by: UUID
+    created_at: datetime
+    completed_at: datetime
+
+
+class EvaluationComparisonEntrySummaryResponse(BaseModel):
+    """对比历史中的候选轻量指标。"""
+
+    position: int
+    profile_key: str
+    profile_version: int
+    run: EvaluationRunSummaryResponse
+
+
+class EvaluationComparisonSummaryResponse(BaseModel):
+    """不携带回答正文的多模型对比历史摘要。"""
+
+    id: UUID
+    suite_name: str
+    suite_version: int
+    status: EvaluationComparisonStatus
+    configuration_version: int
+    persona_version: int
+    prompt_version: int
+    policy_version: int
+    model_route_version: int
+    entries: tuple[EvaluationComparisonEntrySummaryResponse, ...]
+    created_at: datetime
+    completed_at: datetime
+
+
+class EvaluationComparisonListResponse(BaseModel):
+    """当前 Agent 的最近多模型对比历史。"""
+
+    items: tuple[EvaluationComparisonSummaryResponse, ...]
 
 
 class BlindReviewAssignmentCreate(BaseModel):

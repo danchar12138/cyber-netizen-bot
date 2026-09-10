@@ -2667,6 +2667,237 @@ export type EvaluationCheckResponse = {
 };
 
 /**
+ * EvaluationComparisonCreate
+ *
+ * 使用指定发布模型档案运行一次同源对比。
+ */
+export type EvaluationComparisonCreate = {
+    /**
+     * Profile Keys
+     */
+    profile_keys: Array<string>;
+    /**
+     * Suite Id
+     */
+    suite_id?: string | null;
+};
+
+/**
+ * EvaluationComparisonEntryResponse
+ *
+ * 对比实验中的一个候选及完整回放。
+ */
+export type EvaluationComparisonEntryResponse = {
+    /**
+     * Position
+     */
+    position: number;
+    /**
+     * Profile Key
+     */
+    profile_key: string;
+    /**
+     * Profile Version
+     */
+    profile_version: number;
+    run: EvaluationRunResponse;
+};
+
+/**
+ * EvaluationComparisonEntrySummaryResponse
+ *
+ * 对比历史中的候选轻量指标。
+ */
+export type EvaluationComparisonEntrySummaryResponse = {
+    /**
+     * Position
+     */
+    position: number;
+    /**
+     * Profile Key
+     */
+    profile_key: string;
+    /**
+     * Profile Version
+     */
+    profile_version: number;
+    run: EvaluationRunSummaryResponse;
+};
+
+/**
+ * EvaluationComparisonListResponse
+ *
+ * 当前 Agent 的最近多模型对比历史。
+ */
+export type EvaluationComparisonListResponse = {
+    /**
+     * Items
+     */
+    items: Array<EvaluationComparisonSummaryResponse>;
+};
+
+/**
+ * EvaluationComparisonResponse
+ *
+ * 带共享快照和逐候选结果的多模型对比详情。
+ */
+export type EvaluationComparisonResponse = {
+    /**
+     * Completed At
+     */
+    completed_at: string;
+    /**
+     * Configuration Version
+     */
+    configuration_version: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Created By
+     */
+    created_by: string;
+    /**
+     * Entries
+     */
+    entries: Array<EvaluationComparisonEntryResponse>;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Model Route Version
+     */
+    model_route_version: number;
+    /**
+     * Persona Version
+     */
+    persona_version: number;
+    /**
+     * Policy Version
+     */
+    policy_version: number;
+    /**
+     * Prompt Version
+     */
+    prompt_version: number;
+    status: EvaluationComparisonStatus;
+    /**
+     * Suite Id
+     */
+    suite_id: string | null;
+    /**
+     * Suite Key
+     */
+    suite_key: string;
+    /**
+     * Suite Name
+     */
+    suite_name: string;
+    /**
+     * Suite Version
+     */
+    suite_version: number;
+};
+
+/**
+ * EvaluationComparisonStatus
+ *
+ * 一次多模型同源回放实验的终态。
+ */
+export type EvaluationComparisonStatus = 'completed';
+
+/**
+ * EvaluationComparisonSummaryResponse
+ *
+ * 不携带回答正文的多模型对比历史摘要。
+ */
+export type EvaluationComparisonSummaryResponse = {
+    /**
+     * Completed At
+     */
+    completed_at: string;
+    /**
+     * Configuration Version
+     */
+    configuration_version: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Entries
+     */
+    entries: Array<EvaluationComparisonEntrySummaryResponse>;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Model Route Version
+     */
+    model_route_version: number;
+    /**
+     * Persona Version
+     */
+    persona_version: number;
+    /**
+     * Policy Version
+     */
+    policy_version: number;
+    /**
+     * Prompt Version
+     */
+    prompt_version: number;
+    status: EvaluationComparisonStatus;
+    /**
+     * Suite Name
+     */
+    suite_name: string;
+    /**
+     * Suite Version
+     */
+    suite_version: number;
+};
+
+/**
+ * EvaluationModelTargetListResponse
+ *
+ * 当前 Agent 允许参加同源对比的模型档案。
+ */
+export type EvaluationModelTargetListResponse = {
+    /**
+     * Items
+     */
+    items: Array<EvaluationModelTargetResponse>;
+};
+
+/**
+ * EvaluationModelTargetResponse
+ *
+ * 当前已发布模型路由中的一个可比较档案。
+ */
+export type EvaluationModelTargetResponse = {
+    /**
+     * Model
+     */
+    model: string;
+    /**
+     * Profile Key
+     */
+    profile_key: string;
+    /**
+     * Profile Version
+     */
+    profile_version: number;
+    /**
+     * Provider
+     */
+    provider: string;
+};
+
+/**
  * EvaluationReportResponse
  *
  * 拟人自动回归与人工盲评聚合报告。
@@ -10263,6 +10494,244 @@ export type PostApiV1EvaluationsBlindAssignmentsByAssignmentIdReviewsResponses =
 };
 
 export type PostApiV1EvaluationsBlindAssignmentsByAssignmentIdReviewsResponse = PostApiV1EvaluationsBlindAssignmentsByAssignmentIdReviewsResponses[keyof PostApiV1EvaluationsBlindAssignmentsByAssignmentIdReviewsResponses];
+
+export type GetApiV1EvaluationsComparisonTargetsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/evaluations/comparison-targets';
+};
+
+export type GetApiV1EvaluationsComparisonTargetsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1EvaluationsComparisonTargetsError = GetApiV1EvaluationsComparisonTargetsErrors[keyof GetApiV1EvaluationsComparisonTargetsErrors];
+
+export type GetApiV1EvaluationsComparisonTargetsResponses = {
+    /**
+     * Successful Response
+     */
+    200: EvaluationModelTargetListResponse;
+};
+
+export type GetApiV1EvaluationsComparisonTargetsResponse = GetApiV1EvaluationsComparisonTargetsResponses[keyof GetApiV1EvaluationsComparisonTargetsResponses];
+
+export type GetApiV1EvaluationsComparisonsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/evaluations/comparisons';
+};
+
+export type GetApiV1EvaluationsComparisonsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1EvaluationsComparisonsError = GetApiV1EvaluationsComparisonsErrors[keyof GetApiV1EvaluationsComparisonsErrors];
+
+export type GetApiV1EvaluationsComparisonsResponses = {
+    /**
+     * Successful Response
+     */
+    200: EvaluationComparisonListResponse;
+};
+
+export type GetApiV1EvaluationsComparisonsResponse = GetApiV1EvaluationsComparisonsResponses[keyof GetApiV1EvaluationsComparisonsResponses];
+
+export type PostApiV1EvaluationsComparisonsData = {
+    body: EvaluationComparisonCreate;
+    path?: never;
+    query?: never;
+    url: '/api/v1/evaluations/comparisons';
+};
+
+export type PostApiV1EvaluationsComparisonsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1EvaluationsComparisonsError = PostApiV1EvaluationsComparisonsErrors[keyof PostApiV1EvaluationsComparisonsErrors];
+
+export type PostApiV1EvaluationsComparisonsResponses = {
+    /**
+     * Successful Response
+     */
+    201: EvaluationComparisonResponse;
+};
+
+export type PostApiV1EvaluationsComparisonsResponse = PostApiV1EvaluationsComparisonsResponses[keyof PostApiV1EvaluationsComparisonsResponses];
+
+export type GetApiV1EvaluationsComparisonsByComparisonIdData = {
+    body?: never;
+    path: {
+        /**
+         * Comparison Id
+         */
+        comparison_id: string;
+    };
+    query?: never;
+    url: '/api/v1/evaluations/comparisons/{comparison_id}';
+};
+
+export type GetApiV1EvaluationsComparisonsByComparisonIdErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1EvaluationsComparisonsByComparisonIdError = GetApiV1EvaluationsComparisonsByComparisonIdErrors[keyof GetApiV1EvaluationsComparisonsByComparisonIdErrors];
+
+export type GetApiV1EvaluationsComparisonsByComparisonIdResponses = {
+    /**
+     * Successful Response
+     */
+    200: EvaluationComparisonResponse;
+};
+
+export type GetApiV1EvaluationsComparisonsByComparisonIdResponse = GetApiV1EvaluationsComparisonsByComparisonIdResponses[keyof GetApiV1EvaluationsComparisonsByComparisonIdResponses];
 
 export type GetApiV1EvaluationsReportData = {
     body?: never;

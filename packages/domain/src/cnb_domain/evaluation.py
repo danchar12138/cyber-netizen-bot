@@ -21,6 +21,12 @@ class EvaluationRunStatus(StrEnum):
     FAILED = "failed"
 
 
+class EvaluationComparisonStatus(StrEnum):
+    """一次多模型同源回放实验的终态。"""
+
+    COMPLETED = "completed"
+
+
 class BlindReviewPreference(StrEnum):
     """服务端去盲后保存的比较结论。"""
 
@@ -122,6 +128,49 @@ class EvaluationRun:
     estimated_cost_microusd: int
     error_code: str | None
     results: tuple[EvaluationCaseRunResult, ...]
+    created_by: UUID
+    created_at: datetime
+    completed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationModelTarget:
+    """当前已发布模型路由中可参加对比的不可变档案。"""
+
+    profile_key: str
+    profile_version: int
+    provider: str
+    model: str
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationComparisonEntry:
+    """对比实验中的一个有序模型候选及其完整回放。"""
+
+    position: int
+    profile_key: str
+    profile_version: int
+    run: EvaluationRun
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationComparison:
+    """共享评测与认知快照的一组多模型回放。"""
+
+    id: UUID
+    tenant_id: UUID
+    agent_id: UUID
+    suite_id: UUID | None
+    suite_key: str
+    suite_version: int
+    suite_name: str
+    status: EvaluationComparisonStatus
+    configuration_version: int
+    persona_version: int
+    prompt_version: int
+    policy_version: int
+    model_route_version: int
+    entries: tuple[EvaluationComparisonEntry, ...]
     created_by: UUID
     created_at: datetime
     completed_at: datetime

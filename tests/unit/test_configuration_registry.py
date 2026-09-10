@@ -84,6 +84,20 @@ def test_long_conversation_compression_is_runtime_managed_and_bounded() -> None:
         assert definition.minimum <= default <= definition.maximum
 
 
+def test_model_comparison_candidate_limit_is_runtime_managed() -> None:
+    definition = {item.key: item for item in build_default_registry().all()}[
+        "evaluation.comparison.max_candidates"
+    ]
+
+    assert definition.section == "evaluation"
+    assert definition.label == "单次模型对比候选上限"
+    assert definition.value_kind is ConfigValueKind.INTEGER
+    assert definition.default == 4
+    assert definition.minimum == 2
+    assert definition.maximum == 8
+    assert ConfigScope.AGENT in definition.scopes
+
+
 def test_registry_rejects_duplicate_keys() -> None:
     definition = ConfigDefinition(
         key="test.enabled",
