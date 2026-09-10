@@ -28,6 +28,7 @@ import type { ComponentType, ReactNode } from 'react'
 
 import { getAdminSession } from '../api'
 import { useAuthentication } from '../components/authentication-context'
+import { adminRoleLabels } from '../displayLabels'
 
 interface NavigationItem {
   label: string
@@ -92,7 +93,6 @@ function NavigationGroup({
 export function AdminShell({ children }: { children: ReactNode }) {
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const authentication = useAuthentication()
-  const roleLabels = { admin: '管理员', operator: '运营者', viewer: '只读' }
 
   return (
     <div className="admin-shell">
@@ -147,7 +147,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </div>
           <div className="topbar-actions">
             <div className="secure-badge">
-              <ShieldCheck size={14} /> {session.data ? roleLabels[session.data.role] : '正在验证权限'}
+              <ShieldCheck size={14} /> {session.data ? adminRoleLabels[session.data.role] : '正在验证权限'}
             </div>
             <button className="icon-button" aria-label="凭证管理"><KeyRound size={17} /></button>
             {authentication.mode === 'oidc' && (

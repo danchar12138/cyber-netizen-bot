@@ -75,7 +75,7 @@ test('可以管理数据生命周期并登记隔离恢复证据', async ({ page 
   await page.route('**/api/v1/data-lifecycle/forget', async (route) => {
     expect(route.request().postDataJSON()).toEqual({
       user_id: userId,
-      confirmation: `FORGET ${userId}`,
+      confirmation: `确认永久遗忘 ${userId}`,
     })
     const result = run('user_forget', {
       subject_user_id: userId,
@@ -105,7 +105,7 @@ test('可以管理数据生命周期并登记隔离恢复证据', async ({ page 
       database_integrity_verified: true,
       object_integrity_verified: true,
       application_smoke_verified: true,
-      confirmation: 'BACKUP RESTORE VERIFIED',
+      confirmation: '确认备份恢复演练已验证',
     })
     const result = run('backup_restore_drill', {
       counters: { database_rows_verified: 120, objects_verified: 8 },
@@ -129,7 +129,7 @@ test('可以管理数据生命周期并登记隔离恢复证据', async ({ page 
   expect(download.suggestedFilename()).toBe(`cyber-netizen-user-${userId}.json`)
   await expect(page.getByText(/导出已生成并开始下载/)).toBeVisible()
 
-  await page.locator('.lifecycle-danger-zone input').fill(`FORGET ${userId}`)
+  await page.locator('.lifecycle-danger-zone input').fill(`确认永久遗忘 ${userId}`)
   await page.getByRole('button', { name: '永久遗忘用户数据' }).click()
   await expect(page.getByText('用户正文、身份绑定、记忆、关系与私有对象已按策略处理。')).toBeVisible()
 
@@ -146,7 +146,7 @@ test('可以管理数据生命周期并登记隔离恢复证据', async ({ page 
   await page.getByLabel('PostgreSQL 完整性').check()
   await page.getByLabel('MinIO 对象完整性').check()
   await page.getByLabel('应用冒烟').check()
-  await page.locator('.lifecycle-confirmation input').fill('BACKUP RESTORE VERIFIED')
+  await page.locator('.lifecycle-confirmation input').fill('确认备份恢复演练已验证')
   await page.getByRole('button', { name: '登记演练证据' }).click()
   await expect(page.getByText('隔离恢复演练证据已登记。')).toBeVisible()
   await expect(page.getByText('备份恢复演练').first()).toBeVisible()

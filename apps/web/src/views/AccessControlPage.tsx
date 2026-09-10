@@ -4,6 +4,7 @@ import { useCallback } from 'react'
 
 import { type AdminRoleDefinition, getAdminRoles, getAdminSession } from '../api'
 import { AdminDataTable, type AdminTableColumn } from '../components/AdminDataTable'
+import { adminRoleLabels, authenticationModeLabels, displayLabel } from '../displayLabels'
 
 const permissionLabels: Record<string, string> = {
   'dashboard:read': '查看总览',
@@ -24,7 +25,7 @@ const columns: Array<AdminTableColumn<AdminRoleDefinition>> = [
   {
     key: 'role',
     label: '角色',
-    render: (row) => <div className="table-primary"><strong>{row.label}</strong><code>{row.role}</code></div>,
+    render: (row) => <div className="table-primary"><strong>{row.label}</strong></div>,
   },
   { key: 'description', label: '职责边界', render: (row) => row.description },
   {
@@ -55,8 +56,8 @@ export function AccessControlPage() {
       <div className="notice info">
         <ShieldCheck size={17} />
         <div>
-          <strong>当前会话：{session.data?.display_name ?? '读取中'} · {session.data?.role ?? '—'}</strong>
-          <span>认证模式：{session.data?.authentication_mode ?? '—'}；OIDC 角色由可信签名 claim 映射并由服务端执行最小权限校验。</span>
+          <strong>当前会话：{session.data?.display_name ?? '读取中'} · {session.data ? adminRoleLabels[session.data.role] : '—'}</strong>
+          <span>认证模式：{session.data ? displayLabel(authenticationModeLabels, session.data.authentication_mode) : '—'}；OIDC 角色由可信签名 claim 映射并由服务端执行最小权限校验。</span>
         </div>
       </div>
 

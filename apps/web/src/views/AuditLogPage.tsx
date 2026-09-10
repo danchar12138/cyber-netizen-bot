@@ -2,8 +2,14 @@ import { useQuery } from '@tanstack/react-query'
 import { ScrollText } from 'lucide-react'
 import { useCallback, useMemo } from 'react'
 
-import { type AuditRecord, formatConfigValue, getAuditRecords } from '../api'
+import { type AuditRecord, getAuditRecords } from '../api'
 import { AdminDataTable, type AdminTableColumn } from '../components/AdminDataTable'
+import {
+  auditActionLabels,
+  auditResourceLabels,
+  displayLabel,
+  formatMetadataEntries,
+} from '../displayLabels'
 
 export function AuditLogPage() {
   const audit = useQuery({ queryKey: ['audit-records'], queryFn: () => getAuditRecords() })
@@ -11,19 +17,19 @@ export function AuditLogPage() {
     {
       key: 'action',
       label: '操作',
-      render: (row) => <div className="table-primary"><strong>{row.action}</strong><code>#{row.id}</code></div>,
+      render: (row) => <div className="table-primary"><strong>{displayLabel(auditActionLabels, row.action)}</strong><code>#{row.id}</code></div>,
     },
-    { key: 'resource', label: '资源', render: (row) => <span>{row.resource_type}<code className="block-code">{row.resource_id ?? '批量/系统'}</code></span> },
+    { key: 'resource', label: '资源', render: (row) => <span>{displayLabel(auditResourceLabels, row.resource_type)}<code className="block-code">{row.resource_id ?? '批量/系统'}</code></span> },
     { key: 'actor', label: '操作者 ID', render: (row) => <code>{row.actor_id ?? '系统'}</code> },
     {
       key: 'detail',
       label: '安全详情',
-      render: (row) => <code className="audit-detail">{formatConfigValue(row.detail)}</code>,
+      render: (row) => <span className="audit-detail">{formatMetadataEntries(row.detail)}</span>,
     },
     { key: 'time', label: '发生时间', render: (row) => new Date(row.created_at).toLocaleString('zh-CN') },
   ], [])
   const searchableText = useCallback(
-    (row: AuditRecord) => `${row.action} ${row.resource_type} ${row.resource_id ?? ''} ${row.actor_id ?? ''}`,
+    (row: AuditRecord) => `${row.action} ${displayLabel(auditActionLabels, row.action)} ${row.resource_type} ${displayLabel(auditResourceLabels, row.resource_type)} ${row.resource_id ?? ''} ${row.actor_id ?? ''}`,
     [],
   )
 

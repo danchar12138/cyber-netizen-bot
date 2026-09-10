@@ -39,15 +39,12 @@ import {
   setSecret,
   testSecret,
 } from '../api'
+import {
+  configScopeLabels,
+  configValueKindLabels,
+  secretIntegrityLabels,
+} from '../displayLabels'
 import { invalidateAcrossTabs } from '../tabSync'
-
-const scopeLabels: Record<ConfigScope, string> = {
-  system: '系统',
-  tenant: '租户',
-  agent: 'Agent',
-  channel: '渠道',
-  user: '用户',
-}
 
 const diffLabels = { added: '新增', changed: '修改', removed: '移除' } as const
 
@@ -213,7 +210,7 @@ export function ConfigurationPage() {
 
   const createDraft = useMutation({
     mutationFn: () => {
-      if (scope !== 'system' && !scopeId) throw new Error(`${scopeLabels[scope]}作用域需要有效 UUID`)
+      if (scope !== 'system' && !scopeId) throw new Error(`${configScopeLabels[scope]}作用域需要有效 UUID`)
       const untouched = (published?.values ?? []).filter(
         (item) => !(item.scope_type === scope && item.scope_id === scopeId),
       )
@@ -283,7 +280,7 @@ export function ConfigurationPage() {
 
   const writeSecret = useMutation({
     mutationFn: async (definition: ConfigDefinition) => {
-      if (scope !== 'system' && !scopeId) throw new Error(`${scopeLabels[scope]}作用域需要有效 UUID`)
+      if (scope !== 'system' && !scopeId) throw new Error(`${configScopeLabels[scope]}作用域需要有效 UUID`)
       const plaintext = secretValues[definition.key] ?? ''
       const existing = secrets.data?.secrets.find(
         (item) => item.key === definition.key && item.scope_type === scope && item.scope_id === scopeId,
@@ -386,7 +383,7 @@ export function ConfigurationPage() {
         </div>
         <label>编辑作用域
           <select value={scope} onChange={(event) => setScope(event.target.value as ConfigScope)}>
-            {Object.entries(scopeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+            {Object.entries(configScopeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
           </select>
         </label>
         {scope === 'channel' ? (
@@ -419,7 +416,7 @@ export function ConfigurationPage() {
               <strong>发布差异</strong>
               {diff.data.changes.map((item) => (
                 <span key={`${item.key}-${item.scope_type}-${item.scope_id}`}>
-                  <b>{diffLabels[item.kind]}</b> {item.key}<small>{scopeLabels[item.scope_type]} · {formatConfigValue(item.before)} → {formatConfigValue(item.after)}</small>
+                  <b>{diffLabels[item.kind]}</b> {item.key}<small>{configScopeLabels[item.scope_type]} · {formatConfigValue(item.before)} → {formatConfigValue(item.after)}</small>
                 </span>
               ))}
               {diff.data.changes.length === 0 && <small>没有值变化</small>}
@@ -449,14 +446,14 @@ export function ConfigurationPage() {
                     <div className="definition-title"><strong>{definition.label}</strong><code>{definition.key}</code></div>
                     <p>{definition.description}</p>
                     <div className="tag-row">
-                      <span>{definition.value_kind}</span><span>{scopeLabels[scope]}作用域</span>
+                      <span>{configValueKindLabels[definition.value_kind]}</span><span>{configScopeLabels[scope]}作用域</span>
                       <span>{definition.hot_reload ? '支持热更新' : '需要重启'}</span>
                     </div>
                   </div>
                   <div className="definition-value editor">
                     {definition.secret ? (
                       <>
-                        <small>{configuredSecret ? `${configuredSecret.masked_hint} · ${configuredSecret.integrity_status}` : '尚未配置'}</small>
+                        <small>{configuredSecret ? `${configuredSecret.masked_hint} · ${secretIntegrityLabels[configuredSecret.integrity_status]}` : '尚未配置'}</small>
                         <input
                           className="config-input"
                           type="password"
@@ -474,7 +471,7 @@ export function ConfigurationPage() {
                     ) : (
                       <>
                         <small>
-                          最终生效：{formatConfigValue(effectiveValue?.value ?? definition.default)} · 来源 {effectiveValue?.source.scope_type ? scopeLabels[effectiveValue.source.scope_type] : '内置默认'} v{effectiveValue?.source.version ?? 0}
+                          最终生效：{formatConfigValue(effectiveValue?.value ?? definition.default)} · 来源 {effectiveValue?.source.scope_type ? configScopeLabels[effectiveValue.source.scope_type] : '内置默认'} v{effectiveValue?.source.version ?? 0}
                         </small>
                         <ConfigInput disabled={!canWrite} definition={definition} value={values[definition.key] ?? definition.default} onChange={(value) => setValues((current) => ({ ...current, [definition.key]: value }))} />
                       </>

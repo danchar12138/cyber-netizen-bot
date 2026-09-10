@@ -12,6 +12,8 @@ from uuid import UUID
 from cnb_application.attachment_service import ObjectStorage
 from cnb_application.configuration_service import ConfigurationService
 from cnb_domain import (
+    BACKUP_RESTORE_CONFIRMATION,
+    USER_DATA_FORGET_CONFIRMATION_PREFIX,
     DevelopmentIdentity,
     JsonValue,
     LifecycleRun,
@@ -263,7 +265,7 @@ class DataLifecycleService:
             raise DataLifecycleOperationError("用户数据导出执行失败") from None
 
     async def forget_user_data(self, user_id: UUID, *, confirmation: str) -> LifecycleRun:
-        expected = f"FORGET {user_id}"
+        expected = f"{USER_DATA_FORGET_CONFIRMATION_PREFIX}{user_id}"
         if confirmation != expected:
             raise DataLifecycleValidationError(f"遗忘操作必须准确输入：{expected}")
         run = await self._repository.start_run(
@@ -435,8 +437,10 @@ class DataLifecycleService:
         application_smoke_verified: bool,
         confirmation: str,
     ) -> LifecycleRun:
-        if confirmation != "BACKUP RESTORE VERIFIED":
-            raise DataLifecycleValidationError("备份恢复演练必须准确输入：BACKUP RESTORE VERIFIED")
+        if confirmation != BACKUP_RESTORE_CONFIRMATION:
+            raise DataLifecycleValidationError(
+                f"备份恢复演练必须准确输入：{BACKUP_RESTORE_CONFIRMATION}"
+            )
         digest = manifest_sha256.casefold()
         if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
             raise DataLifecycleValidationError("备份清单 SHA-256 必须是 64 位十六进制")

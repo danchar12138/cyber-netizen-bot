@@ -17,6 +17,7 @@ import {
   uploadReservedAttachment,
 } from '../api'
 import { applyConversationEvent } from '../chatEvents'
+import { memoryKindLabels, relationshipStageLabels } from '../displayLabels'
 import { invalidateAcrossTabs } from '../tabSync'
 
 const MarkdownContent = lazy(() => import('../components/MarkdownContent'))
@@ -502,7 +503,7 @@ export function ChatPage() {
           <section>
             <h2><UsersRound size={14} /> 关系摘要</h2>
             {relationship.data ? <>
-              <strong>{relationship.data.relationship.stage} · v{relationship.data.relationship.version}</strong>
+              <strong>{relationshipStageLabels[relationship.data.relationship.stage]} · v{relationship.data.relationship.version}</strong>
               <p>{relationship.data.relationship.summary}</p>
               {relationship.data.relationship.boundaries.map((item) => <span key={item}>{item}</span>)}
             </> : <p>尚未形成稳定关系摘要。</p>}
@@ -511,7 +512,7 @@ export function ChatPage() {
             <h2><MemoryStick size={14} /> 本轮召回</h2>
             {!lastUserText && <p>发送消息后显示按当前配置召回的长期记忆。</p>}
             {recalledMemories.data?.items.map((item) => <article key={item.memory.id}>
-              <strong>{item.memory.kind} · {item.score.toFixed(2)}</strong>
+              <strong>{memoryKindLabels[item.memory.kind]} · {item.score.toFixed(2)}</strong>
               <p>{item.memory.content}</p>
             </article>)}
             {lastUserText && !recalledMemories.isLoading && !recalledMemories.data?.items.length && <p>本轮没有匹配的长期记忆。</p>}

@@ -54,7 +54,7 @@ test('可以查看安全启动设置和真实任务基础状态', async ({ page 
         worker: {
           name: 'worker',
           status: 'not_checked',
-          detail: '尚未建立 Worker 心跳；P5 将接入任务明细与重放能力。',
+          detail: '尚未建立 Worker 心跳。',
         },
       },
     })
@@ -75,6 +75,9 @@ test('可以查看安全启动设置和真实任务基础状态', async ({ page 
   await page.goto('/settings')
   await expect(page.getByRole('heading', { name: '系统设置' })).toBeVisible()
   await expect(page.getByText('MinIO', { exact: true })).toBeVisible()
+  await expect(page.getByText('开发环境', { exact: true })).toBeVisible()
+  await expect(page.getByText('信息', { exact: true })).toBeVisible()
+  await expect(page.getByText('遥测数据导出器（OTLP）')).toBeVisible()
   await expect(page.getByText('cyber-netizen', { exact: true })).toBeVisible()
   await expect(page.getByText('页面永不返回数据库、Redis、MinIO 或配置主密钥明文。')).toBeVisible()
   await page.keyboard.press('Tab')
@@ -87,5 +90,6 @@ test('可以查看安全启动设置和真实任务基础状态', async ({ page 
   await expect(page.getByRole('heading', { name: '任务与主动行为' })).toBeVisible()
   await expect(page.getByText('PostgreSQL 保存任务真相；Dramatiq/Redis 负责投递，重复消息由租约、去重键和尝试记录吸收。')).toBeVisible()
   await expect(page.getByText('主动消息默认关闭，当前只分发到安全边界')).toBeVisible()
+  await expect(page.getByText(/再交给统一渠道适配器发送/)).toBeVisible()
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
 })

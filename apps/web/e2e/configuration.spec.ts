@@ -222,6 +222,7 @@ test('可以预览并发布配置差异以及安全写入密钥', async ({ page 
   })
 
   await page.goto('/configuration')
+  await expect(page.getByText('文本', { exact: true })).toBeVisible()
   await page.getByRole('combobox').nth(1).selectOption('openai')
   await page.getByPlaceholder('本次修改说明（可选）').fill('切换正式模型')
   await page.getByRole('button', { name: '保存新草稿' }).click()
@@ -244,6 +245,7 @@ test('可以预览并发布配置差异以及安全写入密钥', async ({ page 
   await page.getByPlaceholder('输入密钥').fill('仅供浏览器测试的虚假凭证')
   await page.getByRole('button', { name: '写入' }).click()
   await expect(page.getByText(/••••虚假凭证/)).toBeVisible()
+  await expect(page.getByText(/完整性正常|未测试/)).toBeVisible()
   await expect(page.getByPlaceholder('输入新值以轮换')).toHaveValue('')
 })
 

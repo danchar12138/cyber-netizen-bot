@@ -38,7 +38,8 @@ test('可以查看并搜索服务端角色能力矩阵', async ({ page }) => {
   })
 
   await page.goto('/access')
-  await expect(page.getByText('当前会话：本地开发者 · admin')).toBeVisible()
+  await expect(page.getByText('当前会话：本地开发者 · 管理员')).toBeVisible()
+  await expect(page.getByText(/认证模式：开发身份/)).toBeVisible()
   const table = page.locator('.admin-table')
   await expect(table.getByText('管理员', { exact: true })).toBeVisible()
   await page.getByPlaceholder('搜索角色或权限').fill('viewer')

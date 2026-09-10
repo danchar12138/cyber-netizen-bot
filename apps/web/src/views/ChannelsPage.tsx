@@ -21,18 +21,18 @@ import {
   type ModelCapabilityProfile,
 } from '../api'
 import { AdminDataTable, type AdminTableColumn } from '../components/AdminDataTable'
+import {
+  channelCapabilityLabels,
+  channelDegradationLabels,
+  channelEventDirectionLabels,
+  channelEventStatusLabels,
+  channelEventTypeLabels,
+  channelHealthLabels,
+  channelPlatformLabels,
+  displayLabel,
+  formatMetadataEntries,
+} from '../displayLabels'
 import { invalidateAcrossTabs } from '../tabSync'
-
-const platformLabels: Record<ChannelPlatform, string> = {
-  web: '内部 Web', feishu: '飞书', discord: 'Discord', telegram: 'Telegram',
-}
-const healthLabels: Record<ChannelInstance['health_status'], string> = {
-  healthy: '健康', degraded: '降级', not_configured: '未配置', disabled: '已停用',
-}
-const eventStatusLabels: Record<ChannelDiagnosticEvent['status'], string> = {
-  accepted: '已接收', delivered: '已送达', degraded: '降级送达', rejected: '已拒绝',
-  failed: '失败', rate_limited: '已限流',
-}
 
 function capabilityLabels(instance: ChannelInstance) {
   const capabilities = instance.capabilities
@@ -42,6 +42,10 @@ function capabilityLabels(instance: ChannelInstance) {
     capabilities.threads && '线程', capabilities.message_edit && '编辑',
     capabilities.proactive_messages && '主动消息',
   ].filter(Boolean) as string[]
+}
+
+function degradationLabels(values: string[]) {
+  return values.map((value) => displayLabel(channelDegradationLabels, value))
 }
 
 function modelInputs(profile: ModelCapabilityProfile) {
@@ -148,11 +152,11 @@ export function ChannelsPage() {
   const instanceColumns = useMemo<Array<AdminTableColumn<ChannelInstance>>>(() => [
     {
       key: 'instance', label: '渠道实例',
-      render: (row) => <div className="table-primary"><strong>{row.name}</strong><code>{platformLabels[row.platform]} · {row.implementation_status === 'ready' ? '正式实现' : '占位实现'}</code></div>,
+      render: (row) => <div className="table-primary"><strong>{row.name}</strong><code>{channelPlatformLabels[row.platform]} · {row.implementation_status === 'ready' ? '正式实现' : '占位实现'}</code></div>,
     },
     {
       key: 'status', label: '状态 / 健康',
-      render: (row) => <div className="channel-status-stack"><span className={`entity-status ${row.status === 'enabled' ? 'active' : 'disabled'}`}>{row.status === 'enabled' ? '已启用' : '已停用'}</span><span>{healthLabels[row.health_status]}</span></div>,
+      render: (row) => <div className="channel-status-stack"><span className={`entity-status ${row.status === 'enabled' ? 'active' : 'disabled'}`}>{row.status === 'enabled' ? '已启用' : '已停用'}</span><span>{channelHealthLabels[row.health_status]}</span></div>,
     },
     { key: 'credential', label: '凭证', render: (row) => row.platform === 'web' ? '无需凭证' : row.credential_configured ? '已加密配置' : '尚未配置' },
     { key: 'limit', label: '限流', render: (row) => `${row.rate_limit_per_minute} / 分钟` },
@@ -168,10 +172,10 @@ export function ChannelsPage() {
     },
   ], [canManageCredential, canSend, canWrite, delivery, runClearCredential, runToggle, testMutation])
   const eventColumns = useMemo<Array<AdminTableColumn<ChannelDiagnosticEvent>>>(() => [
-    { key: 'event', label: '事件', render: (row) => <div className="table-primary"><strong>{row.event_type}</strong><code>{row.direction} · {row.id}</code></div> },
-    { key: 'status', label: '结果', render: (row) => <span className={`entity-status task-${row.status}`}>{eventStatusLabels[row.status]}</span> },
-    { key: 'summary', label: '安全摘要', render: (row) => <code>{JSON.stringify(row.payload_summary)}</code> },
-    { key: 'degradation', label: '降级 / 错误', render: (row) => row.degradations.join('、') || row.error_code || '无' },
+    { key: 'event', label: '事件', render: (row) => <div className="table-primary"><strong>{displayLabel(channelEventTypeLabels, row.event_type)}</strong><code>{channelEventDirectionLabels[row.direction]} · {row.id}</code></div> },
+    { key: 'status', label: '结果', render: (row) => <span className={`entity-status task-${row.status}`}>{channelEventStatusLabels[row.status]}</span> },
+    { key: 'summary', label: '安全摘要', render: (row) => <span className="audit-detail">{formatMetadataEntries(row.payload_summary)}</span> },
+    { key: 'degradation', label: '降级 / 错误', render: (row) => degradationLabels(row.degradations).join('、') || row.error_code || '无' },
     { key: 'time', label: '时间', render: (row) => new Date(row.occurred_at).toLocaleString('zh-CN') },
   ], [])
   const operationError = createMutation.error ?? testMutation.error ?? updateMutation.error ?? credentialMutation.error ?? clearCredentialMutation.error ?? simulation.error ?? delivery.error
@@ -180,7 +184,7 @@ export function ChannelsPage() {
     <div className="page">
       <section className="page-heading compact">
         <div><p className="eyebrow">多模态与平台接入控制平面</p><h1>渠道与适配器</h1><p>统一管理能力协商、实例、凭证、健康、限流和安全诊断；外部 IM 占位实现绝不访问平台 API。</p></div>
-        <span className="phase-tag">P6 Adapter Protocol</span>
+        <span className="phase-tag">统一渠道协议</span>
       </section>
 
       {(catalog.isError || models.isError || instances.isError || events.isError) && <div className="notice error">渠道数据读取失败，请检查 API 与迁移状态。</div>}
@@ -190,7 +194,7 @@ export function ChannelsPage() {
       <section className="channel-catalog-grid" aria-label="Adapter 能力目录">
         {(catalog.data?.items ?? []).map((item) => <article className="panel channel-catalog-card" key={item.platform}>
           <div className="panel-heading"><div><span>{item.implementation_status === 'ready' ? '正式实现' : '契约占位'}</span><h2>{item.display_name}</h2></div><Cable size={19} /></div>
-          <div className="permission-tags">{Object.entries(item.capabilities).filter(([, enabled]) => enabled === true).map(([key]) => <span key={key}>{key}</span>)}</div>
+          <div className="permission-tags">{Object.entries(item.capabilities).filter(([, enabled]) => enabled === true).map(([key]) => <span key={key}>{displayLabel(channelCapabilityLabels, key)}</span>)}</div>
           <p>文本上限 {item.capabilities.max_text_chars.toLocaleString('zh-CN')} 字符 · 内容块 {item.capabilities.max_blocks} · {item.credential_required ? '需要凭证' : '无需凭证'}</p>
         </article>)}
       </section>
@@ -199,7 +203,7 @@ export function ChannelsPage() {
         <div className="panel-heading"><div><span>实例与密钥</span><h2>新建渠道实例</h2></div></div>
         <form className="channel-create-form" onSubmit={submitCreate}>
           <label><span>名称</span><input value={name} maxLength={120} onChange={(event) => setName(event.target.value)} required /></label>
-          <label><span>平台</span><select value={platform} onChange={(event) => setPlatform(event.target.value as ChannelPlatform)}>{Object.entries(platformLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+          <label><span>平台</span><select value={platform} onChange={(event) => setPlatform(event.target.value as ChannelPlatform)}>{Object.entries(channelPlatformLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
           <label><span>每分钟上限</span><input type="number" min={1} max={10_000} value={rateLimit} onChange={(event) => setRateLimit(Number(event.target.value))} required /></label>
           <label><span>凭证（只写）</span><input type="password" autoComplete="new-password" value={credential} disabled={platform === 'web'} onChange={(event) => setCredential(event.target.value)} placeholder={platform === 'web' ? '内部 Web 无需凭证' : '可稍后安全写入'} /></label>
           <label className="channel-json-field"><span>公开设置 JSON</span><textarea value={settingsText} onChange={(event) => setSettingsText(event.target.value)} rows={3} spellCheck={false} /></label>
@@ -225,12 +229,12 @@ export function ChannelsPage() {
         <article className="panel channel-simulator">
           <div className="panel-heading"><div><span>无外部副作用</span><h2>平台能力模拟器</h2></div><FlaskConical size={19} /></div>
           <div className="channel-simulator-form">
-            <label><span>目标平台</span><select value={simulationPlatform} onChange={(event) => setSimulationPlatform(event.target.value as ChannelPlatform)}>{Object.entries(platformLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+            <label><span>目标平台</span><select value={simulationPlatform} onChange={(event) => setSimulationPlatform(event.target.value as ChannelPlatform)}>{Object.entries(channelPlatformLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
             <label><span>Markdown 内容</span><textarea value={simulationText} onChange={(event) => setSimulationText(event.target.value)} rows={4} required /></label>
             <div className="channel-options"><label><input type="checkbox" checked={requestStreaming} onChange={(event) => setRequestStreaming(event.target.checked)} />流式</label><label><input type="checkbox" checked={requestThread} onChange={(event) => setRequestThread(event.target.checked)} />线程</label><label><input type="checkbox" checked={requestEdit} onChange={(event) => setRequestEdit(event.target.checked)} />编辑</label><label><input type="checkbox" checked={requestProactive} onChange={(event) => setRequestProactive(event.target.checked)} />主动消息</label></div>
             <button className="secondary-button" disabled={!simulationText.trim() || simulation.isPending} onClick={() => simulation.mutate()}><FlaskConical size={14} />运行能力协商</button>
           </div>
-          {simulation.data && <div className="channel-simulation-result" aria-live="polite"><strong>{simulation.data.degradations.length ? '发生透明降级' : '目标能力完整支持'}</strong><span>{simulation.data.degradations.join('、') || '无降级'}</span><small>输出 {simulation.data.blocks.length} 个内容块 · {simulation.data.buffered ? '缓冲后发送' : '保持流式'}</small></div>}
+          {simulation.data && <div className="channel-simulation-result" aria-live="polite"><strong>{simulation.data.degradations.length ? '发生透明降级' : '目标能力完整支持'}</strong><span>{degradationLabels(simulation.data.degradations).join('、') || '无降级'}</span><small>输出 {simulation.data.blocks.length} 个内容块 · {simulation.data.buffered ? '缓冲后发送' : '保持流式'}</small></div>}
         </article>
 
         <article className="panel">
@@ -239,7 +243,7 @@ export function ChannelsPage() {
         </article>
       </section>
 
-      {delivery.data && <div className="notice success"><Send size={17} /><div><strong>发送测试已由 Adapter 接收</strong><span>{delivery.data.status} · {delivery.data.external_message_id} · {delivery.data.degradations.join('、') || '无降级'}</span></div></div>}
+      {delivery.data && <div className="notice success"><Send size={17} /><div><strong>发送测试已由渠道适配器接收</strong><span>{channelEventStatusLabels[delivery.data.status]} · {delivery.data.external_message_id} · {degradationLabels(delivery.data.degradations).join('、') || '无降级'}</span></div></div>}
 
       <section className="panel table-panel">
         <div className="panel-heading task-panel-heading"><div><span>无正文审计</span><h2>事件诊断</h2></div><small>最近 {events.data?.items.length ?? 0} 条</small></div>
@@ -248,4 +252,3 @@ export function ChannelsPage() {
     </div>
   )
 }
-

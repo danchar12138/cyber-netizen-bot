@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { Activity, ArrowUpRight, Bot, ListTodo, Settings2 } from 'lucide-react'
 
 import { getSystemOverview } from '../api'
+import { componentHealthLabels, componentLabels, displayLabel } from '../displayLabels'
 
 const fallbackMetrics = [
   { label: '活跃 Agent', value: '—', icon: Bot },
@@ -10,21 +11,6 @@ const fallbackMetrics = [
   { label: '待处理任务', value: '—', icon: ListTodo },
   { label: '配置定义', value: '—', icon: Settings2 },
 ]
-
-const componentLabels: Record<string, string> = {
-  api: '应用接口',
-  postgresql: 'PostgreSQL 数据库',
-  redis: 'Redis 任务服务',
-  object_storage: 'MinIO 对象存储',
-}
-
-const healthLabels: Record<string, string> = {
-  healthy: '健康',
-  ready: '就绪',
-  degraded: '异常',
-  not_checked: '待探测',
-  not_configured: '未配置',
-}
 
 export function DashboardPage() {
   const overview = useQuery({ queryKey: ['system-overview'], queryFn: getSystemOverview })
@@ -81,7 +67,7 @@ export function DashboardPage() {
             ]).map((component) => (
               <div className="component-row" key={component.name}>
                 <span className={`component-status ${component.status}`} />
-                <div><strong>{componentLabels[component.name] ?? component.name}</strong><small>{healthLabels[component.status] ?? component.status}</small></div>
+                <div><strong>{displayLabel(componentLabels, component.name)}</strong><small>{displayLabel(componentHealthLabels, component.status)}</small></div>
                 <span className="latency">等待探测</span>
               </div>
             ))}
@@ -90,23 +76,20 @@ export function DashboardPage() {
 
         <article className="panel roadmap-card">
           <div className="panel-heading">
-            <div><p className="eyebrow">开发进度</p><h2>P2 管理后台</h2></div>
-            <span className="phase-tag">已完成</span>
+            <div><p className="eyebrow">能力验收</p><h2>核心系统能力</h2></div>
+            <span className="phase-tag">主要能力可用</span>
           </div>
           <div className="progress-track"><span className="complete" /></div>
-          <p className="progress-copy">配置、权限、资源、会话、MinIO 附件、基础管理页与跨标签页同步已经接通。</p>
+          <p className="progress-copy">认知、记忆、主动行为、渠道、安全治理与生产发布链路已经接通，并持续接受自动回归验证。</p>
           <ul className="phase-list">
-            <li className="done">uv workspace 与包边界</li>
-            <li className="done">FastAPI 管理接口</li>
-            <li className="done">React 管理后台骨架</li>
-            <li className="done">数据库与服务深度健康检查</li>
-            <li className="done">配置草稿、发布与回滚</li>
-            <li className="done">内部对话与断线事件恢复</li>
-            <li className="done">生产模型凭证与后台配置</li>
-            <li className="done">角色权限与资源审计</li>
-            <li className="done">完整会话管理与 MinIO 附件</li>
-            <li className="done">响应式与无障碍基础</li>
-            <li className="done">基础管理页收口</li>
+            <li className="done">可恢复的流式内部对话</li>
+            <li className="done">版本化拟人认知与策略门</li>
+            <li className="done">长期记忆、关系与混合召回</li>
+            <li className="done">异步反思和受控主动行为</li>
+            <li className="done">多模态渠道协议与能力协商</li>
+            <li className="done">配置、密钥、权限与审计治理</li>
+            <li className="done">数据生命周期和隔离恢复验证</li>
+            <li className="done">拟人回归、可观测性与发布供应链</li>
           </ul>
         </article>
       </section>

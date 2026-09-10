@@ -18,6 +18,7 @@ import {
   type EvaluationCaseDefinition,
   type EvaluationSuiteDraft,
 } from '../api'
+import { cognitiveActionLabels, displayLabel } from '../displayLabels'
 import { invalidateAcrossTabs } from '../tabSync'
 
 const defaultCases: Array<Omit<EvaluationCaseDefinition, 'id' | 'sort_order'>> = [
@@ -249,7 +250,7 @@ export function EvaluationsPage() {
           {!runDetail.data && <div className="empty-state">选择左侧运行查看逐项检查；回答来源仍不会在此页标注。</div>}
           <div className="evaluation-list">{runDetail.data?.results.map((item) => <article key={item.id}>
             {item.passed ? <CheckCircle2 className="passed" size={18} /> : <CircleX className="failed" size={18} />}
-            <div><strong>{item.category}</strong><code>{item.case_key}</code><p>“{item.input_text}”</p><small>期望 {item.expected_action} · 实际 {item.actual_action} · {item.latency_ms} ms</small><ul>{item.checks.map((check) => <li key={check.key} className={check.passed ? 'passed' : 'failed'}>{check.passed ? '通过' : '失败'} · {check.detail}</li>)}</ul></div>
+            <div><strong>{item.category}</strong><code>{item.case_key}</code><p>“{item.input_text}”</p><small>期望 {displayLabel(cognitiveActionLabels, item.expected_action)} · 实际 {displayLabel(cognitiveActionLabels, item.actual_action)} · {item.latency_ms} ms</small><ul>{item.checks.map((check) => <li key={check.key} className={check.passed ? 'passed' : 'failed'}>{check.passed ? '通过' : '失败'} · {check.key === 'action_match' ? `期望${displayLabel(cognitiveActionLabels, item.expected_action)}，实际${displayLabel(cognitiveActionLabels, item.actual_action)}` : check.detail}</li>)}</ul></div>
           </article>)}</div>
         </section>
       </div>

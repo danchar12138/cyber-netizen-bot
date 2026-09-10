@@ -3,6 +3,12 @@ import { Link } from '@tanstack/react-router'
 import { Database, KeyRound, RotateCcw, ServerCog, ShieldCheck } from 'lucide-react'
 
 import { getBootstrapSettings } from '../api'
+import {
+  authenticationModeLabels,
+  displayLabel,
+  formatEnvironment,
+  formatLogLevel,
+} from '../displayLabels'
 
 function configuredLabel(configured: boolean) {
   return configured ? '已配置' : '未配置'
@@ -34,10 +40,10 @@ export function SystemSettingsPage() {
         <article className="panel settings-card">
           <div className="panel-heading"><div><p className="eyebrow">进程</p><h2>运行环境</h2></div><ServerCog size={20} /></div>
           <dl className="settings-list">
-            <div><dt>环境</dt><dd>{data?.environment ?? '读取中'}</dd></div>
-            <div><dt>日志级别</dt><dd>{data?.log_level ?? '读取中'}</dd></div>
+            <div><dt>环境</dt><dd>{data ? formatEnvironment(data.environment) : '读取中'}</dd></div>
+            <div><dt>日志级别</dt><dd>{data ? formatLogLevel(data.log_level) : '读取中'}</dd></div>
             <div><dt>深度就绪探测</dt><dd>{data ? (data.readiness_deep_checks ? '已开启' : '未开启') : '读取中'}</dd></div>
-            <div><dt>认证模式</dt><dd>{data?.authentication_mode === 'oidc' ? 'OIDC' : '开发身份'}</dd></div>
+            <div><dt>认证模式</dt><dd>{data ? displayLabel(authenticationModeLabels, data.authentication_mode) : '读取中'}</dd></div>
             <div><dt>变更生效</dt><dd><RotateCcw size={13} /> 需要重启进程</dd></div>
           </dl>
         </article>
@@ -59,9 +65,9 @@ export function SystemSettingsPage() {
           <dl className="settings-list">
             <div><dt>配置主密钥</dt><dd>{data?.config_master_key_status === 'configured' ? '已安全配置' : '开发占位值'}</dd></div>
             <div><dt>OIDC 引导</dt><dd>{configuredLabel(data?.oidc_configured ?? false)}</dd></div>
-            <div><dt>OpenTelemetry</dt><dd>{data?.otel_enabled ? '已启用' : '未启用'}</dd></div>
-            <div><dt>OTLP Exporter</dt><dd>{configuredLabel(data?.otel_exporter_configured ?? false)}</dd></div>
-            <div><dt>Telemetry 服务名</dt><dd><code>{data?.otel_service_name ?? '读取中'}</code></dd></div>
+            <div><dt>OpenTelemetry 遥测</dt><dd>{data?.otel_enabled ? '已启用' : '未启用'}</dd></div>
+            <div><dt>遥测数据导出器（OTLP）</dt><dd>{configuredLabel(data?.otel_exporter_configured ?? false)}</dd></div>
+            <div><dt>遥测服务标识</dt><dd><code>{data?.otel_service_name ?? '读取中'}</code></dd></div>
             <div><dt>Trace 采样率</dt><dd>{data ? `${(data.otel_trace_sample_ratio * 100).toFixed(1)}%` : '读取中'}</dd></div>
             <div><dt>允许的 Web 来源</dt><dd>{data?.cors_origins.join('、') || '读取中'}</dd></div>
           </dl>

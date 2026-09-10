@@ -120,11 +120,11 @@ async def test_forget_requires_exact_phrase_and_deletes_private_objects() -> Non
     storage.put_for_test(object_key=object_key, content=b"private", content_type="text/plain")
 
     with pytest.raises(DataLifecycleValidationError, match="必须准确输入"):
-        await service.forget_user_data(identity.user_id, confirmation="FORGET")
+        await service.forget_user_data(identity.user_id, confirmation="错误确认短语")
 
     run = await service.forget_user_data(
         identity.user_id,
-        confirmation=f"FORGET {identity.user_id}",
+        confirmation=f"确认永久遗忘 {identity.user_id}",
     )
     remaining = await storage.list_objects(prefix=f"tenants/{identity.tenant_id}/", limit=100)
     exported = await service.export_user_data(identity.user_id)
@@ -194,6 +194,17 @@ async def test_orphan_cleanup_protects_referenced_and_recent_objects() -> None:
 async def test_backup_restore_drill_requires_all_three_verifications() -> None:
     service, _, _ = _services()
 
+    with pytest.raises(DataLifecycleValidationError, match="必须准确输入"):
+        await service.record_backup_restore_drill(
+            manifest_sha256="a" * 64,
+            database_rows_verified=120,
+            objects_verified=8,
+            database_integrity_verified=True,
+            object_integrity_verified=True,
+            application_smoke_verified=True,
+            confirmation="BACKUP RESTORE VERIFIED",
+        )
+
     with pytest.raises(DataLifecycleValidationError, match="均通过"):
         await service.record_backup_restore_drill(
             manifest_sha256="a" * 64,
@@ -202,7 +213,7 @@ async def test_backup_restore_drill_requires_all_three_verifications() -> None:
             database_integrity_verified=True,
             object_integrity_verified=True,
             application_smoke_verified=False,
-            confirmation="BACKUP RESTORE VERIFIED",
+            confirmation="确认备份恢复演练已验证",
         )
 
     run = await service.record_backup_restore_drill(
@@ -212,7 +223,7 @@ async def test_backup_restore_drill_requires_all_three_verifications() -> None:
         database_integrity_verified=True,
         object_integrity_verified=True,
         application_smoke_verified=True,
-        confirmation="BACKUP RESTORE VERIFIED",
+        confirmation="确认备份恢复演练已验证",
     )
 
     assert run.status is LifecycleRunStatus.SUCCEEDED

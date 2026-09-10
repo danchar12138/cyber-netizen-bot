@@ -10,6 +10,7 @@ import {
   updateManagedUserStatus,
 } from '../api'
 import { AdminDataTable, type AdminTableColumn } from '../components/AdminDataTable'
+import { adminRoleLabels } from '../displayLabels'
 import { invalidateAcrossTabs } from '../tabSync'
 
 interface EntityRow {
@@ -101,7 +102,7 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
       <div className="notice info">
         <Icon size={17} />
         <div>
-          <strong>{isAgent ? `已选择 ${selected.size} 项` : `当前身份：${session.data?.display_name ?? '读取中'} · ${session.data?.role ?? '—'}`}</strong>
+          <strong>{isAgent ? `已选择 ${selected.size} 项` : `当前身份：${session.data?.display_name ?? '读取中'} · ${session.data ? adminRoleLabels[session.data.role] : '—'}`}</strong>
           <span>{isAgent ? '状态变更由服务端再次校验租户边界、权限和明确确认字段。' : `租户 ${session.data?.tenant_id ?? '读取中'}；用户状态变更同样经过租户隔离、权限和确认校验。`}</span>
         </div>
       </div>

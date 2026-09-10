@@ -23,6 +23,10 @@ import {
   type LifecycleRun,
   type LifecycleRunKind,
 } from '../api'
+import { displayLabel, metadataKeyLabels } from '../displayLabels'
+
+const USER_FORGET_CONFIRMATION_PREFIX = '确认永久遗忘 '
+const BACKUP_RESTORE_CONFIRMATION = '确认备份恢复演练已验证'
 
 const runKindLabels: Record<LifecycleRunKind, string> = {
   user_export: '用户数据导出',
@@ -76,10 +80,10 @@ function RunHistory({ runs }: { runs: LifecycleRun[] }) {
           {run.subject_user_id && <p>目标用户：<code>{run.subject_user_id}</code></p>}
           <dl className="lifecycle-run-values">
             {Object.entries(run.counters).map(([key, value]) => (
-              <div key={key}><dt>{key}</dt><dd>{value.toLocaleString('zh-CN')}</dd></div>
+              <div key={key}><dt>{displayLabel(metadataKeyLabels, key)}</dt><dd>{value.toLocaleString('zh-CN')}</dd></div>
             ))}
             {Object.entries(run.evidence).map(([key, value]) => (
-              <div key={key}><dt>{key}</dt><dd>{formatEvidence(value)}</dd></div>
+              <div key={key}><dt>{displayLabel(metadataKeyLabels, key)}</dt><dd>{formatEvidence(value)}</dd></div>
             ))}
           </dl>
           {run.error_code && <small>固定错误码：<code>{run.error_code}</code></small>}
@@ -230,10 +234,10 @@ export function DataLifecyclePage() {
           </div>
           <div className="lifecycle-danger-zone">
             <label className="lifecycle-field">
-              输入 <code>{validUserId ? `FORGET ${userId.trim()}` : 'FORGET <目标用户 UUID>'}</code>
+              输入 <code>{validUserId ? `${USER_FORGET_CONFIRMATION_PREFIX}${userId.trim()}` : `${USER_FORGET_CONFIRMATION_PREFIX}<目标用户 UUID>`}</code>
               <input value={forgetConfirmation} onChange={(event) => setForgetConfirmation(event.target.value)} autoComplete="off" />
             </label>
-            <button className="danger-button" type="button" disabled={!validUserId || forgetConfirmation !== `FORGET ${userId.trim()}` || !can('data_lifecycle:forget') || forgetMutation.isPending} onClick={() => forgetMutation.mutate()}>
+            <button className="danger-button" type="button" disabled={!validUserId || forgetConfirmation !== `${USER_FORGET_CONFIRMATION_PREFIX}${userId.trim()}` || !can('data_lifecycle:forget') || forgetMutation.isPending} onClick={() => forgetMutation.mutate()}>
               <Trash2 size={15} /> {forgetMutation.isPending ? '正在遗忘' : '永久遗忘用户数据'}
             </button>
           </div>
@@ -272,8 +276,8 @@ export function DataLifecyclePage() {
             <label><input type="checkbox" checked={objectVerified} onChange={(event) => setObjectVerified(event.target.checked)} /> MinIO 对象完整性</label>
             <label><input type="checkbox" checked={smokeVerified} onChange={(event) => setSmokeVerified(event.target.checked)} /> 应用冒烟</label>
           </fieldset>
-          <label className="lifecycle-field lifecycle-confirmation">输入 <code>BACKUP RESTORE VERIFIED</code><input required value={drillConfirmation} onChange={(event) => setDrillConfirmation(event.target.value)} autoComplete="off" /></label>
-          <button className="primary-button" type="submit" disabled={!can('data_lifecycle:backup_drill_record') || drillMutation.isPending || !databaseVerified || !objectVerified || !smokeVerified || drillConfirmation !== 'BACKUP RESTORE VERIFIED'}>
+          <label className="lifecycle-field lifecycle-confirmation">输入 <code>{BACKUP_RESTORE_CONFIRMATION}</code><input required value={drillConfirmation} onChange={(event) => setDrillConfirmation(event.target.value)} autoComplete="off" /></label>
+          <button className="primary-button" type="submit" disabled={!can('data_lifecycle:backup_drill_record') || drillMutation.isPending || !databaseVerified || !objectVerified || !smokeVerified || drillConfirmation !== BACKUP_RESTORE_CONFIRMATION}>
             <DatabaseBackup size={15} /> {drillMutation.isPending ? '正在登记' : '登记演练证据'}
           </button>
         </form>

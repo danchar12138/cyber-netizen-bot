@@ -118,7 +118,7 @@ async def test_data_lifecycle_api_enforces_permissions_and_returns_safe_download
             "/api/v1/data-lifecycle/forget",
             json={
                 "user_id": str(identity.user_id),
-                "confirmation": f"FORGET {identity.user_id}",
+                "confirmation": f"确认永久遗忘 {identity.user_id}",
             },
             headers={"X-CNB-Development-Role": "operator"},
         )

@@ -78,6 +78,6 @@ test('可以批量停用 Agent 并查看审计结果', async ({ page }) => {
   await expect(page.getByText('已停用')).toBeVisible()
 
   await page.goto('/audit')
-  await expect(page.getByText('agent.status_updated')).toBeVisible()
-  await expect(page.getByText(/disabled/)).toBeVisible()
+  await expect(page.getByText('更新 Agent 状态')).toBeVisible()
+  await expect(page.getByText(/状态：已停用/)).toBeVisible()
 })

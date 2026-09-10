@@ -66,7 +66,13 @@ from cnb_domain.conversation import (
     MessageStatus,
     PendingAgentRun,
 )
-from cnb_domain.data_lifecycle import LifecycleRun, LifecycleRunKind, LifecycleRunStatus
+from cnb_domain.data_lifecycle import (
+    BACKUP_RESTORE_CONFIRMATION,
+    USER_DATA_FORGET_CONFIRMATION_PREFIX,
+    LifecycleRun,
+    LifecycleRunKind,
+    LifecycleRunStatus,
+)
 from cnb_domain.evaluation import (
     BlindReview,
     BlindReviewAssignment,
@@ -136,8 +142,10 @@ from cnb_domain.tasks import (
 )
 
 __all__ = [
+    "BACKUP_RESTORE_CONFIRMATION",
     "CONFIGURATION_PACKAGE_FORMAT",
     "CONFIGURATION_PACKAGE_SCHEMA_VERSION",
+    "USER_DATA_FORGET_CONFIRMATION_PREFIX",
     "ActionCandidateRecord",
     "ActiveAlert",
     "AdminPermission",

@@ -5,7 +5,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from cnb_domain import JsonValue, LifecycleRunKind, LifecycleRunStatus
+from cnb_domain import (
+    BACKUP_RESTORE_CONFIRMATION,
+    USER_DATA_FORGET_CONFIRMATION_PREFIX,
+    JsonValue,
+    LifecycleRunKind,
+    LifecycleRunStatus,
+)
 
 
 class LifecyclePolicyResponse(BaseModel):
@@ -53,7 +59,10 @@ class UserDataForgetCommand(BaseModel):
     """要求输入包含目标 UUID 的不可逆确认短语。"""
 
     user_id: UUID
-    confirmation: str = Field(min_length=43, max_length=43)
+    confirmation: str = Field(
+        min_length=len(USER_DATA_FORGET_CONFIRMATION_PREFIX) + 36,
+        max_length=len(USER_DATA_FORGET_CONFIRMATION_PREFIX) + 36,
+    )
 
 
 class ConfirmedLifecycleCommand(BaseModel):
@@ -71,7 +80,10 @@ class BackupRestoreDrillCommand(BaseModel):
     database_integrity_verified: bool
     object_integrity_verified: bool
     application_smoke_verified: bool
-    confirmation: str = Field(min_length=23, max_length=23)
+    confirmation: str = Field(
+        min_length=len(BACKUP_RESTORE_CONFIRMATION),
+        max_length=len(BACKUP_RESTORE_CONFIRMATION),
+    )
 
 
 __all__ = [

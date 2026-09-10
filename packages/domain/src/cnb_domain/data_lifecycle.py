@@ -7,6 +7,9 @@ from uuid import UUID
 
 from cnb_domain.configuration import JsonValue
 
+USER_DATA_FORGET_CONFIRMATION_PREFIX = "确认永久遗忘 "
+BACKUP_RESTORE_CONFIRMATION = "确认备份恢复演练已验证"
+
 
 class LifecycleRunKind(StrEnum):
     """管理后台可触发或登记的数据生命周期动作。"""
@@ -43,4 +46,10 @@ class LifecycleRun:
     completed_at: datetime | None
 
 
-__all__ = ["LifecycleRun", "LifecycleRunKind", "LifecycleRunStatus"]
+__all__ = [
+    "BACKUP_RESTORE_CONFIRMATION",
+    "USER_DATA_FORGET_CONFIRMATION_PREFIX",
+    "LifecycleRun",
+    "LifecycleRunKind",
+    "LifecycleRunStatus",
+]

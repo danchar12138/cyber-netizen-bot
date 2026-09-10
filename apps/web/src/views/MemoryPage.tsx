@@ -38,37 +38,23 @@ import {
   type MemoryStatus,
   type MemoryVisibility,
 } from '../api'
+import {
+  displayLabel,
+  episodeStatusLabels,
+  memoryConfirmationLabels,
+  memoryIndexJobStatusLabels,
+  memoryKindLabels,
+  memoryLinkKindLabels,
+  memorySensitivityLabels,
+  memorySourceKindLabels,
+  memoryStatusLabels,
+  memoryVisibilityLabels,
+  relationshipEventTypeLabels,
+  relationshipStageLabels,
+} from '../displayLabels'
 import { invalidateAcrossTabs } from '../tabSync'
 
 type MemoryTab = 'memories' | 'relationship' | 'episodes' | 'index'
-
-const kindLabels: Record<MemoryKind, string> = {
-  working: '工作',
-  episodic: '情景',
-  semantic: '语义',
-  relational: '关系',
-  autobiographical: '自传',
-  procedural: '程序性',
-}
-
-const confirmationLabels: Record<MemoryConfirmation, string> = {
-  unconfirmed: '未确认',
-  confirmed: '已确认',
-  disputed: '有争议',
-}
-
-const statusLabels: Record<MemoryStatus, string> = {
-  active: '生效',
-  superseded: '已替代',
-  forgotten: '已遗忘',
-}
-
-const relationshipLabels = {
-  stranger: '陌生',
-  acquaintance: '相识',
-  familiar: '熟悉',
-  trusted: '信任',
-}
 
 function nowIso() {
   return new Date().toISOString()
@@ -286,7 +272,7 @@ export function MemoryPage() {
       <div className="config-tabs memory-tabs" aria-label="记忆管理功能">
         <button className={tab === 'memories' ? 'active' : ''} onClick={() => setTab('memories')}>记忆与召回</button>
         <button className={tab === 'relationship' ? 'active' : ''} onClick={() => setTab('relationship')}>关系状态</button>
-        <button className={tab === 'episodes' ? 'active' : ''} onClick={() => setTab('episodes')}>Episode</button>
+        <button className={tab === 'episodes' ? 'active' : ''} onClick={() => setTab('episodes')}>情景记录</button>
         <button className={tab === 'index' ? 'active' : ''} onClick={() => setTab('index')}>索引任务</button>
       </div>
 
@@ -295,10 +281,10 @@ export function MemoryPage() {
           <div className="panel-heading"><h2>创建可追溯记忆</h2><span className="subtle">管理录入默认标记为非逐字导入来源</span></div>
           <label className="payload-editor">记忆内容<textarea rows={5} value={content} onChange={(event) => setContent(event.target.value)} /></label>
           <div className="memory-form-grid">
-            <label>类型<select value={createKind} onChange={(event) => setCreateKind(event.target.value as MemoryKind)}>{Object.entries(kindLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-            <label>可见范围<select value={visibility} onChange={(event) => setVisibility(event.target.value as MemoryVisibility)}><option value="user">用户私有</option><option value="agent">Agent 共享</option><option value="tenant">租户共享</option></select></label>
-            <label>敏感级别<select value={sensitivity} onChange={(event) => setSensitivity(event.target.value as MemorySensitivity)}><option value="normal">普通</option><option value="personal">个人</option><option value="sensitive">敏感</option><option value="restricted">受限</option></select></label>
-            <label>确认状态<select value={confirmation} onChange={(event) => setConfirmation(event.target.value as MemoryConfirmation)}>{Object.entries(confirmationLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            <label>类型<select value={createKind} onChange={(event) => setCreateKind(event.target.value as MemoryKind)}>{Object.entries(memoryKindLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            <label>可见范围<select value={visibility} onChange={(event) => setVisibility(event.target.value as MemoryVisibility)}>{Object.entries(memoryVisibilityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            <label>敏感级别<select value={sensitivity} onChange={(event) => setSensitivity(event.target.value as MemorySensitivity)}>{Object.entries(memorySensitivityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            <label>确认状态<select value={confirmation} onChange={(event) => setConfirmation(event.target.value as MemoryConfirmation)}>{Object.entries(memoryConfirmationLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             <label>重要性 <span>{importance.toFixed(2)}</span><input type="range" min="0" max="1" step="0.05" value={importance} onChange={(event) => setImportance(Number(event.target.value))} /></label>
           </div>
           <div className="cognition-editor-actions"><button className="primary-button" disabled={!content.trim() || !identity.data || createMutation.isPending} onClick={() => createMutation.mutate()}><CheckCircle2 size={14} /> 保存记忆</button></div>
@@ -307,12 +293,12 @@ export function MemoryPage() {
           <div className="panel memory-list-panel">
             <div className="memory-toolbar">
               <label className="search-box"><Search size={14} /><input aria-label="搜索记忆" placeholder="搜索记忆正文" value={searchText} onChange={(event) => setSearchText(event.target.value)} /></label>
-              <select aria-label="筛选记忆类型" value={kind} onChange={(event) => setKind(event.target.value as MemoryKind | '')}><option value="">全部类型</option>{Object.entries(kindLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-              <select aria-label="筛选记忆状态" value={memoryStatus} onChange={(event) => setMemoryStatus(event.target.value as MemoryStatus | '')}><option value="">全部状态</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+              <select aria-label="筛选记忆类型" value={kind} onChange={(event) => setKind(event.target.value as MemoryKind | '')}><option value="">全部类型</option>{Object.entries(memoryKindLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+              <select aria-label="筛选记忆状态" value={memoryStatus} onChange={(event) => setMemoryStatus(event.target.value as MemoryStatus | '')}><option value="">全部状态</option>{Object.entries(memoryStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
             </div>
             <div className="memory-records">
               {memories.data?.items.map((item) => <button key={item.id} className={selectedId === item.id ? 'selected' : ''} onClick={() => setSelectedId(item.id)}>
-                <span><strong>{kindLabels[item.kind]}</strong><small>{statusLabels[item.status]} · {confirmationLabels[item.confirmation]} · v{item.version}</small></span>
+                <span><strong>{memoryKindLabels[item.kind]}</strong><small>{memoryStatusLabels[item.status]} · {memoryConfirmationLabels[item.confirmation]} · v{item.version}</small></span>
                 <p>{item.content ?? '正文已按遗忘请求清除'}</p>
                 <code>{new Date(item.event_at).toLocaleString()}</code>
               </button>)}
@@ -322,9 +308,9 @@ export function MemoryPage() {
           <aside className="panel memory-detail-panel" aria-label="记忆详情">
             {!detail.data && <div className="empty-state">选择一条记忆查看来源和关系链。</div>}
             {detail.data && <>
-              <div className="panel-heading"><h2>{kindLabels[detail.data.memory.kind]}记忆 · v{detail.data.memory.version}</h2><span className={`entity-status ${detail.data.memory.status}`}>{statusLabels[detail.data.memory.status]}</span></div>
+              <div className="panel-heading"><h2>{memoryKindLabels[detail.data.memory.kind]}记忆 · v{detail.data.memory.version}</h2><span className={`entity-status ${detail.data.memory.status}`}>{memoryStatusLabels[detail.data.memory.status]}</span></div>
               <p className="memory-content">{detail.data.memory.content ?? '正文已清除'}</p>
-              <dl className="memory-metrics"><div><dt>置信度</dt><dd>{detail.data.memory.confidence.toFixed(2)}</dd></div><div><dt>重要性</dt><dd>{detail.data.memory.importance.toFixed(2)}</dd></div><div><dt>可见范围</dt><dd>{detail.data.memory.visibility}</dd></div><div><dt>敏感级别</dt><dd>{detail.data.memory.sensitivity}</dd></div></dl>
+              <dl className="memory-metrics"><div><dt>置信度</dt><dd>{detail.data.memory.confidence.toFixed(2)}</dd></div><div><dt>重要性</dt><dd>{detail.data.memory.importance.toFixed(2)}</dd></div><div><dt>可见范围</dt><dd>{memoryVisibilityLabels[detail.data.memory.visibility]}</dd></div><div><dt>敏感级别</dt><dd>{memorySensitivityLabels[detail.data.memory.sensitivity]}</dd></div></dl>
               {detail.data.memory.status === 'active' && <div className="table-actions memory-actions">
                 <button disabled={!canWrite} onClick={() => confirmationMutation.mutate({ memoryId: detail.data.memory.id, value: 'confirmed' })}><CheckCircle2 size={12} /> 确认</button>
                 <button disabled={!canWrite} onClick={() => confirmationMutation.mutate({ memoryId: detail.data.memory.id, value: 'disputed' })}><ShieldAlert size={12} /> 争议</button>
@@ -333,23 +319,23 @@ export function MemoryPage() {
                 <button disabled={!canWrite} onClick={() => { if (window.confirm('遗忘后正文、来源摘录和向量不可恢复，确定继续吗？')) forgetMutation.mutate(detail.data.memory.id) }}><Trash2 size={12} /> 遗忘</button>
               </div>}
               <h3>来源</h3>
-              <div className="memory-evidence">{detail.data.sources.map((source) => <article key={source.id}><strong>{source.kind}</strong><span>{source.is_verbatim ? '逐字证据' : '非逐字摘要'}</span><p>{source.excerpt ?? '无可展示摘录'}</p><code>{source.source_id}</code></article>)}</div>
+              <div className="memory-evidence">{detail.data.sources.map((source) => <article key={source.id}><strong>{memorySourceKindLabels[source.kind]}</strong><span>{source.is_verbatim ? '逐字证据' : '非逐字摘要'}</span><p>{source.excerpt ?? '无可展示摘录'}</p><code>{source.source_id}</code></article>)}</div>
               <h3>关系链</h3>
-              <div className="memory-evidence">{detail.data.links.map((link) => <article key={link.id}><strong>{link.kind}</strong><p>{link.note ?? '无备注'}</p><code>{link.source_memory_id} → {link.target_memory_id}</code></article>)}{!detail.data.links.length && <span className="subtle">暂无冲突或替代关系。</span>}</div>
+              <div className="memory-evidence">{detail.data.links.map((link) => <article key={link.id}><strong>{memoryLinkKindLabels[link.kind]}</strong><p>{link.note ?? '无备注'}</p><code>{link.source_memory_id} → {link.target_memory_id}</code></article>)}{!detail.data.links.length && <span className="subtle">暂无冲突或替代关系。</span>}</div>
             </>}
           </aside>
         </section>
         <section className="panel recall-panel">
           <div className="panel-heading"><h2>混合召回试验</h2><span className="subtle">使用当前发布配置，不写入记忆</span></div>
           <div className="trace-search"><label><BrainCircuit size={15} /><input aria-label="召回查询" placeholder="输入自然语言查询" value={recallQuery} onChange={(event) => setRecallQuery(event.target.value)} /></label><button className="secondary-button" disabled={!recallQuery.trim() || !identity.data || recallMutation.isPending} onClick={() => recallMutation.mutate()}>执行召回</button></div>
-          <div className="recall-results">{recallMutation.data?.items.map((item) => <article key={item.memory.id}><strong>{item.score.toFixed(3)} · {kindLabels[item.memory.kind]}</strong><p>{item.memory.content}</p><code>{JSON.stringify(item.components)}</code></article>)}</div>
+          <div className="recall-results">{recallMutation.data?.items.map((item) => <article key={item.memory.id}><strong>{item.score.toFixed(3)} · {memoryKindLabels[item.memory.kind]}</strong><p>{item.memory.content}</p><code>{JSON.stringify(item.components)}</code></article>)}</div>
         </section>
       </>}
 
       {tab === 'relationship' && <section className="relationship-grid">
         <div className="panel relationship-summary">
           <div className="panel-heading"><h2>当前关系</h2><UsersRound size={18} /></div>
-          {relationship.data ? <><strong>{relationshipLabels[relationship.data.relationship.stage]}</strong><p>{relationship.data.relationship.summary}</p><dl className="memory-metrics"><div><dt>亲和度</dt><dd>{relationship.data.relationship.affinity.toFixed(2)}</dd></div><div><dt>信任度</dt><dd>{relationship.data.relationship.trust.toFixed(2)}</dd></div><div><dt>熟悉度</dt><dd>{relationship.data.relationship.familiarity.toFixed(2)}</dd></div><div><dt>交互次数</dt><dd>{relationship.data.relationship.interaction_count}</dd></div></dl><h3>边界</h3><ul>{relationship.data.relationship.boundaries.map((item) => <li key={item}>{item}</li>)}</ul></> : <div className="empty-state">尚未形成关系记录。</div>}
+          {relationship.data ? <><strong>{relationshipStageLabels[relationship.data.relationship.stage]}</strong><p>{relationship.data.relationship.summary}</p><dl className="memory-metrics"><div><dt>亲和度</dt><dd>{relationship.data.relationship.affinity.toFixed(2)}</dd></div><div><dt>信任度</dt><dd>{relationship.data.relationship.trust.toFixed(2)}</dd></div><div><dt>熟悉度</dt><dd>{relationship.data.relationship.familiarity.toFixed(2)}</dd></div><div><dt>交互次数</dt><dd>{relationship.data.relationship.interaction_count}</dd></div></dl><h3>边界</h3><ul>{relationship.data.relationship.boundaries.map((item) => <li key={item}>{item}</li>)}</ul></> : <div className="empty-state">尚未形成关系记录。</div>}
         </div>
         <div className="panel relationship-editor">
           <div className="panel-heading"><h2>追加关系事件</h2><span className="subtle">事件只保存安全摘要</span></div>
@@ -357,27 +343,27 @@ export function MemoryPage() {
           <label className="payload-editor">事件摘要<textarea rows={4} value={relationshipSummary} onChange={(event) => setRelationshipSummary(event.target.value)} /></label>
           <label className="payload-editor">关系边界（每行一项）<textarea rows={4} value={relationshipBoundaries} onChange={(event) => setRelationshipBoundaries(event.target.value)} /></label>
           <div className="cognition-editor-actions"><button className="primary-button" disabled={!canWrite || !identity.data || !relationshipSummary.trim()} onClick={() => relationshipMutation.mutate()}><Plus size={14} /> 追加事件</button></div>
-          <div className="memory-evidence">{relationship.data?.events.map((event) => <article key={event.id}><strong>{event.event_type}</strong><span>{new Date(event.created_at).toLocaleString()}</span><p>{event.summary}</p></article>)}</div>
+          <div className="memory-evidence">{relationship.data?.events.map((event) => <article key={event.id}><strong>{displayLabel(relationshipEventTypeLabels, event.event_type)}</strong><span>{new Date(event.created_at).toLocaleString()}</span><p>{event.summary}</p></article>)}</div>
         </div>
       </section>}
 
       {tab === 'episodes' && <section className="relationship-grid">
         <div className="panel relationship-editor">
-          <div className="panel-heading"><h2>创建 Episode</h2><History size={18} /></div>
+          <div className="panel-heading"><h2>创建情景记录</h2><History size={18} /></div>
           <div className="memory-form-grid"><label>标题<input value={episodeTitle} onChange={(event) => setEpisodeTitle(event.target.value)} /></label><label>会话 ID<input value={episodeConversationId} onChange={(event) => setEpisodeConversationId(event.target.value)} /></label></div>
           <label className="payload-editor">摘要<textarea rows={4} value={episodeSummary} onChange={(event) => setEpisodeSummary(event.target.value)} /></label>
           <label className="payload-editor">来源消息 ID（英文逗号分隔）<textarea rows={3} value={episodeMessageIds} onChange={(event) => setEpisodeMessageIds(event.target.value)} /></label>
-          <div className="cognition-editor-actions"><button className="primary-button" disabled={!canWrite || !identity.data || !episodeTitle.trim() || !episodeSummary.trim() || !episodeConversationId.trim() || !episodeMessageIds.trim()} onClick={() => episodeMutation.mutate()}><Plus size={14} /> 创建 Episode</button></div>
+          <div className="cognition-editor-actions"><button className="primary-button" disabled={!canWrite || !identity.data || !episodeTitle.trim() || !episodeSummary.trim() || !episodeConversationId.trim() || !episodeMessageIds.trim()} onClick={() => episodeMutation.mutate()}><Plus size={14} /> 创建情景记录</button></div>
         </div>
         <div className="panel">
-          <div className="panel-heading"><h2>Episode 列表</h2><span className="subtle">{episodes.data?.items.length ?? 0} 项</span></div>
-          <div className="memory-evidence">{episodes.data?.items.map((episode) => <article key={episode.id}><strong>{episode.title}</strong><span>{episode.status}</span><p>{episode.summary}</p><div className="table-actions"><button disabled={!canWrite || episode.status !== 'open'} onClick={() => closeEpisodeMutation.mutate({ episodeId: episode.id, consolidate: false })}>关闭</button><button disabled={!canWrite || episode.status === 'consolidated'} onClick={() => closeEpisodeMutation.mutate({ episodeId: episode.id, consolidate: true })}>标记已巩固</button></div></article>)}</div>
+          <div className="panel-heading"><h2>情景记录列表</h2><span className="subtle">{episodes.data?.items.length ?? 0} 项</span></div>
+          <div className="memory-evidence">{episodes.data?.items.map((episode) => <article key={episode.id}><strong>{episode.title}</strong><span>{episodeStatusLabels[episode.status]}</span><p>{episode.summary}</p><div className="table-actions"><button disabled={!canWrite || episode.status !== 'open'} onClick={() => closeEpisodeMutation.mutate({ episodeId: episode.id, consolidate: false })}>关闭</button><button disabled={!canWrite || episode.status === 'consolidated'} onClick={() => closeEpisodeMutation.mutate({ episodeId: episode.id, consolidate: true })}>标记已巩固</button></div></article>)}</div>
         </div>
       </section>}
 
       {tab === 'index' && <section className="panel">
-        <div className="panel-heading"><h2>Embedding 重建任务</h2><button className="secondary-button" disabled={!canRebuild || rebuildMutation.isPending} onClick={() => { if (window.confirm('确定按当前编码版本重建全部生效记忆吗？')) rebuildMutation.mutate() }}><RefreshCw size={14} /> 重建全部</button></div>
-        <div className="memory-evidence">{indexJobs.data?.items.map((job) => <article key={job.id}><strong>{job.target_embedding_version}</strong><span>{job.status}</span><p>{job.processed_items} / {job.total_items}</p><div className="progress-track"><span style={{ width: `${job.total_items ? job.processed_items / job.total_items * 100 : 100}%` }} /></div>{job.error_code && <code>{job.error_code}</code>}</article>)}{!indexJobs.data?.items.length && <div className="empty-state">尚无索引重建任务。</div>}</div>
+        <div className="panel-heading"><h2>向量索引重建任务</h2><button className="secondary-button" disabled={!canRebuild || rebuildMutation.isPending} onClick={() => { if (window.confirm('确定按当前编码版本重建全部生效记忆吗？')) rebuildMutation.mutate() }}><RefreshCw size={14} /> 重建全部</button></div>
+        <div className="memory-evidence">{indexJobs.data?.items.map((job) => <article key={job.id}><strong>{job.target_embedding_version}</strong><span>{memoryIndexJobStatusLabels[job.status]}</span><p>{job.processed_items} / {job.total_items}</p><div className="progress-track"><span style={{ width: `${job.total_items ? job.processed_items / job.total_items * 100 : 100}%` }} /></div>{job.error_code && <code>{job.error_code}</code>}</article>)}{!indexJobs.data?.items.length && <div className="empty-state">尚无索引重建任务。</div>}</div>
       </section>}
     </div>
   )

@@ -163,7 +163,7 @@ Invoke-RestMethod http://127.0.0.1:18000/api/v1/data-lifecycle/overview
 - `$manifestSha256`，而不是清单正文或存储地址；
 - 数据库校验行数和对象校验数量；
 - PostgreSQL 完整性、MinIO 对象完整性、应用冒烟三项真实结果；
-- 精确确认短语 `BACKUP RESTORE VERIFIED`。
+- 精确确认短语 `确认备份恢复演练已验证`。
 
 停止隔离 API 后，只清理本手册创建的固定名称容器和网络：
 
