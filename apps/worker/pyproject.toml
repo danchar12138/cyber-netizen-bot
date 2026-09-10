@@ -6,7 +6,7 @@ requires-python = ">=3.12,<3.14"
 dependencies = [
   "cnb-application",
   "cnb-infrastructure",
-  "dramatiq[redis]>=1.18,<2",
+  "dramatiq[redis]>=1.18,<3",
 ]
 
 [tool.uv.sources]
