@@ -108,7 +108,7 @@ jobs:
           format: spdx-json
           output-file: sbom-${{ matrix.target }}.spdx.json
           upload-artifact: false
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ci-sbom-${{ matrix.target }}
           path: sbom-${{ matrix.target }}.spdx.json
@@ -127,7 +127,7 @@ jobs:
           ./scripts/verify-infrastructure.ps1
           -EvidencePath "$env:RUNNER_TEMP/infrastructure-acceptance.json"
       - name: 保存脱敏验收证据
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: infrastructure-acceptance-evidence
           path: ${{ runner.temp }}/infrastructure-acceptance.json
