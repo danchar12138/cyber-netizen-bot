@@ -57,7 +57,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .sidebar-footer { margin-top: auto; padding-top: 13px; border-top: 1px solid #152a25; }
 .main-area { min-width: 0; min-height: 100vh; background: radial-gradient(circle at 62% -10%, #173a2d80 0, transparent 33%), #08110f; }
 .topbar { height: 62px; padding: 0 30px; border-bottom: 1px solid #183029; background: #091512d9; backdrop-filter: blur(15px); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
-.breadcrumb { display: flex; gap: 8px; align-items: center; color: #56746a; font-size: 11px; }
+.breadcrumb { display: flex; gap: 8px; align-items: center; color: #78998d; font-size: 11px; }
 .breadcrumb strong { color: #9ab5ab; font-weight: 500; }
 .topbar-actions { display: flex; align-items: center; gap: 10px; }
 .secure-badge { display: flex; gap: 6px; align-items: center; padding: 6px 9px; border: 1px solid #1f4236; border-radius: 999px; color: #6eb78f; background: #10231d; font-size: 10px; }
