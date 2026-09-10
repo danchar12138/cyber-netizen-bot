@@ -27,6 +27,7 @@ describe('管理后台中文显示文案', () => {
     expect(formatEnvironment('production')).toBe('生产环境')
     expect(formatLogLevel('INFO')).toBe('信息')
     expect(auditActionLabels['admin_session.revoked']).toBe('撤销管理会话')
+    expect(auditActionLabels['user.role_override_expired']).toBe('用户角色覆盖到期')
     expect(auditResourceLabels.admin_session).toBe('管理会话')
   })
 

@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from time import monotonic
@@ -12,7 +13,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 import httpx
 import jwt
 from jwt import InvalidTokenError, PyJWK
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -124,7 +125,7 @@ class OidcAuthenticator:
             authentication_mode="oidc",
         )
         if self._session_factory is not None:
-            await self._persist_identity(
+            effective_role = await self._persist_identity(
                 principal=principal,
                 agent_id=agent_id,
                 issuer=issuer,
@@ -132,6 +133,11 @@ class OidcAuthenticator:
                 token_hash=sha256(token.encode()).hexdigest(),
                 issued_at=issued_at,
                 expires_at=expires_at,
+            )
+            principal = replace(
+                principal,
+                role=effective_role,
+                permissions=permissions_for_role(effective_role),
             )
         return principal
 
@@ -243,10 +249,10 @@ class OidcAuthenticator:
         token_hash: str,
         issued_at: datetime,
         expires_at: datetime,
-    ) -> None:
+    ) -> AdminRole:
         """JIT 建立固定租户内的用户、角色和不含令牌明文的会话记录。"""
         if self._session_factory is None:
-            return
+            return principal.role
         now = datetime.now(UTC)
         external_identity_id = uuid5(NAMESPACE_URL, f"cnb-external-identity|{issuer}|{subject}")
         assignment_id = uuid5(
@@ -324,7 +330,7 @@ class OidcAuthenticator:
                     set_={"last_authenticated_at": now},
                 )
             )
-            await session.execute(
+            effective_role = await session.scalar(
                 pg_insert(RoleAssignment)
                 .values(
                     id=assignment_id,
@@ -332,13 +338,24 @@ class OidcAuthenticator:
                     user_id=principal.user_id,
                     role=principal.role.value,
                     source="oidc",
+                    trusted_role=principal.role.value,
+                    overridden_by=None,
+                    override_expires_at=None,
                     created_at=now,
                     updated_at=now,
                 )
                 .on_conflict_do_update(
                     constraint="uq_role_assignments_tenant_user",
-                    set_={"role": principal.role.value, "updated_at": now},
+                    set_={
+                        "role": case(
+                            (RoleAssignment.source == "oidc", principal.role.value),
+                            else_=RoleAssignment.role,
+                        ),
+                        "trusted_role": principal.role.value,
+                        "updated_at": now,
+                    },
                 )
+                .returning(RoleAssignment.role)
             )
             existing_session = await session.scalar(
                 select(AdminSession).where(AdminSession.token_hash == token_hash)
@@ -363,6 +380,9 @@ class OidcAuthenticator:
                     set_={"last_seen_at": now},
                 )
             )
+        if effective_role is None:
+            raise AuthenticationError("本地角色同步失败")
+        return AdminRole(effective_role)
 
     @staticmethod
     async def _assert_active_identity(

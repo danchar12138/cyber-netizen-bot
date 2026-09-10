@@ -88,7 +88,7 @@ export type ActiveAlertResponse = {
  *
  * API 按能力而非页面名称执行的细粒度权限。
  */
-export type AdminPermission = 'dashboard:read' | 'configuration:read' | 'configuration:write' | 'secret:manage' | 'conversation:read' | 'conversation:use' | 'access_control:read' | 'agent:read' | 'agent:write' | 'cognition:read' | 'cognition:write' | 'cognition:evaluate' | 'evaluation:review' | 'memory:read' | 'memory:write' | 'memory:rebuild' | 'task:read' | 'task:manage' | 'proactive:manage' | 'channel:read' | 'channel:write' | 'channel:send' | 'channel_credential:manage' | 'integration:read' | 'integration:manage' | 'inbox:replay' | 'trace:read' | 'user:read' | 'user:write' | 'audit:read' | 'data_lifecycle:read' | 'data_lifecycle:export' | 'data_lifecycle:forget' | 'data_lifecycle:retention_manage' | 'data_lifecycle:backup_drill_record';
+export type AdminPermission = 'dashboard:read' | 'configuration:read' | 'configuration:write' | 'secret:manage' | 'conversation:read' | 'conversation:use' | 'access_control:read' | 'agent:read' | 'agent:write' | 'cognition:read' | 'cognition:write' | 'cognition:evaluate' | 'evaluation:review' | 'memory:read' | 'memory:write' | 'memory:rebuild' | 'task:read' | 'task:manage' | 'proactive:manage' | 'channel:read' | 'channel:write' | 'channel:send' | 'channel_credential:manage' | 'integration:read' | 'integration:manage' | 'inbox:replay' | 'trace:read' | 'user:read' | 'user:write' | 'user:role_write' | 'audit:read' | 'data_lifecycle:read' | 'data_lifecycle:export' | 'data_lifecycle:forget' | 'data_lifecycle:retention_manage' | 'data_lifecycle:backup_drill_record';
 
 /**
  * AdminRole
@@ -3488,7 +3488,7 @@ export type HealthResponse = {
  *
  * 后台可解释的身份或角色来源。
  */
-export type IdentityGovernanceSource = 'oidc' | 'development';
+export type IdentityGovernanceSource = 'oidc' | 'development' | 'manual';
 
 /**
  * InboundAcceptanceResponse
@@ -4066,8 +4066,17 @@ export type ManagedRoleAssignmentResponse = {
      * Created At
      */
     created_at: string;
+    /**
+     * Overridden By
+     */
+    overridden_by: string | null;
+    /**
+     * Override Expires At
+     */
+    override_expires_at: string | null;
     role: AdminRole;
     source: IdentityGovernanceSource;
+    trusted_role: AdminRole;
     /**
      * Updated At
      */
@@ -4096,11 +4105,36 @@ export type ManagedTenantResponse = {
 };
 
 /**
+ * ManagedUserAccessPolicyResponse
+ *
+ * 可安全展示和编辑的用户访问限制。
+ */
+export type ManagedUserAccessPolicyResponse = {
+    /**
+     * Request Rate Limit Per Minute
+     */
+    request_rate_limit_per_minute: number | null;
+    /**
+     * Suspended Until
+     */
+    suspended_until: string | null;
+    /**
+     * Suspension Reason
+     */
+    suspension_reason: string | null;
+    /**
+     * Updated At
+     */
+    updated_at: string | null;
+};
+
+/**
  * ManagedUserDetailResponse
  *
  * 用户身份、授权、管理会话和会话成员的统一视图。
  */
 export type ManagedUserDetailResponse = {
+    access_policy: ManagedUserAccessPolicyResponse;
     /**
      * Admin Sessions
      */
@@ -5829,6 +5863,30 @@ export type TaskStatusResponse = {
 };
 
 /**
+ * UserAccessPolicyUpdateCommand
+ *
+ * 更新用户限流和临时停用状态的完整命令。
+ */
+export type UserAccessPolicyUpdateCommand = {
+    /**
+     * Confirmation
+     */
+    confirmation: string;
+    /**
+     * Request Rate Limit Per Minute
+     */
+    request_rate_limit_per_minute?: number | null;
+    /**
+     * Suspended Until
+     */
+    suspended_until?: string | null;
+    /**
+     * Suspension Reason
+     */
+    suspension_reason?: string | null;
+};
+
+/**
  * UserDataExportCommand
  *
  * 按租户隔离导出一个用户的白名单数据。
@@ -5854,6 +5912,35 @@ export type UserDataForgetCommand = {
      * User Id
      */
     user_id: string;
+};
+
+/**
+ * UserRoleOverrideCommand
+ *
+ * 以手工来源覆盖可信角色，可选择自动到期。
+ */
+export type UserRoleOverrideCommand = {
+    /**
+     * Confirmation
+     */
+    confirmation: string;
+    /**
+     * Override Expires At
+     */
+    override_expires_at?: string | null;
+    role: AdminRole;
+};
+
+/**
+ * UserRoleOverrideRevokeCommand
+ *
+ * 撤销手工角色覆盖所需的逐字确认。
+ */
+export type UserRoleOverrideRevokeCommand = {
+    /**
+     * Confirmation
+     */
+    confirmation: string;
 };
 
 /**
@@ -6831,6 +6918,192 @@ export type GetApiV1AdministrationUsersByUserIdResponses = {
 };
 
 export type GetApiV1AdministrationUsersByUserIdResponse = GetApiV1AdministrationUsersByUserIdResponses[keyof GetApiV1AdministrationUsersByUserIdResponses];
+
+export type PatchApiV1AdministrationUsersByUserIdAccessPolicyData = {
+    body: UserAccessPolicyUpdateCommand;
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/api/v1/administration/users/{user_id}/access-policy';
+};
+
+export type PatchApiV1AdministrationUsersByUserIdAccessPolicyErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PatchApiV1AdministrationUsersByUserIdAccessPolicyError = PatchApiV1AdministrationUsersByUserIdAccessPolicyErrors[keyof PatchApiV1AdministrationUsersByUserIdAccessPolicyErrors];
+
+export type PatchApiV1AdministrationUsersByUserIdAccessPolicyResponses = {
+    /**
+     * Successful Response
+     */
+    200: ManagedUserAccessPolicyResponse;
+};
+
+export type PatchApiV1AdministrationUsersByUserIdAccessPolicyResponse = PatchApiV1AdministrationUsersByUserIdAccessPolicyResponses[keyof PatchApiV1AdministrationUsersByUserIdAccessPolicyResponses];
+
+export type PutApiV1AdministrationUsersByUserIdRoleOverrideData = {
+    body: UserRoleOverrideCommand;
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/api/v1/administration/users/{user_id}/role-override';
+};
+
+export type PutApiV1AdministrationUsersByUserIdRoleOverrideErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PutApiV1AdministrationUsersByUserIdRoleOverrideError = PutApiV1AdministrationUsersByUserIdRoleOverrideErrors[keyof PutApiV1AdministrationUsersByUserIdRoleOverrideErrors];
+
+export type PutApiV1AdministrationUsersByUserIdRoleOverrideResponses = {
+    /**
+     * Successful Response
+     */
+    200: ManagedRoleAssignmentResponse;
+};
+
+export type PutApiV1AdministrationUsersByUserIdRoleOverrideResponse = PutApiV1AdministrationUsersByUserIdRoleOverrideResponses[keyof PutApiV1AdministrationUsersByUserIdRoleOverrideResponses];
+
+export type PostApiV1AdministrationUsersByUserIdRoleOverrideRevokeData = {
+    body: UserRoleOverrideRevokeCommand;
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/api/v1/administration/users/{user_id}/role-override/revoke';
+};
+
+export type PostApiV1AdministrationUsersByUserIdRoleOverrideRevokeErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1AdministrationUsersByUserIdRoleOverrideRevokeError = PostApiV1AdministrationUsersByUserIdRoleOverrideRevokeErrors[keyof PostApiV1AdministrationUsersByUserIdRoleOverrideRevokeErrors];
+
+export type PostApiV1AdministrationUsersByUserIdRoleOverrideRevokeResponses = {
+    /**
+     * Successful Response
+     */
+    200: ManagedRoleAssignmentResponse;
+};
+
+export type PostApiV1AdministrationUsersByUserIdRoleOverrideRevokeResponse = PostApiV1AdministrationUsersByUserIdRoleOverrideRevokeResponses[keyof PostApiV1AdministrationUsersByUserIdRoleOverrideRevokeResponses];
 
 export type PostApiV1AdministrationUsersByUserIdSessionsBySessionIdRevokeData = {
     body: UserSessionRevokeCommand;

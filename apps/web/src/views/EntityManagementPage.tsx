@@ -64,6 +64,7 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
   const [lifecycleConfirmation, setLifecycleConfirmation] = useState('')
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const canWrite = session.data?.permissions.includes(isAgent ? 'agent:write' : 'user:write') ?? false
+  const canManageUserRole = session.data?.permissions.includes('user:role_write') ?? false
   const entities = useQuery({
     queryKey: ['managed-entities', kind],
     queryFn: async (): Promise<EntityRow[]> => {
@@ -233,7 +234,7 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
         <div>
           <p className="eyebrow">资源管理</p>
           <h1>{isAgent ? 'Agent 管理' : '用户与身份'}</h1>
-          <p>{isAgent ? '管理 Agent 的创建、复制、命名、启停、归档与软删除保留期；人格版本通过独立入口治理。' : '查看当前租户用户，并通过有确认和审计的批量操作管理状态。'}</p>
+          <p>{isAgent ? '管理 Agent 的创建、复制、命名、启停、归档与软删除保留期；人格版本通过独立入口治理。' : '集中管理当前租户用户的状态、请求预算、临时停用、可信角色、身份绑定与管理会话。'}</p>
         </div>
         <div className="heading-actions">
           <button className="secondary-button" disabled={!canWrite || selected.size === 0 || !bulkStatusAllowed || updateStatus.isPending} onClick={() => runBulk('active')}><Power size={14} /> 批量启用</button>
@@ -356,6 +357,7 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
           userId={selectedUserId}
           currentUserId={session.data?.user_id}
           canWrite={canWrite}
+          canManageRole={canManageUserRole}
         />
       )}
 

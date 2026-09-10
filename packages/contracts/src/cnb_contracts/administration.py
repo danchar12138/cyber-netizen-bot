@@ -146,8 +146,20 @@ class ManagedRoleAssignmentResponse(BaseModel):
 
     role: AdminRole
     source: IdentityGovernanceSource
+    trusted_role: AdminRole
+    overridden_by: UUID | None
+    override_expires_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class ManagedUserAccessPolicyResponse(BaseModel):
+    """可安全展示和编辑的用户访问限制。"""
+
+    request_rate_limit_per_minute: int | None
+    suspended_until: datetime | None
+    suspension_reason: str | None
+    updated_at: datetime | None
 
 
 class ManagedExternalIdentityResponse(BaseModel):
@@ -189,6 +201,7 @@ class ManagedUserDetailResponse(BaseModel):
     user: ManagedUserResponse
     tenant: ManagedTenantResponse
     role_assignment: ManagedRoleAssignmentResponse | None
+    access_policy: ManagedUserAccessPolicyResponse
     external_identities: tuple[ManagedExternalIdentityResponse, ...]
     admin_sessions: tuple[ManagedAdminSessionResponse, ...]
     conversation_memberships: tuple[ManagedConversationMembershipResponse, ...]
@@ -196,6 +209,29 @@ class ManagedUserDetailResponse(BaseModel):
 
 class UserSessionRevokeCommand(BaseModel):
     """撤销管理会话所需的逐字确认短语。"""
+
+    confirmation: str = Field(min_length=1, max_length=200)
+
+
+class UserAccessPolicyUpdateCommand(BaseModel):
+    """更新用户限流和临时停用状态的完整命令。"""
+
+    request_rate_limit_per_minute: int | None = Field(default=None, ge=1, le=10_000)
+    suspended_until: datetime | None = None
+    suspension_reason: str | None = Field(default=None, max_length=500)
+    confirmation: str = Field(min_length=1, max_length=200)
+
+
+class UserRoleOverrideCommand(BaseModel):
+    """以手工来源覆盖可信角色，可选择自动到期。"""
+
+    role: AdminRole
+    override_expires_at: datetime | None = None
+    confirmation: str = Field(min_length=1, max_length=200)
+
+
+class UserRoleOverrideRevokeCommand(BaseModel):
+    """撤销手工角色覆盖所需的逐字确认。"""
 
     confirmation: str = Field(min_length=1, max_length=200)
 

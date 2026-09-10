@@ -7,17 +7,22 @@ from datetime import UTC, datetime
 from typing import Protocol, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from cnb_application import (
+    AdministrationAccessDeniedError,
     AdministrationConflictError,
     AdministrationNotFoundError,
+    AdministrationRateLimitError,
     AuditCursor,
     EntityCursor,
+    permissions_for_role,
 )
 from cnb_domain import (
+    AdminPrincipal,
     AdminRole,
     AgentImpactCounts,
     AgentLifecycleStatus,
@@ -34,6 +39,7 @@ from cnb_domain import (
     ManagedRoleAssignment,
     ManagedTenant,
     ManagedUser,
+    ManagedUserAccessPolicy,
     ManagedUserDetail,
     ManagementOverview,
 )
@@ -55,6 +61,7 @@ from cnb_infrastructure.models import (
     ScheduledActionModel,
     Tenant,
     User,
+    UserRequestRateLimitWindow,
 )
 
 
@@ -107,9 +114,22 @@ class MemoryAdministrationRepository:
         self._development_role = ManagedRoleAssignment(
             role=AdminRole.ADMIN,
             source=IdentityGovernanceSource.DEVELOPMENT,
+            trusted_role=AdminRole.ADMIN,
+            overridden_by=None,
+            override_expires_at=None,
             created_at=now,
             updated_at=now,
         )
+        self._role_assignments = {identity.user_id: self._development_role}
+        self._access_policies = {
+            identity.user_id: ManagedUserAccessPolicy(
+                request_rate_limit_per_minute=None,
+                suspended_until=None,
+                suspension_reason=None,
+                updated_at=None,
+            )
+        }
+        self._request_windows: dict[UUID, tuple[datetime, int]] = {}
         self._admin_sessions: dict[tuple[UUID, UUID], ManagedAdminSession] = {}
         self._audit_records: list[AuditRecord] = []
         self._agent_impacts: dict[UUID, AgentImpactCounts] = {}
@@ -126,6 +146,75 @@ class MemoryAdministrationRepository:
                 ),
                 active_conversations=0,
                 pending_jobs=0,
+            )
+
+    async def authorize_admin_request(
+        self,
+        *,
+        principal: AdminPrincipal,
+        requested_at: datetime,
+        window_started_at: datetime,
+    ) -> AdminPrincipal:
+        async with self._lock:
+            user = self._users.get(principal.user_id)
+            if user is None or user.tenant_id != principal.tenant_id:
+                raise AdministrationAccessDeniedError("用户不存在或不可访问")
+            if user.status is EntityStatus.DISABLED:
+                raise AdministrationAccessDeniedError("用户已停用")
+            policy = self._access_policies[principal.user_id]
+            if policy.suspended_until is not None and policy.suspended_until > requested_at:
+                raise AdministrationAccessDeniedError(
+                    f"用户已临时停用至 {policy.suspended_until.isoformat()}"
+                )
+            assignment = self._role_assignments[principal.user_id]
+            if (
+                assignment.source is IdentityGovernanceSource.MANUAL
+                and assignment.override_expires_at is not None
+                and assignment.override_expires_at <= requested_at
+            ):
+                assignment = replace(
+                    assignment,
+                    role=assignment.trusted_role,
+                    source=IdentityGovernanceSource.DEVELOPMENT,
+                    overridden_by=None,
+                    override_expires_at=None,
+                    updated_at=requested_at,
+                )
+                self._role_assignments[principal.user_id] = assignment
+                self._append_audit(
+                    tenant_id=principal.tenant_id,
+                    actor_id=None,
+                    action="user.role_override_expired",
+                    resource_type="user",
+                    resource_id=str(principal.user_id),
+                    detail={"restored_role": assignment.role.value},
+                )
+            limit = policy.request_rate_limit_per_minute
+            if limit is not None:
+                existing_window, existing_count = self._request_windows.get(
+                    principal.user_id,
+                    (window_started_at, 0),
+                )
+                used_count = existing_count + 1 if existing_window == window_started_at else 1
+                self._request_windows[principal.user_id] = (window_started_at, used_count)
+                if used_count > limit:
+                    retry_after = max(
+                        1,
+                        60 - int((requested_at - window_started_at).total_seconds()),
+                    )
+                    raise AdministrationRateLimitError(
+                        "用户已达到每分钟请求上限",
+                        retry_after_seconds=retry_after,
+                    )
+            effective_role = (
+                principal.role
+                if assignment.source is IdentityGovernanceSource.DEVELOPMENT
+                else assignment.role
+            )
+            return replace(
+                principal,
+                role=effective_role,
+                permissions=permissions_for_role(effective_role),
             )
 
     async def list_agents(
@@ -463,7 +552,8 @@ class MemoryAdministrationRepository:
             return ManagedUserDetail(
                 user=user,
                 tenant=self._tenant,
-                role_assignment=self._development_role,
+                role_assignment=self._role_assignments[user_id],
+                access_policy=self._access_policies[user_id],
                 external_identities=(),
                 admin_sessions=tuple(
                     sorted(
@@ -510,6 +600,124 @@ class MemoryAdministrationRepository:
             )
             return revoked
 
+    async def update_user_access_policy(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+        request_rate_limit_per_minute: int | None,
+        suspended_until: datetime | None,
+        suspension_reason: str | None,
+        actor_id: UUID,
+        updated_at: datetime,
+    ) -> ManagedUserAccessPolicy:
+        async with self._lock:
+            user = self._users.get(user_id)
+            if user is None or user.tenant_id != tenant_id:
+                raise AdministrationNotFoundError("用户不存在")
+            policy = ManagedUserAccessPolicy(
+                request_rate_limit_per_minute=request_rate_limit_per_minute,
+                suspended_until=suspended_until,
+                suspension_reason=suspension_reason,
+                updated_at=updated_at,
+            )
+            self._access_policies[user_id] = policy
+            if request_rate_limit_per_minute is None:
+                self._request_windows.pop(user_id, None)
+            self._append_audit(
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                action="user.access_policy_updated",
+                resource_type="user",
+                resource_id=str(user_id),
+                detail={
+                    "request_rate_limit_per_minute": request_rate_limit_per_minute,
+                    "suspended_until": (
+                        None if suspended_until is None else suspended_until.isoformat()
+                    ),
+                    "suspended": suspended_until is not None,
+                },
+            )
+            return policy
+
+    async def set_user_role_override(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+        role: AdminRole,
+        override_expires_at: datetime | None,
+        actor_id: UUID,
+        updated_at: datetime,
+    ) -> ManagedRoleAssignment:
+        async with self._lock:
+            user = self._users.get(user_id)
+            if user is None or user.tenant_id != tenant_id:
+                raise AdministrationNotFoundError("用户不存在")
+            current = self._role_assignments.get(user_id)
+            if current is None:
+                raise AdministrationConflictError("用户尚无可信角色基线")
+            assignment = replace(
+                current,
+                role=role,
+                source=IdentityGovernanceSource.MANUAL,
+                overridden_by=actor_id,
+                override_expires_at=override_expires_at,
+                updated_at=updated_at,
+            )
+            self._role_assignments[user_id] = assignment
+            self._append_audit(
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                action="user.role_overridden",
+                resource_type="user",
+                resource_id=str(user_id),
+                detail={
+                    "role": role.value,
+                    "trusted_role": assignment.trusted_role.value,
+                    "override_expires_at": (
+                        None if override_expires_at is None else override_expires_at.isoformat()
+                    ),
+                },
+            )
+            return assignment
+
+    async def revoke_user_role_override(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+        actor_id: UUID,
+        updated_at: datetime,
+    ) -> ManagedRoleAssignment:
+        async with self._lock:
+            user = self._users.get(user_id)
+            if user is None or user.tenant_id != tenant_id:
+                raise AdministrationNotFoundError("用户不存在")
+            current = self._role_assignments.get(user_id)
+            if current is None:
+                raise AdministrationConflictError("用户尚无可信角色基线")
+            if current.source is not IdentityGovernanceSource.MANUAL:
+                raise AdministrationConflictError("用户当前没有手工角色覆盖")
+            assignment = replace(
+                current,
+                role=current.trusted_role,
+                source=IdentityGovernanceSource.DEVELOPMENT,
+                overridden_by=None,
+                override_expires_at=None,
+                updated_at=updated_at,
+            )
+            self._role_assignments[user_id] = assignment
+            self._append_audit(
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                action="user.role_override_revoked",
+                resource_type="user",
+                resource_id=str(user_id),
+                detail={"restored_role": assignment.role.value},
+            )
+            return assignment
+
     async def list_audit_records(
         self,
         *,
@@ -544,7 +752,7 @@ class MemoryAdministrationRepository:
         self,
         *,
         tenant_id: UUID,
-        actor_id: UUID,
+        actor_id: UUID | None,
         action: str,
         resource_type: str,
         resource_id: str | None,
@@ -616,6 +824,107 @@ class SqlAlchemyAdministrationRepository:
                 active_conversations=active_conversations or 0,
                 pending_jobs=0,
             )
+
+    async def authorize_admin_request(
+        self,
+        *,
+        principal: AdminPrincipal,
+        requested_at: datetime,
+        window_started_at: datetime,
+    ) -> AdminPrincipal:
+        exceeded_limit: int | None = None
+        async with self._session_factory() as session, session.begin():
+            user = await session.scalar(
+                select(User)
+                .where(User.tenant_id == principal.tenant_id, User.id == principal.user_id)
+                .with_for_update()
+            )
+            if user is None:
+                raise AdministrationAccessDeniedError("用户不存在或不可访问")
+            if user.status == EntityStatus.DISABLED.value:
+                raise AdministrationAccessDeniedError("用户已停用")
+            if user.suspended_until is not None and user.suspended_until > requested_at:
+                raise AdministrationAccessDeniedError(
+                    f"用户已临时停用至 {user.suspended_until.isoformat()}"
+                )
+            assignment = await session.scalar(
+                select(RoleAssignment)
+                .where(
+                    RoleAssignment.tenant_id == principal.tenant_id,
+                    RoleAssignment.user_id == principal.user_id,
+                )
+                .with_for_update()
+            )
+            if (
+                assignment is not None
+                and assignment.source == IdentityGovernanceSource.MANUAL.value
+                and assignment.override_expires_at is not None
+                and assignment.override_expires_at <= requested_at
+            ):
+                assignment.role = assignment.trusted_role
+                assignment.source = IdentityGovernanceSource.OIDC.value
+                assignment.overridden_by = None
+                assignment.override_expires_at = None
+                assignment.updated_at = requested_at
+                session.add(
+                    AuditLog(
+                        tenant_id=principal.tenant_id,
+                        actor_id=None,
+                        action="user.role_override_expired",
+                        resource_type="user",
+                        resource_id=str(principal.user_id),
+                        detail={"restored_role": assignment.role},
+                    )
+                )
+            limit = user.request_rate_limit_per_minute
+            if limit is not None:
+                same_window = UserRequestRateLimitWindow.window_started_at == window_started_at
+                used_count = await session.scalar(
+                    pg_insert(UserRequestRateLimitWindow)
+                    .values(
+                        tenant_id=principal.tenant_id,
+                        user_id=principal.user_id,
+                        window_started_at=window_started_at,
+                        used_count=1,
+                        updated_at=requested_at,
+                    )
+                    .on_conflict_do_update(
+                        index_elements=[
+                            UserRequestRateLimitWindow.tenant_id,
+                            UserRequestRateLimitWindow.user_id,
+                        ],
+                        set_={
+                            "window_started_at": window_started_at,
+                            "used_count": case(
+                                (
+                                    same_window,
+                                    UserRequestRateLimitWindow.used_count + 1,
+                                ),
+                                else_=1,
+                            ),
+                            "updated_at": requested_at,
+                        },
+                    )
+                    .returning(UserRequestRateLimitWindow.used_count)
+                )
+                if used_count is not None and used_count > limit:
+                    exceeded_limit = limit
+            effective_role = principal.role if assignment is None else AdminRole(assignment.role)
+            governed = replace(
+                principal,
+                role=effective_role,
+                permissions=permissions_for_role(effective_role),
+            )
+        if exceeded_limit is not None:
+            retry_after = max(
+                1,
+                60 - int((requested_at - window_started_at).total_seconds()),
+            )
+            raise AdministrationRateLimitError(
+                f"用户已达到每分钟 {exceeded_limit} 次请求上限",
+                retry_after_seconds=retry_after,
+            )
+        return governed
 
     async def list_agents(
         self,
@@ -1165,6 +1474,7 @@ class SqlAlchemyAdministrationRepository:
                 role_assignment=(
                     None if role_assignment is None else self._role_assignment(role_assignment)
                 ),
+                access_policy=self._access_policy(user),
                 external_identities=tuple(
                     self._external_identity(row) for row in external_identities
                 ),
@@ -1211,6 +1521,149 @@ class SqlAlchemyAdministrationRepository:
             )
             await session.flush()
             return self._admin_session(row)
+
+    async def update_user_access_policy(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+        request_rate_limit_per_minute: int | None,
+        suspended_until: datetime | None,
+        suspension_reason: str | None,
+        actor_id: UUID,
+        updated_at: datetime,
+    ) -> ManagedUserAccessPolicy:
+        async with self._session_factory() as session, session.begin():
+            row = await session.scalar(
+                select(User)
+                .where(User.tenant_id == tenant_id, User.id == user_id)
+                .with_for_update()
+            )
+            if row is None:
+                raise AdministrationNotFoundError("用户不存在")
+            row.request_rate_limit_per_minute = request_rate_limit_per_minute
+            row.suspended_until = suspended_until
+            row.suspension_reason = suspension_reason
+            row.access_policy_updated_at = updated_at
+            if request_rate_limit_per_minute is None:
+                await session.execute(
+                    delete(UserRequestRateLimitWindow).where(
+                        UserRequestRateLimitWindow.tenant_id == tenant_id,
+                        UserRequestRateLimitWindow.user_id == user_id,
+                    )
+                )
+            session.add(
+                AuditLog(
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                    action="user.access_policy_updated",
+                    resource_type="user",
+                    resource_id=str(user_id),
+                    detail={
+                        "request_rate_limit_per_minute": request_rate_limit_per_minute,
+                        "suspended_until": (
+                            None if suspended_until is None else suspended_until.isoformat()
+                        ),
+                        "suspended": suspended_until is not None,
+                    },
+                )
+            )
+            await session.flush()
+            return self._access_policy(row)
+
+    async def set_user_role_override(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+        role: AdminRole,
+        override_expires_at: datetime | None,
+        actor_id: UUID,
+        updated_at: datetime,
+    ) -> ManagedRoleAssignment:
+        async with self._session_factory() as session, session.begin():
+            user_exists = await session.scalar(
+                select(User.id).where(User.tenant_id == tenant_id, User.id == user_id)
+            )
+            if user_exists is None:
+                raise AdministrationNotFoundError("用户不存在")
+            row = await session.scalar(
+                select(RoleAssignment)
+                .where(
+                    RoleAssignment.tenant_id == tenant_id,
+                    RoleAssignment.user_id == user_id,
+                )
+                .with_for_update()
+            )
+            if row is None:
+                raise AdministrationConflictError("用户尚无可信 OIDC 角色基线")
+            row.role = role.value
+            row.source = IdentityGovernanceSource.MANUAL.value
+            row.overridden_by = actor_id
+            row.override_expires_at = override_expires_at
+            row.updated_at = updated_at
+            session.add(
+                AuditLog(
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                    action="user.role_overridden",
+                    resource_type="user",
+                    resource_id=str(user_id),
+                    detail={
+                        "role": role.value,
+                        "trusted_role": row.trusted_role,
+                        "override_expires_at": (
+                            None if override_expires_at is None else override_expires_at.isoformat()
+                        ),
+                    },
+                )
+            )
+            await session.flush()
+            return self._role_assignment(row)
+
+    async def revoke_user_role_override(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+        actor_id: UUID,
+        updated_at: datetime,
+    ) -> ManagedRoleAssignment:
+        async with self._session_factory() as session, session.begin():
+            user_exists = await session.scalar(
+                select(User.id).where(User.tenant_id == tenant_id, User.id == user_id)
+            )
+            if user_exists is None:
+                raise AdministrationNotFoundError("用户不存在")
+            row = await session.scalar(
+                select(RoleAssignment)
+                .where(
+                    RoleAssignment.tenant_id == tenant_id,
+                    RoleAssignment.user_id == user_id,
+                )
+                .with_for_update()
+            )
+            if row is None:
+                raise AdministrationConflictError("用户尚无可信 OIDC 角色基线")
+            if row.source != IdentityGovernanceSource.MANUAL.value:
+                raise AdministrationConflictError("用户当前没有手工角色覆盖")
+            row.role = row.trusted_role
+            row.source = IdentityGovernanceSource.OIDC.value
+            row.overridden_by = None
+            row.override_expires_at = None
+            row.updated_at = updated_at
+            session.add(
+                AuditLog(
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                    action="user.role_override_revoked",
+                    resource_type="user",
+                    resource_id=str(user_id),
+                    detail={"restored_role": row.role},
+                )
+            )
+            await session.flush()
+            return self._role_assignment(row)
 
     async def update_user_status(
         self,
@@ -1322,8 +1775,20 @@ class SqlAlchemyAdministrationRepository:
         return ManagedRoleAssignment(
             role=AdminRole(row.role),
             source=IdentityGovernanceSource(row.source),
+            trusted_role=AdminRole(row.trusted_role),
+            overridden_by=row.overridden_by,
+            override_expires_at=row.override_expires_at,
             created_at=row.created_at,
             updated_at=row.updated_at,
+        )
+
+    @staticmethod
+    def _access_policy(row: User) -> ManagedUserAccessPolicy:
+        return ManagedUserAccessPolicy(
+            request_rate_limit_per_minute=row.request_rate_limit_per_minute,
+            suspended_until=row.suspended_until,
+            suspension_reason=row.suspension_reason,
+            updated_at=row.access_policy_updated_at,
         )
 
     @staticmethod

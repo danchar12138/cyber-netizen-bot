@@ -322,7 +322,12 @@ def create_app(
             "X-CNB-Agent-ID",
             "X-Request-ID",
         ],
-        expose_headers=["X-Request-ID", "X-Content-SHA256", "X-Export-Run-ID"],
+        expose_headers=[
+            "Retry-After",
+            "X-Request-ID",
+            "X-Content-SHA256",
+            "X-Export-Run-ID",
+        ],
     )
     application.include_router(health.router)
     application.include_router(authentication.router, prefix="/api/v1")

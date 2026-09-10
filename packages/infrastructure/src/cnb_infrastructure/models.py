@@ -252,13 +252,27 @@ class User(Base):
     )
     display_name: Mapped[str] = mapped_column(String(120), nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="active")
+    request_rate_limit_per_minute: Mapped[int | None] = mapped_column(Integer)
+    suspended_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    suspension_reason: Mapped[str | None] = mapped_column(String(500))
+    access_policy_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
     __table_args__ = (
         CheckConstraint("status IN ('active', 'disabled')", name="ck_users_status"),
+        CheckConstraint(
+            "request_rate_limit_per_minute IS NULL OR "
+            "request_rate_limit_per_minute BETWEEN 1 AND 10000",
+            name="ck_users_request_rate_limit",
+        ),
+        CheckConstraint(
+            "(suspended_until IS NULL) = (suspension_reason IS NULL)",
+            name="ck_users_suspension_pair",
+        ),
         Index("ix_users_tenant", "tenant_id"),
+        Index("ix_users_suspended", "tenant_id", "suspended_until"),
     )
 
 
@@ -299,12 +313,25 @@ class RoleAssignment(Base):
     )
     role: Mapped[str] = mapped_column(String(24), nullable=False)
     source: Mapped[str] = mapped_column(String(24), nullable=False)
+    trusted_role: Mapped[str] = mapped_column(String(24), nullable=False)
+    overridden_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
+    override_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
         CheckConstraint("role IN ('admin', 'operator', 'viewer')", name="ck_role_assignments_role"),
-        CheckConstraint("source IN ('oidc')", name="ck_role_assignments_source"),
+        CheckConstraint("source IN ('oidc', 'manual')", name="ck_role_assignments_source"),
+        CheckConstraint(
+            "trusted_role IN ('admin', 'operator', 'viewer')",
+            name="ck_role_assignments_trusted_role",
+        ),
+        CheckConstraint(
+            "(source = 'oidc' AND role = trusted_role AND overridden_by IS NULL "
+            "AND override_expires_at IS NULL) OR "
+            "(source = 'manual' AND overridden_by IS NOT NULL)",
+            name="ck_role_assignments_override",
+        ),
         UniqueConstraint("tenant_id", "user_id", name="uq_role_assignments_tenant_user"),
         Index("ix_role_assignments_tenant_role", "tenant_id", "role"),
     )
@@ -334,6 +361,27 @@ class AdminSession(Base):
     __table_args__ = (
         Index("ix_admin_sessions_tenant_user_seen", "tenant_id", "user_id", "last_seen_at"),
         Index("ix_admin_sessions_expires", "expires_at"),
+    )
+
+
+class UserRequestRateLimitWindow(Base):
+    """每个用户仅保留当前分钟的原子请求计数。"""
+
+    __tablename__ = "user_request_rate_limit_windows"
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("used_count >= 1", name="ck_user_request_rate_window_used"),
+        Index("ix_user_request_rate_windows_updated", "updated_at"),
     )
 
 

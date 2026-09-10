@@ -20,7 +20,8 @@ const permissionLabels: Record<string, string> = {
   'integration:manage': '管理外部身份与会话映射',
   'inbox:replay': '重放 Inbox 事件',
   'user:read': '查看用户',
-  'user:write': '管理用户状态',
+  'user:write': '管理用户状态与访问策略',
+  'user:role_write': '覆盖用户可信角色',
   'audit:read': '查看审计',
 }
 

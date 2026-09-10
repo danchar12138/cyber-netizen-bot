@@ -2,16 +2,21 @@
 
 import base64
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from types import SimpleNamespace, TracebackType
+from typing import Self, cast
+from uuid import UUID, uuid4
 
 import httpx
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from pydantic import ValidationError
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.sql import ClauseElement
 
-from cnb_application import AuthenticationError
-from cnb_domain import AdminPermission, AdminRole
+from cnb_application import AuthenticationError, permissions_for_role
+from cnb_domain import AdminPermission, AdminPrincipal, AdminRole
 from cnb_infrastructure import OidcAuthenticator, Settings
 
 
@@ -36,6 +41,52 @@ ISSUER = "https://identity.example.test/realms/cnb"
 JWKS_URI = f"{ISSUER}/protocol/openid-connect/certs"
 AUDIENCE = "cyber-netizen-api"
 CLIENT_ID = "cyber-netizen-web"
+
+
+class OidcPersistenceRecordingSession:
+    """记录 OIDC 持久化语句，并模拟仍有效的手工只读角色。"""
+
+    def __init__(self, tenant_id: UUID) -> None:
+        self._tenant_id = tenant_id
+        self._scalar_results: list[object | None] = [None, "viewer", None]
+        self.scalar_statements: list[object] = []
+
+    async def execute(self, statement: object) -> None:
+        del statement
+
+    async def scalar(self, statement: object) -> object | None:
+        self.scalar_statements.append(statement)
+        return self._scalar_results.pop(0)
+
+    async def flush(self) -> None:
+        pass
+
+    async def get(self, entity: type[object], identifier: object) -> object:
+        del identifier
+        if entity.__name__ == "Tenant":
+            return SimpleNamespace(status="active")
+        return SimpleNamespace(status="active", tenant_id=self._tenant_id)
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        del exc_type, exc_value, traceback
+
+
+class OidcPersistenceRecordingFactory:
+    """提供兼容 async_sessionmaker.begin 的测试事务上下文。"""
+
+    def __init__(self, session: OidcPersistenceRecordingSession) -> None:
+        self._session = session
+
+    def begin(self) -> OidcPersistenceRecordingSession:
+        return self._session
 
 
 def test_otel_bootstrap_rejects_missing_or_credential_bearing_endpoint() -> None:
@@ -122,6 +173,47 @@ async def test_oidc_validates_jwt_and_maps_local_permissions() -> None:
     assert principal.authentication_mode == "oidc"
     assert AdminPermission.CHANNEL_SEND in principal.permissions
     assert AdminPermission.SECRET_MANAGE not in principal.permissions
+
+
+async def test_oidc_refreshes_trusted_role_without_replacing_manual_effective_role() -> None:
+    settings = _settings()
+    assert settings.oidc_tenant_id is not None
+    assert settings.oidc_agent_id is not None
+    recording_session = OidcPersistenceRecordingSession(settings.oidc_tenant_id)
+    authenticator = OidcAuthenticator(
+        settings,
+        cast(
+            async_sessionmaker[AsyncSession],
+            OidcPersistenceRecordingFactory(recording_session),
+        ),
+    )
+    now = datetime.now(UTC)
+    principal = AdminPrincipal(
+        tenant_id=settings.oidc_tenant_id,
+        user_id=uuid4(),
+        display_name="可信管理员",
+        role=AdminRole.ADMIN,
+        permissions=permissions_for_role(AdminRole.ADMIN),
+        authentication_mode="oidc",
+    )
+
+    effective_role = await authenticator._persist_identity(  # pyright: ignore[reportPrivateUsage]
+        principal=principal,
+        agent_id=settings.oidc_agent_id,
+        issuer=ISSUER,
+        subject="manual-override-user",
+        token_hash="0" * 64,
+        issued_at=now,
+        expires_at=now + timedelta(minutes=5),
+    )
+
+    role_upsert = cast(ClauseElement, recording_session.scalar_statements[1])
+    role_sql = str(role_upsert.compile(dialect=postgresql.dialect()))
+    assert effective_role is AdminRole.VIEWER
+    assert "trusted_role" in role_sql
+    assert "CASE WHEN" in role_sql
+    assert "role_assignments.source" in role_sql
+    assert "RETURNING role_assignments.role" in role_sql
 
 
 @pytest.mark.parametrize(

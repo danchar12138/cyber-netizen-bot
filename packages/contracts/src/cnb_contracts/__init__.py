@@ -20,9 +20,13 @@ from cnb_contracts.administration import (
     ManagedExternalIdentityResponse,
     ManagedRoleAssignmentResponse,
     ManagedTenantResponse,
+    ManagedUserAccessPolicyResponse,
     ManagedUserDetailResponse,
     ManagedUserListResponse,
     ManagedUserResponse,
+    UserAccessPolicyUpdateCommand,
+    UserRoleOverrideCommand,
+    UserRoleOverrideRevokeCommand,
     UserSessionRevokeCommand,
 )
 from cnb_contracts.attachment import (
@@ -358,6 +362,7 @@ __all__ = [
     "ManagedExternalIdentityResponse",
     "ManagedRoleAssignmentResponse",
     "ManagedTenantResponse",
+    "ManagedUserAccessPolicyResponse",
     "ManagedUserDetailResponse",
     "ManagedUserListResponse",
     "ManagedUserResponse",
@@ -416,8 +421,11 @@ __all__ = [
     "TaskDashboardResponse",
     "TaskReplayCommand",
     "TaskStatusResponse",
+    "UserAccessPolicyUpdateCommand",
     "UserDataExportCommand",
     "UserDataForgetCommand",
+    "UserRoleOverrideCommand",
+    "UserRoleOverrideRevokeCommand",
     "UserSessionRevokeCommand",
     "WorkerHeartbeatResponse",
 ]

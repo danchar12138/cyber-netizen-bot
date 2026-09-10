@@ -251,6 +251,13 @@ test('可以查看用户完整身份治理详情并逐字确认撤销管理会�
   const sessionId = '88888888-8888-4888-8888-888888888888'
   const identityId = '99999999-9999-4999-8999-999999999999'
   let revokedAt: string | null = null
+  let requestRateLimit: number | null = null
+  let suspendedUntil: string | null = null
+  let suspensionReason: string | null = null
+  let role: 'admin' | 'operator' = 'admin'
+  let roleSource: 'oidc' | 'manual' = 'oidc'
+  let overriddenBy: string | null = null
+  let overrideExpiresAt: string | null = null
 
   await page.route('**/api/v1/administration/session', async (route) => {
     await route.fulfill({ json: {
@@ -258,7 +265,7 @@ test('可以查看用户完整身份治理详情并逐字确认撤销管理会�
       user_id: userId,
       display_name: '身份治理管理员',
       role: 'admin',
-      permissions: ['user:read', 'user:write', 'audit:read'],
+      permissions: ['user:read', 'user:write', 'user:role_write', 'audit:read'],
       authentication_mode: 'oidc',
     } })
   })
@@ -285,7 +292,19 @@ test('可以查看用户完整身份治理详情并逐字确认撤销管理会�
       },
       tenant: { id: tenantId, name: '人格实验室', status: 'active', created_at: timestamp },
       role_assignment: {
-        role: 'admin', source: 'oidc', created_at: timestamp, updated_at: timestamp,
+        role,
+        source: roleSource,
+        trusted_role: 'admin',
+        overridden_by: overriddenBy,
+        override_expires_at: overrideExpiresAt,
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+      access_policy: {
+        request_rate_limit_per_minute: requestRateLimit,
+        suspended_until: suspendedUntil,
+        suspension_reason: suspensionReason,
+        updated_at: requestRateLimit === null && suspendedUntil === null ? null : timestamp,
       },
       external_identities: [{
         id: identityId,
@@ -313,6 +332,63 @@ test('可以查看用户完整身份治理详情并逐字确认撤销管理会�
       }],
     } })
   })
+  await page.route(`**/api/v1/administration/users/${userId}/access-policy`, async (route) => {
+    const command = route.request().postDataJSON() as {
+      request_rate_limit_per_minute: number | null
+      suspended_until: string | null
+      suspension_reason: string | null
+      confirmation: string
+    }
+    expect(command.confirmation).toBe(`确认更新用户访问策略 ${userId}`)
+    requestRateLimit = command.request_rate_limit_per_minute
+    suspendedUntil = command.suspended_until
+    suspensionReason = command.suspension_reason
+    await route.fulfill({ json: {
+      request_rate_limit_per_minute: requestRateLimit,
+      suspended_until: suspendedUntil,
+      suspension_reason: suspensionReason,
+      updated_at: timestamp,
+    } })
+  })
+  await page.route(`**/api/v1/administration/users/${userId}/role-override`, async (route) => {
+    const command = route.request().postDataJSON() as {
+      role: 'admin' | 'operator'
+      override_expires_at: string | null
+      confirmation: string
+    }
+    expect(command.confirmation).toBe(`确认覆盖用户角色 ${userId}`)
+    role = command.role
+    roleSource = 'manual'
+    overriddenBy = userId
+    overrideExpiresAt = command.override_expires_at
+    await route.fulfill({ json: {
+      role,
+      source: roleSource,
+      trusted_role: 'admin',
+      overridden_by: overriddenBy,
+      override_expires_at: overrideExpiresAt,
+      created_at: timestamp,
+      updated_at: timestamp,
+    } })
+  })
+  await page.route(`**/api/v1/administration/users/${userId}/role-override/revoke`, async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      confirmation: `确认撤销用户角色覆盖 ${userId}`,
+    })
+    role = 'admin'
+    roleSource = 'oidc'
+    overriddenBy = null
+    overrideExpiresAt = null
+    await route.fulfill({ json: {
+      role,
+      source: roleSource,
+      trusted_role: 'admin',
+      overridden_by: null,
+      override_expires_at: null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    } })
+  })
   await page.route(
     `**/api/v1/administration/users/${userId}/sessions/${sessionId}/revoke`,
     async (route) => {
@@ -334,10 +410,28 @@ test('可以查看用户完整身份治理详情并逐字确认撤销管理会�
   await page.goto('/users')
   await page.getByRole('checkbox', { name: `选择 身份治理管理员 ${userId} active` }).check()
   await expect(page.getByRole('region', { name: '用户身份治理' })).toContainText('人格实验室')
-  await expect(page.getByText('OIDC 可信声明同步')).toBeVisible()
+  await expect(page.getByText('OIDC 可信声明同步').first()).toBeVisible()
   await expect(page.getByText('https://identity.example.test/realms/cnb')).toBeVisible()
   await expect(page.getByText('共同打磨人格')).toBeVisible()
   await expect(page.getByText(/如果撤销的会话正被本页面使用/)).toBeVisible()
+
+  await page.getByLabel('用户每分钟请求上限').fill('30')
+  await page.getByLabel('用户临时停用时间').fill('2099-09-10T12:00')
+  await page.getByLabel('用户临时停用原因').fill('安全演练')
+  await expect(page.getByText(/保存临时停用后，本页面会立即失去访问权限/)).toBeVisible()
+  await page.getByLabel('用户访问策略确认短语').fill(`确认更新用户访问策略 ${userId}`)
+  await page.getByRole('button', { name: '保存访问策略' }).click()
+  await expect(page.getByText('每分钟 30 次').first()).toBeVisible()
+  await expect(page.getByText('安全演练')).toBeVisible()
+
+  await page.getByLabel('用户覆盖角色').selectOption('operator')
+  await expect(page.getByText('自我降权会立即生效')).toBeVisible()
+  await page.getByLabel('用户角色覆盖确认短语').fill(`确认覆盖用户角色 ${userId}`)
+  await page.getByRole('button', { name: '保存角色覆盖' }).click()
+  await expect(page.getByText('管理员手工覆盖').first()).toBeVisible()
+  await page.getByLabel('撤销用户角色覆盖确认短语').fill(`确认撤销用户角色覆盖 ${userId}`)
+  await page.getByRole('button', { name: '撤销角色覆盖' }).click()
+  await expect(page.getByText('OIDC 可信声明同步').first()).toBeVisible()
 
   await page.getByRole('button', { name: '撤销', exact: true }).click()
   const confirmation = page.getByLabel('管理会话撤销确认短语')

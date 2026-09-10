@@ -11,6 +11,9 @@ from cnb_domain.conversation import ConversationStatus, EntityStatus
 AGENT_ARCHIVE_CONFIRMATION_PREFIX = "确认归档 Agent "
 AGENT_DELETE_CONFIRMATION_PREFIX = "确认删除 Agent "
 USER_SESSION_REVOKE_CONFIRMATION_PREFIX = "确认撤销管理会话 "
+USER_ACCESS_POLICY_CONFIRMATION_PREFIX = "确认更新用户访问策略 "
+USER_ROLE_OVERRIDE_CONFIRMATION_PREFIX = "确认覆盖用户角色 "
+USER_ROLE_OVERRIDE_REVOKE_CONFIRMATION_PREFIX = "确认撤销用户角色覆盖 "
 
 
 class AgentLifecycleStatus(StrEnum):
@@ -35,6 +38,7 @@ class IdentityGovernanceSource(StrEnum):
 
     OIDC = "oidc"
     DEVELOPMENT = "development"
+    MANUAL = "manual"
 
 
 class AdminPermission(StrEnum):
@@ -69,6 +73,7 @@ class AdminPermission(StrEnum):
     TRACE_READ = "trace:read"
     USER_READ = "user:read"
     USER_WRITE = "user:write"
+    USER_ROLE_WRITE = "user:role_write"
     AUDIT_READ = "audit:read"
     DATA_LIFECYCLE_READ = "data_lifecycle:read"
     DATA_EXPORT = "data_lifecycle:export"
@@ -177,8 +182,21 @@ class ManagedRoleAssignment:
 
     role: AdminRole
     source: IdentityGovernanceSource
+    trusted_role: AdminRole
+    overridden_by: UUID | None
+    override_expires_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedUserAccessPolicy:
+    """用户主体的显式访问限制，不包含瞬时请求计数。"""
+
+    request_rate_limit_per_minute: int | None
+    suspended_until: datetime | None
+    suspension_reason: str | None
+    updated_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +242,7 @@ class ManagedUserDetail:
     user: ManagedUser
     tenant: ManagedTenant
     role_assignment: ManagedRoleAssignment | None
+    access_policy: ManagedUserAccessPolicy
     external_identities: tuple[ManagedExternalIdentity, ...]
     admin_sessions: tuple[ManagedAdminSession, ...]
     conversation_memberships: tuple[ManagedConversationMembership, ...]

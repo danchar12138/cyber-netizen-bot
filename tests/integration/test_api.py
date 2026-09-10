@@ -228,6 +228,15 @@ async def test_oidc_mode_requires_bearer_token_and_exposes_safe_browser_config()
         settings,
         configuration_repository=MemoryConfigurationRepository(),
         conversation_repository=MemoryConversationRepository(),
+        administration_repository=MemoryAdministrationRepository(
+            DevelopmentIdentity(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                agent_id=agent_id,
+                user_name=principal.display_name,
+                agent_name="OIDC 测试 Agent",
+            )
+        ),
         admin_authenticator=FakeOidcAuthenticator(principal),
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -277,6 +286,15 @@ def test_oidc_websocket_uses_bearer_subprotocol_without_echoing_token() -> None:
         ),
         configuration_repository=MemoryConfigurationRepository(),
         conversation_repository=MemoryConversationRepository(),
+        administration_repository=MemoryAdministrationRepository(
+            DevelopmentIdentity(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                agent_id=agent_id,
+                user_name=principal.display_name,
+                agent_name="OIDC WebSocket Agent",
+            )
+        ),
         admin_authenticator=FakeOidcAuthenticator(principal),
     )
 
@@ -697,6 +715,110 @@ async def test_user_identity_detail_and_admin_session_revoke_are_safe_and_tenant
     assert audit_response.json()["items"][0]["resource_id"] == str(session.id)
     assert "token_hash" not in serialized
     assert "access_token" not in serialized
+
+
+async def test_user_access_policy_and_role_override_api_enforce_permissions_and_lockout() -> None:
+    identity = DevelopmentIdentity(
+        tenant_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.tenant"),
+        user_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.user"),
+        agent_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.agent"),
+        user_name="本地开发者",
+        agent_name="赛博网友",
+    )
+    repository = MemoryAdministrationRepository(identity)
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+        administration_repository=repository,
+    )
+    role_confirmation = f"确认覆盖用户角色 {identity.user_id}"
+    revoke_confirmation = f"确认撤销用户角色覆盖 {identity.user_id}"
+    policy_confirmation = f"确认更新用户访问策略 {identity.user_id}"
+    missing_user_id = uuid4()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        operator_override = await client.put(
+            f"/api/v1/administration/users/{identity.user_id}/role-override",
+            headers={"X-CNB-Development-Role": "operator"},
+            json={"role": "admin", "confirmation": role_confirmation},
+        )
+        overridden = await client.put(
+            f"/api/v1/administration/users/{identity.user_id}/role-override",
+            json={"role": "admin", "confirmation": role_confirmation},
+        )
+        revoked = await client.post(
+            f"/api/v1/administration/users/{identity.user_id}/role-override/revoke",
+            json={"confirmation": revoke_confirmation},
+        )
+        missing_user = await client.patch(
+            f"/api/v1/administration/users/{missing_user_id}/access-policy",
+            json={
+                "request_rate_limit_per_minute": 30,
+                "confirmation": f"确认更新用户访问策略 {missing_user_id}",
+            },
+        )
+        suspended_until = datetime.now(UTC) + timedelta(hours=1)
+        suspended = await client.patch(
+            f"/api/v1/administration/users/{identity.user_id}/access-policy",
+            json={
+                "request_rate_limit_per_minute": 30,
+                "suspended_until": suspended_until.isoformat(),
+                "suspension_reason": "安全处置",
+                "confirmation": policy_confirmation,
+            },
+        )
+        denied_after_suspension = await client.get("/api/v1/administration/session")
+
+    assert operator_override.status_code == 403
+    assert overridden.status_code == 200
+    assert overridden.json()["source"] == "manual"
+    assert overridden.json()["trusted_role"] == "admin"
+    assert revoked.status_code == 200
+    assert revoked.json()["source"] == "development"
+    assert missing_user.status_code == 404
+    assert suspended.status_code == 200
+    assert suspended.json()["suspension_reason"] == "安全处置"
+    assert denied_after_suspension.status_code == 403
+    serialized = f"{overridden.text}{revoked.text}{suspended.text}".lower()
+    assert "access_token" not in serialized
+    assert "token_hash" not in serialized
+
+
+async def test_user_rate_limit_counts_once_per_request_and_returns_retry_after() -> None:
+    identity = DevelopmentIdentity(
+        tenant_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.tenant"),
+        user_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.user"),
+        agent_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.agent"),
+        user_name="本地开发者",
+        agent_name="赛博网友",
+    )
+    repository = MemoryAdministrationRepository(identity)
+    await repository.update_user_access_policy(
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+        request_rate_limit_per_minute=1,
+        suspended_until=None,
+        suspension_reason=None,
+        actor_id=identity.user_id,
+        updated_at=datetime.now(UTC),
+    )
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+        administration_repository=repository,
+    )
+    headers = {"Origin": "http://localhost:5173"}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        allowed = await client.get("/api/v1/administration/session", headers=headers)
+        limited = await client.get("/api/v1/administration/session", headers=headers)
+
+    assert allowed.status_code == 200
+    assert limited.status_code == 429
+    assert 1 <= int(limited.headers["retry-after"]) <= 60
+    assert "Retry-After" in limited.headers["access-control-expose-headers"]
 
 
 async def test_multi_agent_creation_copy_selection_and_conversation_isolation() -> None:

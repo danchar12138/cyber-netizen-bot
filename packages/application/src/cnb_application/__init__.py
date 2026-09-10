@@ -1,8 +1,10 @@
 """应用服务与用例。"""
 
 from cnb_application.administration_service import (
+    AdministrationAccessDeniedError,
     AdministrationConflictError,
     AdministrationNotFoundError,
+    AdministrationRateLimitError,
     AdministrationRepository,
     AdministrationService,
     AdministrationValidationError,
@@ -168,8 +170,10 @@ from cnb_application.task_service import (
 
 __all__ = [
     "AdminAuthenticator",
+    "AdministrationAccessDeniedError",
     "AdministrationConflictError",
     "AdministrationNotFoundError",
+    "AdministrationRateLimitError",
     "AdministrationRepository",
     "AdministrationService",
     "AdministrationValidationError",

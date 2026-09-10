@@ -289,6 +289,7 @@ export type AdminPermission =
   | 'trace:read'
   | 'user:read'
   | 'user:write'
+  | 'user:role_write'
   | 'audit:read'
   | 'data_lifecycle:read'
   | 'data_lifecycle:export'
@@ -1417,6 +1418,37 @@ export const revokeManagedUserSession = (
   path: { user_id: userId, session_id: sessionId },
   body: { confirmation },
 })
+
+export const updateManagedUserAccessPolicy = (
+  userId: string,
+  command: {
+    request_rate_limit_per_minute: number | null
+    suspended_until: string | null
+    suspension_reason: string | null
+    confirmation: string
+  },
+) => apiSdk.patchApiV1AdministrationUsersByUserIdAccessPolicy({
+  path: { user_id: userId },
+  body: command,
+})
+
+export const setManagedUserRoleOverride = (
+  userId: string,
+  command: {
+    role: AdminRole
+    override_expires_at: string | null
+    confirmation: string
+  },
+) => apiSdk.putApiV1AdministrationUsersByUserIdRoleOverride({
+  path: { user_id: userId },
+  body: command,
+})
+
+export const revokeManagedUserRoleOverride = (userId: string, confirmation: string) =>
+  apiSdk.postApiV1AdministrationUsersByUserIdRoleOverrideRevoke({
+    path: { user_id: userId },
+    body: { confirmation },
+  })
 
 export const updateManagedUserStatus = (
   ids: string[],

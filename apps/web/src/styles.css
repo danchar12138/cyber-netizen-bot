@@ -120,6 +120,22 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .identity-section { display: grid; gap: 8px; }
 .identity-section h3 { display: flex; align-items: center; gap: 7px; margin: 0; color: #9fc0b4; font-size: 11px; }
 .identity-section > .notice { margin: 0; }
+.identity-policy-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.identity-policy-grid > div { min-width: 0; display: grid; gap: 4px; padding: 11px; border: 1px solid #173029; background: #091713; border-radius: 7px; }
+.identity-policy-grid span, .user-governance-form label > span { color: #66877b; font-size: 8px; }
+.identity-policy-grid strong { color: #aac7bc; font-size: 9px; overflow-wrap: anywhere; }
+.user-governance-form { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(190px, 1fr) minmax(220px, 1.3fr); gap: 10px; padding: 13px; border: 1px solid #214237; background: #0a1814; border-radius: 8px; }
+.user-governance-form > label { min-width: 0; display: grid; gap: 6px; }
+.user-governance-form input, .user-governance-form select, .governance-confirmation input { min-width: 0; width: 100%; padding: 9px 10px; color: #bdd2ca; border: 1px solid #285043; outline: 0; background: #091713; border-radius: 7px; }
+.governance-reason-field { grid-column: auto; }
+.governance-warning { grid-column: 1 / -1; }
+.governance-warning div { display: grid; gap: 3px; }
+.governance-warning span { color: #b49b68; font-size: 9px; line-height: 1.5; }
+.governance-confirmation { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; padding-top: 10px; border-top: 1px solid #28483e; }
+.governance-confirmation label { grid-column: 1 / -1; color: #78998d; font-size: 9px; }
+.governance-confirmation code { color: #8ed5b0; overflow-wrap: anywhere; }
+.danger-confirmation { padding: 13px; border: 1px solid #623a2e; background: #241511; border-radius: 8px; }
+.danger-confirmation input { border-color: #623a2e; background: #17100e; }
 .empty-inline { margin: 0; padding: 11px; color: #66877b; border: 1px dashed #28473d; border-radius: 7px; font-size: 9px; }
 .identity-row { min-width: 0; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 11px; border: 1px solid #173029; background: #091713; border-radius: 7px; }
 .identity-row > div { min-width: 0; display: grid; gap: 4px; }
@@ -654,6 +670,8 @@ button:disabled { cursor: not-allowed; opacity: .43; }
     .agent-create-panel { grid-template-columns: 1fr; }
   .agent-impact-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .identity-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .user-governance-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .governance-reason-field { grid-column: 1 / -1; }
   .identity-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .evaluation-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lifecycle-manifest, .lifecycle-confirmation, .lifecycle-verifications { grid-column: auto; }
@@ -692,8 +710,8 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .agent-rename-form, .agent-confirmation-box { grid-template-columns: 1fr; }
   .agent-confirmation-box input, .agent-confirmation-box .heading-actions { grid-column: auto; }
   .agent-impact-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .identity-summary-grid, .identity-row, .session-revoke-confirmation { grid-template-columns: 1fr; }
-  .session-revoke-confirmation label { grid-column: auto; }
+  .identity-summary-grid, .identity-policy-grid, .identity-row, .session-revoke-confirmation, .user-governance-form, .governance-confirmation { grid-template-columns: 1fr; }
+  .governance-reason-field, .governance-confirmation, .governance-confirmation label, .session-revoke-confirmation label { grid-column: auto; }
   .task-create-form { grid-template-columns: 1fr; }
   .channel-catalog-grid, .channel-lab-grid { grid-template-columns: 1fr; }
   .channel-create-form, .channel-credential-form { grid-template-columns: 1fr; }

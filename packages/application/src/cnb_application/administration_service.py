@@ -17,7 +17,12 @@ from cnb_application.pagination import (
 from cnb_domain import (
     AGENT_ARCHIVE_CONFIRMATION_PREFIX,
     AGENT_DELETE_CONFIRMATION_PREFIX,
+    USER_ACCESS_POLICY_CONFIRMATION_PREFIX,
+    USER_ROLE_OVERRIDE_CONFIRMATION_PREFIX,
+    USER_ROLE_OVERRIDE_REVOKE_CONFIRMATION_PREFIX,
     USER_SESSION_REVOKE_CONFIRMATION_PREFIX,
+    AdminPrincipal,
+    AdminRole,
     AgentImpactCounts,
     AgentLifecycleImpact,
     AgentLifecycleStatus,
@@ -25,7 +30,9 @@ from cnb_domain import (
     EntityStatus,
     ManagedAdminSession,
     ManagedAgent,
+    ManagedRoleAssignment,
     ManagedUser,
+    ManagedUserAccessPolicy,
     ManagedUserDetail,
     ManagementOverview,
 )
@@ -41,6 +48,18 @@ class AdministrationNotFoundError(LookupError):
 
 class AdministrationConflictError(RuntimeError):
     """Agent 名称或当前状态与管理命令冲突时抛出。"""
+
+
+class AdministrationAccessDeniedError(PermissionError):
+    """用户状态或临时停用策略拒绝已认证请求时抛出。"""
+
+
+class AdministrationRateLimitError(RuntimeError):
+    """用户请求预算耗尽，并携带可安全返回的重试秒数。"""
+
+    def __init__(self, message: str, retry_after_seconds: int) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +82,14 @@ class AdministrationRepository(Protocol):
     """Agent、用户状态和只追加审计的持久化边界。"""
 
     async def get_overview(self, *, tenant_id: UUID) -> ManagementOverview: ...
+
+    async def authorize_admin_request(
+        self,
+        *,
+        principal: AdminPrincipal,
+        requested_at: datetime,
+        window_started_at: datetime,
+    ) -> AdminPrincipal: ...
 
     async def list_agents(
         self,
@@ -164,6 +191,38 @@ class AdministrationRepository(Protocol):
         actor_id: UUID,
         revoked_at: datetime,
     ) -> ManagedAdminSession: ...
+
+    async def update_user_access_policy(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+        request_rate_limit_per_minute: int | None,
+        suspended_until: datetime | None,
+        suspension_reason: str | None,
+        actor_id: UUID,
+        updated_at: datetime,
+    ) -> ManagedUserAccessPolicy: ...
+
+    async def set_user_role_override(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+        role: AdminRole,
+        override_expires_at: datetime | None,
+        actor_id: UUID,
+        updated_at: datetime,
+    ) -> ManagedRoleAssignment: ...
+
+    async def revoke_user_role_override(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+        actor_id: UUID,
+        updated_at: datetime,
+    ) -> ManagedRoleAssignment: ...
 
     async def update_user_status(
         self,
@@ -435,6 +494,100 @@ class AdministrationService:
             session_id=session_id,
             actor_id=actor_id,
             revoked_at=datetime.now(UTC),
+        )
+
+    async def update_user_access_policy(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+        request_rate_limit_per_minute: int | None,
+        suspended_until: datetime | None,
+        suspension_reason: str | None,
+        actor_id: UUID,
+        confirmation: str,
+    ) -> ManagedUserAccessPolicy:
+        """逐字确认后更新用户限流和临时停用策略。"""
+        expected = f"{USER_ACCESS_POLICY_CONFIRMATION_PREFIX}{user_id}"
+        if confirmation != expected:
+            raise AdministrationValidationError(f"访问策略操作必须准确输入：{expected}")
+        if request_rate_limit_per_minute is not None and not (
+            1 <= request_rate_limit_per_minute <= 10_000
+        ):
+            raise AdministrationValidationError("用户每分钟请求上限必须在 1 到 10000 之间")
+        now = datetime.now(UTC)
+        normalized_reason = " ".join((suspension_reason or "").strip().split()) or None
+        if suspended_until is not None:
+            if suspended_until.tzinfo is None:
+                raise AdministrationValidationError("临时停用时间必须包含时区")
+            if suspended_until <= now:
+                raise AdministrationValidationError("临时停用时间必须晚于当前时间")
+            if suspended_until > now + timedelta(days=365):
+                raise AdministrationValidationError("临时停用时间不能超过 365 天")
+            if normalized_reason is None:
+                raise AdministrationValidationError("临时停用必须填写原因")
+            if len(normalized_reason) > 500:
+                raise AdministrationValidationError("临时停用原因不能超过 500 个字符")
+        elif normalized_reason is not None:
+            raise AdministrationValidationError("未设置临时停用时间时不能保留停用原因")
+        return await self._repository.update_user_access_policy(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            request_rate_limit_per_minute=request_rate_limit_per_minute,
+            suspended_until=suspended_until,
+            suspension_reason=normalized_reason,
+            actor_id=actor_id,
+            updated_at=now,
+        )
+
+    async def set_user_role_override(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+        role: AdminRole,
+        override_expires_at: datetime | None,
+        actor_id: UUID,
+        confirmation: str,
+    ) -> ManagedRoleAssignment:
+        """逐字确认后以可撤销方式覆盖可信身份源角色。"""
+        expected = f"{USER_ROLE_OVERRIDE_CONFIRMATION_PREFIX}{user_id}"
+        if confirmation != expected:
+            raise AdministrationValidationError(f"角色覆盖操作必须准确输入：{expected}")
+        now = datetime.now(UTC)
+        if override_expires_at is not None:
+            if override_expires_at.tzinfo is None:
+                raise AdministrationValidationError("角色覆盖到期时间必须包含时区")
+            if override_expires_at <= now:
+                raise AdministrationValidationError("角色覆盖到期时间必须晚于当前时间")
+            if override_expires_at > now + timedelta(days=365):
+                raise AdministrationValidationError("角色覆盖期限不能超过 365 天")
+        return await self._repository.set_user_role_override(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            role=role,
+            override_expires_at=override_expires_at,
+            actor_id=actor_id,
+            updated_at=now,
+        )
+
+    async def revoke_user_role_override(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+        actor_id: UUID,
+        confirmation: str,
+    ) -> ManagedRoleAssignment:
+        """显式撤销手工覆盖并恢复最近一次可信身份源角色。"""
+        expected = f"{USER_ROLE_OVERRIDE_REVOKE_CONFIRMATION_PREFIX}{user_id}"
+        if confirmation != expected:
+            raise AdministrationValidationError(f"撤销角色覆盖必须准确输入：{expected}")
+        return await self._repository.revoke_user_role_override(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            actor_id=actor_id,
+            updated_at=datetime.now(UTC),
         )
 
     async def list_audit_records(

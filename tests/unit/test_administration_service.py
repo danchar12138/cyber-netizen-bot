@@ -6,8 +6,10 @@ from uuid import uuid4
 import pytest
 
 from cnb_application import (
+    AdministrationAccessDeniedError,
     AdministrationConflictError,
     AdministrationNotFoundError,
+    AdministrationRateLimitError,
     AdministrationService,
     AdministrationValidationError,
     AuditCursor,
@@ -16,8 +18,11 @@ from cnb_application import (
     build_default_registry,
     decode_audit_cursor,
     encode_audit_cursor,
+    permissions_for_role,
 )
 from cnb_domain import (
+    AdminPrincipal,
+    AdminRole,
     AgentImpactCounts,
     AgentLifecycleStatus,
     CognitionResourceKind,
@@ -171,6 +176,281 @@ async def test_admin_session_revoke_requires_exact_confirmation_and_is_idempoten
             session_id=session.id,
             actor_id=identity.user_id,
             confirmation=f"确认撤销管理会话 {session.id}",
+        )
+
+
+async def test_user_access_policy_validates_confirmation_time_and_safe_audit() -> None:
+    identity = _identity()
+    repository = MemoryAdministrationRepository(identity)
+    service = _service(repository)
+
+    with pytest.raises(AdministrationValidationError, match="必须准确输入"):
+        await service.update_user_access_policy(
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            request_rate_limit_per_minute=60,
+            suspended_until=None,
+            suspension_reason=None,
+            actor_id=identity.user_id,
+            confirmation="确认更新",
+        )
+    with pytest.raises(AdministrationValidationError, match="1 到 10000"):
+        await service.update_user_access_policy(
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            request_rate_limit_per_minute=0,
+            suspended_until=None,
+            suspension_reason=None,
+            actor_id=identity.user_id,
+            confirmation=f"确认更新用户访问策略 {identity.user_id}",
+        )
+    with pytest.raises(AdministrationValidationError, match="必须包含时区"):
+        await service.update_user_access_policy(
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            request_rate_limit_per_minute=None,
+            suspended_until=datetime.now() + timedelta(hours=1),
+            suspension_reason="维护",
+            actor_id=identity.user_id,
+            confirmation=f"确认更新用户访问策略 {identity.user_id}",
+        )
+    with pytest.raises(AdministrationValidationError, match="不能超过 365 天"):
+        await service.update_user_access_policy(
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            request_rate_limit_per_minute=None,
+            suspended_until=datetime.now(UTC) + timedelta(days=366),
+            suspension_reason="长期冻结",
+            actor_id=identity.user_id,
+            confirmation=f"确认更新用户访问策略 {identity.user_id}",
+        )
+    with pytest.raises(AdministrationValidationError, match="必须填写原因"):
+        await service.update_user_access_policy(
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            request_rate_limit_per_minute=None,
+            suspended_until=datetime.now(UTC) + timedelta(hours=1),
+            suspension_reason=None,
+            actor_id=identity.user_id,
+            confirmation=f"确认更新用户访问策略 {identity.user_id}",
+        )
+    with pytest.raises(AdministrationValidationError, match="不能保留停用原因"):
+        await service.update_user_access_policy(
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            request_rate_limit_per_minute=None,
+            suspended_until=None,
+            suspension_reason="无截止时间",
+            actor_id=identity.user_id,
+            confirmation=f"确认更新用户访问策略 {identity.user_id}",
+        )
+
+    suspended_until = datetime.now(UTC) + timedelta(hours=2)
+    policy = await service.update_user_access_policy(
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+        request_rate_limit_per_minute=60,
+        suspended_until=suspended_until,
+        suspension_reason="  安全   调查  ",
+        actor_id=identity.user_id,
+        confirmation=f"确认更新用户访问策略 {identity.user_id}",
+    )
+    detail = await service.get_user_detail(
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+    )
+    audit = await service.list_audit_records(
+        tenant_id=identity.tenant_id,
+        search=None,
+        action="user.access_policy_updated",
+        limit=20,
+        cursor=None,
+    )
+
+    assert policy.suspension_reason == "安全 调查"
+    assert detail.access_policy == policy
+    assert audit.items[0].detail["suspended"] is True
+    assert "安全 调查" not in str(audit.items[0].detail)
+
+
+async def test_user_request_governance_enforces_status_rate_limit_and_window_reset() -> None:
+    identity = _identity()
+    repository = MemoryAdministrationRepository(identity)
+    service = _service(repository)
+    principal = AdminPrincipal(
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+        display_name=identity.user_name,
+        role=AdminRole.ADMIN,
+        permissions=permissions_for_role(AdminRole.ADMIN),
+        authentication_mode="development",
+    )
+    requested_at = datetime.now(UTC)
+    window_started_at = requested_at.replace(second=0, microsecond=0)
+    await service.update_user_access_policy(
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+        request_rate_limit_per_minute=2,
+        suspended_until=None,
+        suspension_reason=None,
+        actor_id=identity.user_id,
+        confirmation=f"确认更新用户访问策略 {identity.user_id}",
+    )
+
+    await repository.authorize_admin_request(
+        principal=principal,
+        requested_at=requested_at,
+        window_started_at=window_started_at,
+    )
+    await repository.authorize_admin_request(
+        principal=principal,
+        requested_at=requested_at + timedelta(seconds=1),
+        window_started_at=window_started_at,
+    )
+    with pytest.raises(AdministrationRateLimitError) as rate_limit:
+        await repository.authorize_admin_request(
+            principal=principal,
+            requested_at=requested_at + timedelta(seconds=2),
+            window_started_at=window_started_at,
+        )
+    assert 1 <= rate_limit.value.retry_after_seconds <= 60
+
+    next_window = window_started_at + timedelta(minutes=1)
+    governed = await repository.authorize_admin_request(
+        principal=principal,
+        requested_at=next_window,
+        window_started_at=next_window,
+    )
+    assert governed.role is AdminRole.ADMIN
+
+    await service.update_user_status(
+        tenant_id=identity.tenant_id,
+        user_ids=(identity.user_id,),
+        status=EntityStatus.DISABLED,
+        actor_id=identity.user_id,
+        confirmed=True,
+    )
+    with pytest.raises(AdministrationAccessDeniedError, match="用户已停用"):
+        await repository.authorize_admin_request(
+            principal=principal,
+            requested_at=next_window,
+            window_started_at=next_window,
+        )
+
+
+async def test_role_override_expires_and_revocation_restore_trusted_role() -> None:
+    identity = _identity()
+    repository = MemoryAdministrationRepository(identity)
+    service = _service(repository)
+    principal = AdminPrincipal(
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+        display_name=identity.user_name,
+        role=AdminRole.ADMIN,
+        permissions=permissions_for_role(AdminRole.ADMIN),
+        authentication_mode="development",
+    )
+    now = datetime.now(UTC)
+
+    with pytest.raises(AdministrationValidationError, match="必须准确输入"):
+        await service.set_user_role_override(
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            role=AdminRole.VIEWER,
+            override_expires_at=None,
+            actor_id=identity.user_id,
+            confirmation="确认覆盖",
+        )
+    with pytest.raises(AdministrationValidationError, match="必须包含时区"):
+        await service.set_user_role_override(
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            role=AdminRole.VIEWER,
+            override_expires_at=datetime.now() + timedelta(hours=1),
+            actor_id=identity.user_id,
+            confirmation=f"确认覆盖用户角色 {identity.user_id}",
+        )
+    with pytest.raises(AdministrationValidationError, match="必须晚于当前时间"):
+        await service.set_user_role_override(
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            role=AdminRole.VIEWER,
+            override_expires_at=now - timedelta(minutes=1),
+            actor_id=identity.user_id,
+            confirmation=f"确认覆盖用户角色 {identity.user_id}",
+        )
+    with pytest.raises(AdministrationValidationError, match="不能超过 365 天"):
+        await service.set_user_role_override(
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            role=AdminRole.VIEWER,
+            override_expires_at=now + timedelta(days=366),
+            actor_id=identity.user_id,
+            confirmation=f"确认覆盖用户角色 {identity.user_id}",
+        )
+    overridden = await service.set_user_role_override(
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+        role=AdminRole.VIEWER,
+        override_expires_at=now + timedelta(hours=1),
+        actor_id=identity.user_id,
+        confirmation=f"确认覆盖用户角色 {identity.user_id}",
+    )
+    governed = await repository.authorize_admin_request(
+        principal=principal,
+        requested_at=now,
+        window_started_at=now.replace(second=0, microsecond=0),
+    )
+    restored = await repository.authorize_admin_request(
+        principal=principal,
+        requested_at=now + timedelta(hours=2),
+        window_started_at=(now + timedelta(hours=2)).replace(second=0, microsecond=0),
+    )
+
+    assert overridden.source is IdentityGovernanceSource.MANUAL
+    assert overridden.trusted_role is AdminRole.ADMIN
+    assert governed.role is AdminRole.VIEWER
+    assert restored.role is AdminRole.ADMIN
+
+    await service.set_user_role_override(
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+        role=AdminRole.OPERATOR,
+        override_expires_at=None,
+        actor_id=identity.user_id,
+        confirmation=f"确认覆盖用户角色 {identity.user_id}",
+    )
+    revoked = await service.revoke_user_role_override(
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+        actor_id=identity.user_id,
+        confirmation=f"确认撤销用户角色覆盖 {identity.user_id}",
+    )
+    audit = await service.list_audit_records(
+        tenant_id=identity.tenant_id,
+        search=None,
+        action=None,
+        limit=20,
+        cursor=None,
+    )
+
+    assert revoked.role is AdminRole.ADMIN
+    assert revoked.source is IdentityGovernanceSource.DEVELOPMENT
+    assert revoked.overridden_by is None
+    assert {item.action for item in audit.items} >= {
+        "user.role_overridden",
+        "user.role_override_expired",
+        "user.role_override_revoked",
+    }
+
+    with pytest.raises(AdministrationNotFoundError, match="用户不存在"):
+        await service.set_user_role_override(
+            tenant_id=uuid4(),
+            user_id=identity.user_id,
+            role=AdminRole.ADMIN,
+            override_expires_at=None,
+            actor_id=identity.user_id,
+            confirmation=f"确认覆盖用户角色 {identity.user_id}",
         )
 
 

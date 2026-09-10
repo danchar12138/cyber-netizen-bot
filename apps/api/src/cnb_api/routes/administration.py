@@ -38,9 +38,13 @@ from cnb_contracts import (
     ManagedExternalIdentityResponse,
     ManagedRoleAssignmentResponse,
     ManagedTenantResponse,
+    ManagedUserAccessPolicyResponse,
     ManagedUserDetailResponse,
     ManagedUserListResponse,
     ManagedUserResponse,
+    UserAccessPolicyUpdateCommand,
+    UserRoleOverrideCommand,
+    UserRoleOverrideRevokeCommand,
     UserSessionRevokeCommand,
 )
 from cnb_domain import (
@@ -428,6 +432,99 @@ async def revoke_user_admin_session(
     return _admin_session_response(item)
 
 
+@router.patch(
+    "/users/{user_id}/access-policy",
+    response_model=ManagedUserAccessPolicyResponse,
+    dependencies=[Depends(require_permission(AdminPermission.USER_WRITE))],
+)
+async def update_user_access_policy(
+    user_id: UUID,
+    command: UserAccessPolicyUpdateCommand,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[AdministrationService, Depends(get_administration_service)],
+) -> ManagedUserAccessPolicyResponse:
+    """经逐字确认更新用户限流与临时停用策略。"""
+    try:
+        item = await service.update_user_access_policy(
+            tenant_id=principal.tenant_id,
+            user_id=user_id,
+            request_rate_limit_per_minute=command.request_rate_limit_per_minute,
+            suspended_until=command.suspended_until,
+            suspension_reason=command.suspension_reason,
+            actor_id=principal.user_id,
+            confirmation=command.confirmation,
+        )
+    except AdministrationValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    except AdministrationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    return ManagedUserAccessPolicyResponse.model_validate(item, from_attributes=True)
+
+
+@router.put(
+    "/users/{user_id}/role-override",
+    response_model=ManagedRoleAssignmentResponse,
+    dependencies=[Depends(require_permission(AdminPermission.USER_ROLE_WRITE))],
+)
+async def set_user_role_override(
+    user_id: UUID,
+    command: UserRoleOverrideCommand,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[AdministrationService, Depends(get_administration_service)],
+) -> ManagedRoleAssignmentResponse:
+    """仅管理员可显式覆盖用户角色，且保留可信身份源角色。"""
+    try:
+        item = await service.set_user_role_override(
+            tenant_id=principal.tenant_id,
+            user_id=user_id,
+            role=command.role,
+            override_expires_at=command.override_expires_at,
+            actor_id=principal.user_id,
+            confirmation=command.confirmation,
+        )
+    except AdministrationValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    except AdministrationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except AdministrationConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return ManagedRoleAssignmentResponse.model_validate(item, from_attributes=True)
+
+
+@router.post(
+    "/users/{user_id}/role-override/revoke",
+    response_model=ManagedRoleAssignmentResponse,
+    dependencies=[Depends(require_permission(AdminPermission.USER_ROLE_WRITE))],
+)
+async def revoke_user_role_override(
+    user_id: UUID,
+    command: UserRoleOverrideRevokeCommand,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[AdministrationService, Depends(get_administration_service)],
+) -> ManagedRoleAssignmentResponse:
+    """仅管理员可撤销手工角色覆盖并恢复可信基线。"""
+    try:
+        item = await service.revoke_user_role_override(
+            tenant_id=principal.tenant_id,
+            user_id=user_id,
+            actor_id=principal.user_id,
+            confirmation=command.confirmation,
+        )
+    except AdministrationValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    except AdministrationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except AdministrationConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return ManagedRoleAssignmentResponse.model_validate(item, from_attributes=True)
+
+
 @router.post(
     "/users/status",
     response_model=ManagedUserListResponse,
@@ -546,6 +643,10 @@ def _user_detail_response(detail: ManagedUserDetail) -> ManagedUserDetailRespons
                 detail.role_assignment,
                 from_attributes=True,
             )
+        ),
+        access_policy=ManagedUserAccessPolicyResponse.model_validate(
+            detail.access_policy,
+            from_attributes=True,
         ),
         external_identities=tuple(
             ManagedExternalIdentityResponse.model_validate(item, from_attributes=True)

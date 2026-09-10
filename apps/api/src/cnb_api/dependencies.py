@@ -1,6 +1,7 @@
 """FastAPI 依赖提供器与进程内单例。"""
 
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Annotated
 from uuid import UUID
@@ -11,6 +12,8 @@ from starlette.requests import HTTPConnection
 from cnb_adapters import ChannelAdapterRegistry
 from cnb_application import (
     AdminAuthenticator,
+    AdministrationAccessDeniedError,
+    AdministrationRateLimitError,
     AdministrationRepository,
     AdministrationService,
     AttachmentRepository,
@@ -160,14 +163,13 @@ async def get_admin_principal(request: HTTPConnection) -> AdminPrincipal:
             )
         try:
             principal = await authenticator.authenticate(token)
-            request.state.admin_principal = principal
-            return principal
         except AuthenticationError as error:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=str(error),
                 headers={"WWW-Authenticate": "Bearer"},
             ) from error
+        return await _govern_admin_principal(request, principal)
     if settings.environment not in {"development", "test"}:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -192,8 +194,32 @@ async def get_admin_principal(request: HTTPConnection) -> AdminPrincipal:
         permissions=permissions_for_role(role),
         authentication_mode="development",
     )
-    request.state.admin_principal = principal
-    return principal
+    return await _govern_admin_principal(request, principal)
+
+
+async def _govern_admin_principal(
+    request: HTTPConnection,
+    principal: AdminPrincipal,
+) -> AdminPrincipal:
+    """在权限判断前统一应用本地用户状态、角色覆盖和请求预算。"""
+    requested_at = datetime.now(UTC)
+    repository: AdministrationRepository = request.app.state.administration_repository
+    try:
+        governed = await repository.authorize_admin_request(
+            principal=principal,
+            requested_at=requested_at,
+            window_started_at=requested_at.replace(second=0, microsecond=0),
+        )
+    except AdministrationAccessDeniedError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+    except AdministrationRateLimitError as error:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(error),
+            headers={"Retry-After": str(error.retry_after_seconds)},
+        ) from error
+    request.state.admin_principal = governed
+    return governed
 
 
 def require_permission(
