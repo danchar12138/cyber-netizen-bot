@@ -120,7 +120,7 @@ def create_app(
     resolved_settings = settings or get_settings()
     telemetry_runtime = configure_telemetry(resolved_settings)
 
-    agent_run_tasks: dict[UUID, asyncio.Task[None]] = {}
+    agent_run_tasks: dict[UUID, asyncio.Task[Any]] = {}
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None]:

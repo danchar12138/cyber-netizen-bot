@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from cnb_domain import (
+    AgentRunStatus,
     BackgroundJobStatus,
     ChannelPlatform,
     ExternalConversationKind,
@@ -120,6 +121,11 @@ class InboxEventResponse(BaseModel):
     received_at: datetime
     processed_at: datetime | None
     last_error_code: str | None
+    message_id: UUID | None = None
+    run_id: UUID | None = None
+    run_status: AgentRunStatus | None = None
+    idempotent_replay: bool | None = None
+    execution_status: str | None = None
 
 
 class InboxEventListResponse(BaseModel):

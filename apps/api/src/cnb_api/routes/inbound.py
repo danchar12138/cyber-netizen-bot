@@ -1,5 +1,6 @@
 """外部身份、线程路由与可重放 Inbox 管理接口。"""
 
+from collections.abc import Mapping
 from dataclasses import asdict
 from typing import Annotated
 from uuid import UUID
@@ -43,6 +44,7 @@ from cnb_contracts import (
 from cnb_domain import (
     AdminPermission,
     AdminPrincipal,
+    AgentRunStatus,
     ChannelPlatform,
     DevelopmentIdentity,
     ExternalMappingStatus,
@@ -58,6 +60,37 @@ router = APIRouter(
         Depends(get_request_identity),
     ],
 )
+
+_INBOUND_EXECUTION_STATUSES = {
+    "agent_run_processed",
+    "already_terminal",
+    "claimed_elsewhere",
+}
+
+
+def _summary_uuid(summary: Mapping[str, object], key: str) -> UUID | None:
+    value = summary.get(key)
+    if not isinstance(value, str):
+        return None
+    try:
+        return UUID(value)
+    except ValueError:
+        return None
+
+
+def _summary_run_status(summary: Mapping[str, object]) -> AgentRunStatus | None:
+    value = summary.get("run_status")
+    if not isinstance(value, str):
+        return None
+    try:
+        return AgentRunStatus(value)
+    except ValueError:
+        return None
+
+
+def _summary_bool(summary: Mapping[str, object], key: str) -> bool | None:
+    value = summary.get(key)
+    return value if isinstance(value, bool) else None
 
 
 @router.get(
@@ -318,6 +351,8 @@ async def list_inbox_events(
     responses: list[InboxEventResponse] = []
     for item in items:
         job = await tasks.get_job(tenant_id=principal.tenant_id, job_id=item.job_id)
+        summary: Mapping[str, object] = job.result_summary
+        execution_status = summary.get("execution_status")
         if (
             item.agent_id is None
             or item.channel_id is None
@@ -354,6 +389,16 @@ async def list_inbox_events(
                 received_at=item.received_at,
                 processed_at=item.processed_at,
                 last_error_code=item.last_error_code,
+                message_id=_summary_uuid(summary, "message_id"),
+                run_id=_summary_uuid(summary, "run_id"),
+                run_status=_summary_run_status(summary),
+                idempotent_replay=_summary_bool(summary, "idempotent_replay"),
+                execution_status=(
+                    execution_status
+                    if isinstance(execution_status, str)
+                    and execution_status in _INBOUND_EXECUTION_STATUSES
+                    else None
+                ),
             )
         )
     return InboxEventListResponse(items=tuple(responses))

@@ -185,7 +185,7 @@ def _schedule_run(request: Request, service: ConversationService, pending: Pendi
     if not pending.created:
         return
     task = asyncio.create_task(service.execute_run(pending), name=f"agent-run-{pending.run.id}")
-    run_tasks: dict[UUID, asyncio.Task[None]] = request.app.state.agent_run_tasks
+    run_tasks: dict[UUID, asyncio.Task[AgentRun]] = request.app.state.agent_run_tasks
     run_tasks[pending.run.id] = task
     task.add_done_callback(lambda _: run_tasks.pop(pending.run.id, None))
 
@@ -476,7 +476,7 @@ async def cancel_run(
     service: Annotated[ConversationService, Depends(get_conversation_service)],
 ) -> AgentRunResponse:
     """幂等取消排队中或运行中的 Agent Run。"""
-    run_tasks: dict[UUID, asyncio.Task[None]] = request.app.state.agent_run_tasks
+    run_tasks: dict[UUID, asyncio.Task[AgentRun]] = request.app.state.agent_run_tasks
     task = run_tasks.get(run_id)
     if task is not None and not task.done():
         task.cancel()

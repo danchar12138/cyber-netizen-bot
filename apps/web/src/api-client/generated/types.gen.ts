@@ -3342,6 +3342,10 @@ export type InboxEventResponse = {
      */
     event_type: string;
     /**
+     * Execution Status
+     */
+    execution_status?: string | null;
+    /**
      * External Conversation Digest
      */
     external_conversation_digest: string;
@@ -3366,6 +3370,10 @@ export type InboxEventResponse = {
      */
     id: string;
     /**
+     * Idempotent Replay
+     */
+    idempotent_replay?: boolean | null;
+    /**
      * Job Id
      */
     job_id: string;
@@ -3374,6 +3382,10 @@ export type InboxEventResponse = {
      * Last Error Code
      */
     last_error_code: string | null;
+    /**
+     * Message Id
+     */
+    message_id?: string | null;
     platform: ChannelPlatform;
     /**
      * Processed At
@@ -3383,6 +3395,11 @@ export type InboxEventResponse = {
      * Received At
      */
     received_at: string;
+    /**
+     * Run Id
+     */
+    run_id?: string | null;
+    run_status?: AgentRunStatus | null;
     /**
      * Schema Version
      */

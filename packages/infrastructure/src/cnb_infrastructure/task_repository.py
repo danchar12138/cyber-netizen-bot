@@ -264,6 +264,33 @@ class InMemoryTaskRepository:
             self._set_inbox_status(running, InboxEventStatus.PROCESSING, now=now)
             return JobClaim(running, attempt)
 
+    async def renew_job_lease(
+        self,
+        *,
+        job_id: UUID,
+        attempt_id: UUID,
+        worker_id: str,
+        now: datetime,
+    ) -> bool:
+        async with self._lock:
+            job = self.jobs.get(job_id)
+            attempt = self.attempts.get(attempt_id)
+            if (
+                job is None
+                or attempt is None
+                or job.status is not BackgroundJobStatus.RUNNING
+                or job.lease_owner != worker_id
+                or attempt.status is not JobAttemptStatus.RUNNING
+                or attempt.worker_id != worker_id
+            ):
+                return False
+            self.jobs[job_id] = replace(
+                job,
+                lease_expires_at=now + timedelta(seconds=job.lease_seconds),
+                updated_at=now,
+            )
+            return True
+
     async def complete_job(
         self,
         *,
@@ -1039,6 +1066,32 @@ class SqlAlchemyTaskRepository:
             session.add(self._attempt_model(attempt))
             await self._set_inbox_row(session, row, InboxEventStatus.PROCESSING, now)
             return JobClaim(self._job(row), attempt)
+
+    async def renew_job_lease(
+        self,
+        *,
+        job_id: UUID,
+        attempt_id: UUID,
+        worker_id: str,
+        now: datetime,
+    ) -> bool:
+        async with self._session_factory.begin() as session:
+            row = await session.scalar(
+                select(BackgroundJobModel).where(BackgroundJobModel.id == job_id).with_for_update()
+            )
+            attempt = await session.get(JobAttemptModel, attempt_id)
+            if (
+                row is None
+                or attempt is None
+                or row.status != BackgroundJobStatus.RUNNING.value
+                or row.lease_owner != worker_id
+                or attempt.status != JobAttemptStatus.RUNNING.value
+                or attempt.worker_id != worker_id
+            ):
+                return False
+            row.lease_expires_at = now + timedelta(seconds=row.lease_seconds)
+            row.updated_at = now
+            return True
 
     async def complete_job(
         self,

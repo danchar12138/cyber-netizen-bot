@@ -1,5 +1,6 @@
 """可靠异步任务、反思与主动行为策略测试。"""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -44,6 +45,17 @@ class FailingHandler:
     async def handle(self, job: BackgroundJob) -> dict[str, JsonValue]:
         del job
         raise RuntimeError("测试故障正文不能进入任务摘要")
+
+
+class BlockingHandler:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def handle(self, job: BackgroundJob) -> dict[str, JsonValue]:
+        self.started.set()
+        await self.release.wait()
+        return {"handled_job_id": str(job.id)}
 
 
 async def test_outbox_dispatch_and_duplicate_delivery_have_one_side_effect() -> None:
@@ -128,6 +140,35 @@ async def test_outbox_publisher_restart_recovers_expired_lease() -> None:
         == 1
     )
     assert dispatcher.dispatched == [(queued.job.id, "memory")]
+
+
+async def test_long_running_handler_renews_lease_until_completion() -> None:
+    repository = InMemoryTaskRepository()
+    service = BackgroundTaskService(repository)
+    queued = await service.enqueue(
+        tenant_id=uuid4(),
+        kind=BackgroundJobKind.REFLECTION,
+        payload={"conversation_id": str(uuid4())},
+        deduplication_key="reflection:lease-renewal",
+        created_by=uuid4(),
+        lease_seconds=1,
+    )
+    handler = BlockingHandler()
+    execution = asyncio.create_task(
+        service.execute(
+            job_id=queued.job.id,
+            worker_id="slow-worker",
+            handlers={BackgroundJobKind.REFLECTION: handler},
+        )
+    )
+    await handler.started.wait()
+    await asyncio.sleep(1.1)
+
+    assert await service.recover_expired() == 0
+    handler.release.set()
+    completed = await execution
+    assert completed is not None
+    assert completed.status is BackgroundJobStatus.SUCCEEDED
 
 
 async def test_failure_enters_dead_letter_and_replay_preserves_original() -> None:

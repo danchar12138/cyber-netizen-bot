@@ -2,7 +2,7 @@
 
 以自研 Agent 认知运行时为核心的“赛博网友”项目。Web 首发形态是统一管理后台，其中包含内部全功能对话工作台；后续 IM 平台通过统一 Channel Adapter 接入。
 
-当前已完成 P1 至 P7，包括身份安全、数据生命周期、可观测性/性能/成本、拟人评测，以及生产镜像与发布供应链；后续增强已完成多模态模型输入、多 Agent 管理、渠道归属隔离、Agent 安全生命周期以及外部身份/会话映射与可重放 Inbox。P0 的生产式 Docker Compose、全链迁移、服务闭环和隔离备份恢复也已由 Linux CI 实跑通过；仅 GitHub `main` 分支保护因私有仓库当前套餐限制而待处理。最新开发计划见 [`docs/plans/2026-09-10-v5.md`](docs/plans/2026-09-10-v5.md)。
+当前已完成 P1 至 P7，包括身份安全、数据生命周期、可观测性/性能/成本、拟人评测，以及生产镜像与发布供应链；后续增强已完成多模态模型输入、多 Agent 管理、渠道归属隔离、Agent 安全生命周期、外部身份/会话映射与入站消息到 Agent Run 的可靠闭环。P0 的生产式 Docker Compose、全链迁移、服务闭环和隔离备份恢复也已由 Linux CI 实跑通过；仅 GitHub `main` 分支保护因私有仓库当前套餐限制而待处理。最新开发计划见 [`docs/plans/2026-09-10-v6.md`](docs/plans/2026-09-10-v6.md)。
 
 ## 已建立的能力
 
@@ -38,13 +38,14 @@
 - 关系阶段、亲和度、信任度、熟悉度、交互次数、安全摘要与边界的只追加事件演进。
 - 对话运行时长期记忆和关系接入，以及只记录记忆 ID、分数、版本和关系版本的 `memory_recall` 安全轨迹阶段。
 - 记忆、来源、关系、Episode、召回试验和 embedding 重建管理后台；内部对话侧栏展示当前关系和本轮召回结果。
-- PostgreSQL 真相源、事务 Inbox/Outbox、Dramatiq 至少一次投递、数据库租约、指数退避、死信、取消、恢复和安全重放组成的可靠异步任务闭环。
+- PostgreSQL 真相源、事务 Inbox/Outbox、Dramatiq 至少一次投递、执行中主动续租的数据库租约、指数退避、死信、取消、恢复和安全重放组成的可靠异步任务闭环。
 - Episode 巩固、记忆提取、embedding 重建、关系更新与对话后 Reflection 异步处理，以及按安静时段、活跃度、关系边界和每日社交预算治理的主动行为。
 - 任务、尝试、Worker 心跳、死信与定时行为管理 API 和后台；主动行为默认关闭，所有运行参数均由配置中心校验、发布和回滚。
 - 厂商无关的多模态内容块与 `ChannelAdapter` Protocol，以及能力协商、长文本拆分、流式缓冲、Markdown/附件透明降级和结构化安全错误。
 - 正式内部 Web Adapter、飞书/Discord/Telegram 零外部副作用占位包，以及渠道能力与模型能力矩阵、平台模拟器和 Adapter 契约测试。
 - 租户与 Agent 双重隔离的渠道实例、信封加密凭证、启停、连接测试、健康状态、原子限流、幂等发送和不含正文/密钥的诊断事件管理 API 与后台。
 - 租户与 Agent 双重隔离的外部主体映射、会话/线程路由、版本化净化 Envelope 和 PostgreSQL 幂等 Inbox；管理诊断仅暴露 UUID、内容块类型/数量与 SHA-256 标识摘要。
+- 入站 Worker 以确定性消息 ID 复用现有 Conversation 与认知运行时，安全吸收平台重试、Worker 重投和人工重放；渠道配置/密钥作用域、多模态附件复核及中断 Run 防重复输出已接通。
 - MinIO 官方 Python SDK 附件适配器、预签名浏览器直传、服务端摘要复核、私有预览和生命周期清理。
 - OIDC Authorization Code + PKCE 正式认证、本地稳定身份绑定、服务端 RBAC、会话撤销，以及 Prompt 注入和上传内容安全加固。
 - 数据白名单 JSON 导出、带精确确认的用户遗忘、保留期清理、MinIO 孤儿保护与清理、隔离恢复演练登记和完整管理后台。
@@ -180,7 +181,7 @@ OpenTelemetry 的启用状态、服务名、OTLP endpoint/Header 和 Trace 采�
 
 管理后台“外部身份与 Inbox”页面可绑定平台稳定主体 ID 与本地用户，并将平台会话/线程显式路由到内部 Conversation。标准化入站事件通过签名结果、时效和大小边界后，以渠道和外部消息 ID 的 SHA-256 组合幂等落库，再投递 `inbound` Worker 队列。所有运行设置位于配置中心，映射变更与重放受 RBAC 和审计保护。
 
-当前 `POST /api/v1/integrations/inbound/{channel_id}/simulate` 只是内部 Web Adapter 管理联调入口，不是真实 IM Webhook。Worker 当前在验证 Envelope 并输出不含正文的 `ready_for_agent` 路由摘要后停止；这是可靠入站与安全路由边界，尚未创建会话消息或 Agent Run。飞书、Discord 和 Telegram Adapter 仍然是零外部副作用占位，不访问平台 API。
+当前 `POST /api/v1/integrations/inbound/{channel_id}/simulate` 只是内部 Web Adapter 管理联调入口，不是真实 IM Webhook。Worker 会严格解析净化后的 Envelope，以租户、渠道和外部消息 ID 生成确定性 `client_message_id`，复用现有 Conversation、长期记忆、多模态和自研认知运行时创建并处理 Agent Run；平台重试、Worker 重投和人工重放不会重复生成消息或 Run。管理后台可查看内部消息/Run ID、终态和幂等结果，但不展示正文、附件对象键、凭证或模型原始响应。飞书、Discord 和 Telegram Adapter 仍然是零外部副作用占位，不访问平台 API。
 
 ## GitHub
 

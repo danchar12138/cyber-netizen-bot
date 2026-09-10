@@ -45,6 +45,7 @@ from cnb_cognition import (
 )
 from cnb_domain import (
     AgentRun,
+    AgentRunStatus,
     Attachment,
     BackgroundJobKind,
     Conversation,
@@ -60,6 +61,7 @@ from cnb_domain import (
     MessageSearchResult,
     MessageSenderType,
     MessageStatus,
+    MultimodalContentBlock,
     PendingAgentRun,
 )
 
@@ -164,6 +166,7 @@ class ConversationRepository(Protocol):
         policy_version: int,
         model_route_version: int,
         model_profile: str,
+        content_blocks: Sequence[MultimodalContentBlock] = (),
     ) -> PendingAgentRun: ...
 
     async def begin_regeneration(
@@ -334,6 +337,7 @@ class ConversationService:
         task_service: BackgroundTaskService | None = None,
         multimodal_input_service: MultimodalInputService | None = None,
         identity: DevelopmentIdentity,
+        channel_id: UUID | None = None,
         reliability_guard: ModelReliabilityGuard | None = None,
     ) -> None:
         self._repository = repository
@@ -345,6 +349,7 @@ class ConversationService:
         self._task_service = task_service
         self._multimodal_input_service = multimodal_input_service
         self._identity = identity
+        self._channel_id = channel_id
         self._reliability_guard = reliability_guard or ModelReliabilityGuard()
 
     @property
@@ -436,6 +441,7 @@ class ConversationService:
         client_message_id: UUID,
         content: str,
         attachments: Sequence[Attachment] = (),
+        content_blocks: Sequence[MultimodalContentBlock] = (),
     ) -> PendingAgentRun:
         await self.get_conversation(conversation_id)
         (
@@ -458,6 +464,7 @@ class ConversationService:
             policy_version=policy_version,
             model_route_version=model_route_version,
             model_profile=model_profile,
+            content_blocks=content_blocks,
         )
 
     async def regenerate_response(
@@ -515,12 +522,24 @@ class ConversationService:
             model_profile=model_profile,
         )
 
-    async def execute_run(self, pending: PendingAgentRun) -> None:
+    async def execute_run(
+        self,
+        pending: PendingAgentRun,
+        *,
+        resume_queued: bool = False,
+    ) -> AgentRun:
         """执行多阶段认知、策略门与有恢复边界的模型表达。"""
-        if not pending.created:
-            return
+        if not pending.created and not (
+            resume_queued and pending.run.status is AgentRunStatus.QUEUED
+        ):
+            return pending.run
         try:
             await self._repository.mark_run_started(pending.run.id)
+        except ConversationConflictError:
+            # 另一个消费者可能已经认领或终结同一确定性 Run；当前消费者不得
+            # 将这种竞争误判为模型失败，更不能再次产生流式输出。
+            return pending.run
+        try:
             context_messages = await self._repository.list_context_messages(
                 conversation_id=pending.conversation.id,
                 user_id=self._identity.user_id,
@@ -540,6 +559,7 @@ class ConversationService:
             configuration = await self._configuration_service.resolve_effective(
                 tenant_id=self._identity.tenant_id,
                 agent_id=self._identity.agent_id,
+                channel_id=self._channel_id,
                 user_id=self._identity.user_id,
                 version=pending.run.configuration_version,
             )
@@ -608,13 +628,13 @@ class ConversationService:
                 decision=decision,
             )
             if decision.action not in {CognitiveAction.REPLY, CognitiveAction.ASK}:
-                await self._repository.complete_run(
+                completed = await self._repository.complete_run(
                     pending.run.id,
                     usage=None,
                     suppress_response=True,
                 )
                 await self._schedule_reflection_safely(pending, configuration.values)
-                return
+                return completed
 
             system_prompt = configuration.values["persona.system_prompt"]
             max_output_tokens = configuration.values["model.chat.max_output_tokens"]
@@ -668,13 +688,21 @@ class ConversationService:
                     bundle.model_route.max_attempts if bundle.model_route else None
                 ),
             )
-            await self._repository.complete_run(pending.run.id, usage)
+            completed = await self._repository.complete_run(pending.run.id, usage)
             await self._schedule_reflection_safely(pending, configuration.values)
+            return completed
         except asyncio.CancelledError:
             await self._repository.cancel_run(pending.run.id, user_id=self._identity.user_id)
             raise
         except Exception as error:
-            await self._repository.fail_run(pending.run.id, type(error).__name__)
+            return await self._repository.fail_run(pending.run.id, type(error).__name__)
+
+    async def fail_interrupted_run(self, pending: PendingAgentRun) -> AgentRun:
+        """关闭无法安全续跑的运行中 Run，避免重复调用模型或拼接重复输出。"""
+        if pending.run.status is not AgentRunStatus.RUNNING:
+            raise ConversationConflictError("只有运行中的 Agent Run 可标记为中断")
+        await self.get_conversation(pending.conversation.id)
+        return await self._repository.fail_run(pending.run.id, "InterruptedInboundRun")
 
     async def _stream_with_resilience(
         self,
@@ -748,6 +776,7 @@ class ConversationService:
                     model=model_name,
                     tenant_id=self._identity.tenant_id,
                     agent_id=self._identity.agent_id,
+                    channel_id=self._channel_id,
                     user_id=self._identity.user_id,
                     run_id=pending.run.id,
                 )
@@ -1362,6 +1391,7 @@ class ConversationService:
         configuration = await self._configuration_service.resolve_effective(
             tenant_id=self._identity.tenant_id,
             agent_id=self._identity.agent_id,
+            channel_id=self._channel_id,
             user_id=self._identity.user_id,
         )
         bundle = await self._cognition_service.resolve_runtime_bundle(

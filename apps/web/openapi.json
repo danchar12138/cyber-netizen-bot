@@ -5464,6 +5464,17 @@
             "title": "Event Type",
             "type": "string"
           },
+          "execution_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Status"
+          },
           "external_conversation_digest": {
             "title": "External Conversation Digest",
             "type": "string"
@@ -5496,6 +5507,17 @@
             "title": "Id",
             "type": "string"
           },
+          "idempotent_replay": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotent Replay"
+          },
           "job_id": {
             "format": "uuid",
             "title": "Job Id",
@@ -5522,6 +5544,18 @@
             ],
             "title": "Last Error Code"
           },
+          "message_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
+          },
           "platform": {
             "$ref": "#/components/schemas/ChannelPlatform"
           },
@@ -5541,6 +5575,28 @@
             "format": "date-time",
             "title": "Received At",
             "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "run_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentRunStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "schema_version": {
             "title": "Schema Version",

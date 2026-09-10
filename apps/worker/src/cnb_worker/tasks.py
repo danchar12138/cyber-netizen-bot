@@ -15,14 +15,20 @@ from dramatiq.brokers.redis import RedisBroker
 from dramatiq.middleware import AsyncIO
 
 from cnb_application import (
+    AttachmentService,
     BackgroundJobHandler,
     BackgroundTaskService,
+    CognitionService,
     ConfigurationService,
+    ConversationService,
     EmbeddingRebuildTaskHandler,
     EpisodeConsolidationTaskHandler,
+    InboundConversationProcessor,
     InboundMessageTaskHandler,
     MemoryExtractionTaskHandler,
     MemoryService,
+    ModelReliabilityGuard,
+    MultimodalInputService,
     ReflectionTaskHandler,
     RelationshipUpdateTaskHandler,
     ScheduledActionService,
@@ -30,10 +36,18 @@ from cnb_application import (
     TaskDispatcher,
     build_default_registry,
 )
-from cnb_domain import BackgroundJobKind
+from cnb_cognition import AnthropomorphicCognitiveRuntime
+from cnb_domain import BackgroundJobKind, DevelopmentIdentity
 from cnb_infrastructure import (
+    AesGcmEnvelopeCipher,
+    ConfiguredModelProviderResolver,
+    MinioObjectStorage,
+    SqlAlchemyAttachmentRepository,
+    SqlAlchemyCognitionRepository,
     SqlAlchemyConfigurationRepository,
+    SqlAlchemyConversationRepository,
     SqlAlchemyMemoryRepository,
+    SqlAlchemySecretStore,
     SqlAlchemyTaskRepository,
     get_settings,
 )
@@ -49,9 +63,21 @@ session_factory = create_session_factory(settings)
 task_repository = SqlAlchemyTaskRepository(session_factory)
 memory_repository = SqlAlchemyMemoryRepository(session_factory)
 configuration_repository = SqlAlchemyConfigurationRepository(session_factory)
+conversation_repository = SqlAlchemyConversationRepository(session_factory)
+cognition_repository = SqlAlchemyCognitionRepository(session_factory)
+attachment_repository = SqlAlchemyAttachmentRepository(session_factory)
 task_service = BackgroundTaskService(task_repository)
 memory_service = MemoryService(memory_repository)
 configuration_service = ConfigurationService(build_default_registry(), configuration_repository)
+object_storage = MinioObjectStorage(settings)
+secret_cipher = AesGcmEnvelopeCipher.from_encoded_key(
+    settings.config_master_key.get_secret_value(),
+    allow_development_placeholder=settings.environment in {"development", "test"},
+)
+secret_store = SqlAlchemySecretStore(session_factory, secret_cipher)
+model_provider_resolver = ConfiguredModelProviderResolver(secret_store)
+cognitive_runtime = AnthropomorphicCognitiveRuntime()
+model_reliability_guard = ModelReliabilityGuard()
 scheduled_action_service = ScheduledActionService(task_repository, task_service)
 worker_id = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}"
 worker_started_at = datetime.now(UTC)
@@ -70,6 +96,43 @@ class DramatiqTaskDispatcher(TaskDispatcher):
         if actor is None:
             raise ValueError(f"没有对应队列 Actor：{queue}")
         actor.send(str(job_id))
+
+
+def _conversation_service(
+    *,
+    identity: DevelopmentIdentity,
+    channel_id: UUID,
+) -> ConversationService:
+    """为单个入站 Envelope 构建绑定身份与渠道作用域的真实对话服务。"""
+    return ConversationService(
+        repository=conversation_repository,
+        runtime=cognitive_runtime,
+        model_provider_resolver=model_provider_resolver,
+        configuration_service=configuration_service,
+        cognition_service=CognitionService(cognition_repository, agent_id=identity.agent_id),
+        memory_service=memory_service,
+        task_service=task_service,
+        multimodal_input_service=MultimodalInputService(
+            repository=attachment_repository,
+            object_storage=object_storage,
+            user_id=identity.user_id,
+            tenant_id=identity.tenant_id,
+        ),
+        identity=identity,
+        channel_id=channel_id,
+        reliability_guard=model_reliability_guard,
+    )
+
+
+def _attachment_service(*, identity: DevelopmentIdentity) -> AttachmentService:
+    """为入站附件复核构建绑定当前外部用户的生命周期服务。"""
+    return AttachmentService(
+        repository=attachment_repository,
+        object_storage=object_storage,
+        conversation_repository=conversation_repository,
+        configuration_service=configuration_service,
+        identity=identity,
+    )
 
 
 async def _execute_job(job_id: str) -> None:
@@ -121,7 +184,12 @@ _handlers: dict[BackgroundJobKind, BackgroundJobHandler] = {
         configuration=configuration_service,
         memory=memory_service,
     ),
-    BackgroundJobKind.INBOUND_MESSAGE: InboundMessageTaskHandler(),
+    BackgroundJobKind.INBOUND_MESSAGE: InboundMessageTaskHandler(
+        InboundConversationProcessor(
+            conversation_services=_conversation_service,
+            attachment_services=_attachment_service,
+        )
+    ),
 }
 _actors_by_queue: dict[str, _ActorSender] = {
     "memory": cast(_ActorSender, process_memory_job),

@@ -35,6 +35,7 @@ from cnb_domain import (
     MessageSearchResult,
     MessageSenderType,
     MessageStatus,
+    MultimodalContentBlock,
     PendingAgentRun,
 )
 from cnb_infrastructure.models import (
@@ -58,8 +59,75 @@ def _new_message_parts(
     content: str,
     attachments: Sequence[Attachment],
     occurred_at: datetime,
+    content_blocks: Sequence[MultimodalContentBlock] = (),
 ) -> tuple[MessagePart, ...]:
     """从兼容文本投影和已校验附件生成稳定、有序的领域内容块。"""
+    if content_blocks:
+        attachments_by_id = {item.id: item for item in attachments}
+        referenced_ids = tuple(
+            block.attachment_id for block in content_blocks if block.attachment_id is not None
+        )
+        if len(referenced_ids) != len(set(referenced_ids)) or set(referenced_ids) != set(
+            attachments_by_id
+        ):
+            raise ConversationConflictError("消息内容块与已校验附件不一致")
+        ordered: list[MessagePart] = []
+        for position, block in enumerate(content_blocks):
+            attachment = (
+                attachments_by_id.get(block.attachment_id)
+                if block.attachment_id is not None
+                else None
+            )
+            if block.kind in {ContentBlockKind.TEXT, ContentBlockKind.MARKDOWN}:
+                if attachment is not None or not block.text:
+                    raise ConversationConflictError("文本内容块无效")
+                ordered.append(
+                    MessagePart(
+                        id=uuid4(),
+                        tenant_id=tenant_id,
+                        message_id=message_id,
+                        position=position,
+                        kind=block.kind,
+                        text=block.text,
+                        attachment_id=None,
+                        content_type=None,
+                        file_name=None,
+                        size_bytes=None,
+                        sha256=None,
+                        alt_text=None,
+                        created_at=occurred_at,
+                        updated_at=occurred_at,
+                    )
+                )
+                continue
+            if attachment is None:
+                raise ConversationConflictError("附件内容块缺少已校验附件")
+            canonical_kind = (
+                ContentBlockKind.IMAGE
+                if attachment.content_type.startswith("image/")
+                else ContentBlockKind.FILE
+            )
+            if block.kind is not canonical_kind:
+                raise ConversationConflictError("附件内容块类型与持久化媒体类型不一致")
+            ordered.append(
+                MessagePart(
+                    id=uuid4(),
+                    tenant_id=tenant_id,
+                    message_id=message_id,
+                    position=position,
+                    kind=canonical_kind,
+                    text=None,
+                    attachment_id=attachment.id,
+                    content_type=attachment.content_type,
+                    file_name=attachment.original_name,
+                    size_bytes=attachment.size_bytes,
+                    sha256=attachment.sha256,
+                    alt_text=block.alt_text if canonical_kind is ContentBlockKind.IMAGE else None,
+                    created_at=occurred_at,
+                    updated_at=occurred_at,
+                )
+            )
+        return tuple(ordered)
     parts = [
         MessagePart(
             id=uuid4(),
@@ -366,6 +434,7 @@ class MemoryConversationRepository:
         policy_version: int,
         model_route_version: int,
         model_profile: str,
+        content_blocks: Sequence[MultimodalContentBlock] = (),
     ) -> PendingAgentRun:
         async with self._lock:
             client_key = (conversation_id, identity.user_id, client_message_id)
@@ -403,6 +472,7 @@ class MemoryConversationRepository:
                     content=content,
                     attachments=attachments,
                     occurred_at=now,
+                    content_blocks=content_blocks,
                 ),
             )
             response_id = uuid4()
@@ -1438,6 +1508,7 @@ class SqlAlchemyConversationRepository:
         policy_version: int,
         model_route_version: int,
         model_profile: str,
+        content_blocks: Sequence[MultimodalContentBlock] = (),
     ) -> PendingAgentRun:
         async with self._session_factory() as session, session.begin():
             conversation = await self._locked_conversation(
@@ -1499,6 +1570,7 @@ class SqlAlchemyConversationRepository:
                         content=content,
                         attachments=attachments,
                         occurred_at=now,
+                        content_blocks=content_blocks,
                     )
                 ),
             )

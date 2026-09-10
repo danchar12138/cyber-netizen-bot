@@ -1,16 +1,30 @@
 """外部身份、线程路由和可重放入站 Inbox 的应用用例。"""
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
+from enum import StrEnum
 from hashlib import sha256
-from typing import Protocol
-from uuid import UUID, uuid4
+from hmac import compare_digest
+from typing import Protocol, cast, overload
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from cnb_adapters import ChannelInboundEvent
+from cnb_application.attachment_service import (
+    AttachmentConflictError,
+    AttachmentNotFoundError,
+    AttachmentService,
+    AttachmentValidationError,
+)
 from cnb_application.channel_service import ChannelRepository
 from cnb_application.configuration_service import ConfigurationService
-from cnb_application.conversation_service import ConversationRepository
+from cnb_application.conversation_service import (
+    ConversationConflictError,
+    ConversationNotFoundError,
+    ConversationRepository,
+    ConversationService,
+)
 from cnb_application.task_service import (
     BackgroundTaskService,
     EnqueueResult,
@@ -21,11 +35,15 @@ from cnb_application.task_service import (
 )
 from cnb_domain import (
     INBOUND_ENVELOPE_SCHEMA_VERSION,
+    AgentRunStatus,
+    Attachment,
     BackgroundJob,
     BackgroundJobKind,
     ChannelInstance,
     ChannelInstanceStatus,
+    ChannelPlatform,
     ContentBlockKind,
+    DevelopmentIdentity,
     ExternalConversationKind,
     ExternalConversationMapping,
     ExternalIdentityMapping,
@@ -37,6 +55,8 @@ from cnb_domain import (
     JsonValue,
     MultimodalContentBlock,
 )
+
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 class InboundValidationError(ValueError):
@@ -58,6 +78,34 @@ class InboundAcceptance:
     inbox: InboxEvent
     job: BackgroundJob
     created: bool
+
+
+@dataclass(frozen=True, slots=True)
+class InboundProcessingResult:
+    """不含正文和附件元数据的入站对话处理摘要。"""
+
+    message_id: UUID
+    run_id: UUID
+    run_status: AgentRunStatus
+    idempotent_replay: bool
+    execution_status: str
+
+
+class InboundConversationServiceFactory(Protocol):
+    """按 Envelope 身份和渠道构建现有对话应用服务。"""
+
+    def __call__(
+        self,
+        *,
+        identity: DevelopmentIdentity,
+        channel_id: UUID,
+    ) -> ConversationService: ...
+
+
+class InboundAttachmentServiceFactory(Protocol):
+    """按 Envelope 身份构建现有附件生命周期服务。"""
+
+    def __call__(self, *, identity: DevelopmentIdentity) -> AttachmentService: ...
 
 
 class InboundGatewayRepository(Protocol):
@@ -651,39 +699,380 @@ class InboundGatewayService:
         return value
 
 
+class InboundConversationProcessor:
+    """将可信 Envelope 接入既有 Conversation 与 Agent Run 纵向链路。"""
+
+    def __init__(
+        self,
+        *,
+        conversation_services: InboundConversationServiceFactory,
+        attachment_services: InboundAttachmentServiceFactory,
+    ) -> None:
+        self._conversation_services = conversation_services
+        self._attachment_services = attachment_services
+
+    async def process(self, envelope: InboundEnvelope) -> InboundProcessingResult:
+        identity = DevelopmentIdentity(
+            tenant_id=envelope.tenant_id,
+            user_id=envelope.user_id,
+            agent_id=envelope.agent_id,
+            user_name="外部渠道用户",
+            agent_name="渠道 Agent",
+        )
+        client_message_id = self.client_message_id(envelope)
+        conversation_service = self._conversation_services(
+            identity=identity,
+            channel_id=envelope.channel_id,
+        )
+        attachment_service = self._attachment_services(identity=identity)
+        attachment_ids = tuple(
+            block.attachment_id for block in envelope.blocks if block.attachment_id is not None
+        )
+        try:
+            attachments = await attachment_service.prepare_message_attachments(
+                conversation_id=envelope.conversation_id,
+                client_message_id=client_message_id,
+                attachment_ids=attachment_ids,
+            )
+            content_blocks = self._authoritative_blocks(envelope.blocks, attachments)
+            pending = await conversation_service.send_message(
+                envelope.conversation_id,
+                client_message_id=client_message_id,
+                content=self._content_projection(content_blocks),
+                attachments=attachments,
+                content_blocks=content_blocks,
+            )
+            await attachment_service.attach_to_message(
+                attachment_ids=attachment_ids,
+                message=pending.trigger_message,
+            )
+        except (
+            AttachmentConflictError,
+            AttachmentNotFoundError,
+            AttachmentValidationError,
+            ConversationConflictError,
+            ConversationNotFoundError,
+        ) as error:
+            raise PermanentTaskError("Inbox Envelope 引用的会话或附件无效") from error
+
+        if not pending.created and pending.run.status is AgentRunStatus.RUNNING:
+            await conversation_service.fail_interrupted_run(pending)
+            raise PermanentTaskError("检测到中断的 Agent Run，已停止自动续跑")
+
+        if pending.run.status in {
+            AgentRunStatus.COMPLETED,
+            AgentRunStatus.CANCELLED,
+            AgentRunStatus.FAILED,
+        }:
+            return InboundProcessingResult(
+                message_id=pending.trigger_message.id,
+                run_id=pending.run.id,
+                run_status=pending.run.status,
+                idempotent_replay=True,
+                execution_status="already_terminal",
+            )
+
+        completed = await conversation_service.execute_run(
+            pending,
+            resume_queued=not pending.created,
+        )
+        return InboundProcessingResult(
+            message_id=pending.trigger_message.id,
+            run_id=pending.run.id,
+            run_status=completed.status,
+            idempotent_replay=not pending.created,
+            execution_status=(
+                "claimed_elsewhere"
+                if completed.status is AgentRunStatus.QUEUED
+                else "agent_run_processed"
+            ),
+        )
+
+    @staticmethod
+    def client_message_id(envelope: InboundEnvelope) -> UUID:
+        """为所有平台重试和 Worker 重投生成同一个消息幂等键。"""
+        return uuid5(
+            NAMESPACE_URL,
+            (
+                f"cnb-inbound:{envelope.tenant_id}:{envelope.channel_id}:"
+                f"{envelope.external_message_id}"
+            ),
+        )
+
+    @staticmethod
+    def _authoritative_blocks(
+        blocks: Sequence[MultimodalContentBlock],
+        attachments: Sequence[Attachment],
+    ) -> tuple[MultimodalContentBlock, ...]:
+        stored = {item.id: item for item in attachments}
+        normalized: list[MultimodalContentBlock] = []
+        for block in blocks:
+            if block.kind in {ContentBlockKind.TEXT, ContentBlockKind.MARKDOWN}:
+                normalized.append(block)
+                continue
+            if block.attachment_id is None or block.attachment_id not in stored:
+                raise AttachmentValidationError("附件内容块未引用当前消息的已校验附件")
+            attachment = stored[block.attachment_id]
+            expected_kind = (
+                ContentBlockKind.IMAGE
+                if attachment.content_type.startswith("image/")
+                else ContentBlockKind.FILE
+            )
+            metadata_matches = (
+                block.kind is expected_kind
+                and (
+                    block.content_type is None
+                    or block.content_type.split(";", maxsplit=1)[0].strip().lower()
+                    == attachment.content_type
+                )
+                and (block.file_name is None or block.file_name == attachment.original_name)
+                and (block.size_bytes is None or block.size_bytes == attachment.size_bytes)
+                and (
+                    block.sha256 is None or compare_digest(block.sha256.lower(), attachment.sha256)
+                )
+            )
+            if not metadata_matches:
+                raise AttachmentValidationError("附件内容块元数据与持久化记录不一致")
+            normalized.append(
+                MultimodalContentBlock(
+                    kind=expected_kind,
+                    attachment_id=attachment.id,
+                    content_type=attachment.content_type,
+                    file_name=attachment.original_name,
+                    size_bytes=attachment.size_bytes,
+                    sha256=attachment.sha256,
+                    alt_text=block.alt_text,
+                )
+            )
+        return tuple(normalized)
+
+    @staticmethod
+    def _content_projection(blocks: Sequence[MultimodalContentBlock]) -> str:
+        text = "\n\n".join(
+            block.text or ""
+            for block in blocks
+            if block.kind in {ContentBlockKind.TEXT, ContentBlockKind.MARKDOWN}
+        ).strip()
+        return text or "[用户发送了附件]"
+
+
 class InboundMessageTaskHandler:
-    """验证已净化 Envelope 并冻结后续 Agent 消费的稳定路由结果。"""
+    """严格解析已净化 Envelope，并按配置接入真实 Agent 执行链路。"""
+
+    def __init__(self, processor: InboundConversationProcessor | None = None) -> None:
+        self._processor = processor
 
     async def handle(self, job: BackgroundJob) -> dict[str, JsonValue]:
-        if job.payload.get("schema_version") != INBOUND_ENVELOPE_SCHEMA_VERSION:
-            raise PermanentTaskError("Inbox Envelope schema version 不受支持")
-        required = ("agent_id", "channel_id", "user_id", "conversation_id")
+        envelope = self._envelope(job)
         result: dict[str, JsonValue] = {
-            "schema_version": INBOUND_ENVELOPE_SCHEMA_VERSION,
-            "routing_status": "ready_for_agent",
+            "schema_version": envelope.schema_version,
+            "routing_status": "ready_for_agent" if self._processor is None else "processed",
+            "agent_id": str(envelope.agent_id),
+            "channel_id": str(envelope.channel_id),
+            "user_id": str(envelope.user_id),
+            "conversation_id": str(envelope.conversation_id),
+            "content_block_count": len(envelope.blocks),
         }
-        for key in required:
-            value = job.payload.get(key)
-            if not isinstance(value, str):
-                raise PermanentTaskError(f"Inbox Envelope 缺少路由字段：{key}")
-            try:
-                parsed = UUID(value)
-            except ValueError as error:
-                raise PermanentTaskError(f"Inbox Envelope 路由字段无效：{key}") from error
-            result[key] = str(parsed)
-        blocks = job.payload.get("blocks")
-        if not isinstance(blocks, list) or not blocks:
-            raise PermanentTaskError("Inbox Envelope 缺少内容块")
-        result["content_block_count"] = len(blocks)
+        if self._processor is None:
+            return result
+        processed = await self._processor.process(envelope)
+        result.update(
+            {
+                "message_id": str(processed.message_id),
+                "run_id": str(processed.run_id),
+                "run_status": processed.run_status.value,
+                "idempotent_replay": processed.idempotent_replay,
+                "execution_status": processed.execution_status,
+            }
+        )
         return result
+
+    @classmethod
+    def _envelope(cls, job: BackgroundJob) -> InboundEnvelope:
+        payload = job.payload
+        schema_version = cls._required_text(payload, "schema_version", 20)
+        if schema_version != INBOUND_ENVELOPE_SCHEMA_VERSION:
+            raise PermanentTaskError("Inbox Envelope schema version 不受支持")
+        blocks_payload = payload.get("blocks")
+        if not isinstance(blocks_payload, list) or not blocks_payload:
+            raise PermanentTaskError("Inbox Envelope 缺少内容块")
+        occurred_at = cls._datetime(payload, "occurred_at")
+        received_at = cls._datetime(payload, "received_at")
+        return InboundEnvelope(
+            schema_version=schema_version,
+            tenant_id=job.tenant_id,
+            agent_id=cls._uuid(payload, "agent_id"),
+            channel_id=cls._uuid(payload, "channel_id"),
+            platform=cls._enum(payload, "platform", ChannelPlatform),
+            external_event_id=cls._required_text(payload, "external_event_id", 255),
+            external_subject_id=cls._required_text(payload, "external_subject_id", 255),
+            user_id=cls._uuid(payload, "user_id"),
+            conversation_kind=cls._enum(
+                payload,
+                "conversation_kind",
+                ExternalConversationKind,
+            ),
+            external_conversation_id=cls._required_text(payload, "external_conversation_id", 255),
+            external_thread_id=cls._optional_text(payload, "external_thread_id", 255),
+            conversation_id=cls._uuid(payload, "conversation_id"),
+            external_message_id=cls._required_text(payload, "external_message_id", 255),
+            blocks=tuple(cls._block(item) for item in blocks_payload),
+            occurred_at=occurred_at,
+            received_at=received_at,
+        )
+
+    @classmethod
+    def _block(cls, value: object) -> MultimodalContentBlock:
+        if not isinstance(value, dict):
+            raise PermanentTaskError("Inbox Envelope 内容块必须是对象")
+        block = cast(dict[str, object], value)
+        kind = cls._enum(block, "kind", ContentBlockKind)
+        text = cls._optional_content(block, "text", 200_000)
+        attachment_id = cls._optional_uuid(block, "attachment_id")
+        if kind in {ContentBlockKind.TEXT, ContentBlockKind.MARKDOWN}:
+            if text is None or attachment_id is not None:
+                raise PermanentTaskError("Inbox Envelope 文本内容块无效")
+        elif attachment_id is None or text is not None:
+            raise PermanentTaskError("Inbox Envelope 附件内容块无效")
+        size_bytes = cls._optional_integer(block, "size_bytes")
+        if size_bytes is not None and size_bytes <= 0:
+            raise PermanentTaskError("Inbox Envelope 附件大小无效")
+        digest = cls._optional_text(block, "sha256", 64)
+        if digest is not None and not _SHA256_PATTERN.fullmatch(digest.lower()):
+            raise PermanentTaskError("Inbox Envelope 附件摘要无效")
+        return MultimodalContentBlock(
+            kind=kind,
+            text=text,
+            attachment_id=attachment_id,
+            content_type=cls._optional_text(block, "content_type", 255),
+            file_name=cls._optional_text(block, "file_name", 255),
+            size_bytes=size_bytes,
+            sha256=digest.lower() if digest is not None else None,
+            alt_text=cls._optional_text(block, "alt_text", 2_000),
+        )
+
+    @staticmethod
+    def _required_text(values: Mapping[str, object], key: str, maximum: int) -> str:
+        value = values.get(key)
+        if not isinstance(value, str):
+            raise PermanentTaskError(f"Inbox Envelope 缺少文本字段：{key}")
+        normalized = value.strip()
+        if (
+            not normalized
+            or len(normalized) > maximum
+            or any(ord(character) < 32 or ord(character) == 127 for character in normalized)
+        ):
+            raise PermanentTaskError(f"Inbox Envelope 文本字段无效：{key}")
+        return normalized
+
+    @classmethod
+    def _optional_text(cls, values: Mapping[str, object], key: str, maximum: int) -> str | None:
+        value = values.get(key)
+        if value is None:
+            return None
+        return cls._required_text(values, key, maximum)
+
+    @staticmethod
+    def _optional_content(values: Mapping[str, object], key: str, maximum: int) -> str | None:
+        value = values.get(key)
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise PermanentTaskError(f"Inbox Envelope 内容字段无效：{key}")
+        normalized = value.strip()
+        if (
+            not normalized
+            or len(normalized) > maximum
+            or any(
+                (ord(character) < 32 and character not in {"\t", "\n", "\r"})
+                or ord(character) == 127
+                for character in normalized
+            )
+        ):
+            raise PermanentTaskError(f"Inbox Envelope 内容字段无效：{key}")
+        return normalized
+
+    @staticmethod
+    def _uuid(values: Mapping[str, object], key: str) -> UUID:
+        value = values.get(key)
+        if not isinstance(value, str):
+            raise PermanentTaskError(f"Inbox Envelope 缺少路由字段：{key}")
+        try:
+            return UUID(value)
+        except ValueError as error:
+            raise PermanentTaskError(f"Inbox Envelope 路由字段无效：{key}") from error
+
+    @classmethod
+    def _optional_uuid(cls, values: Mapping[str, object], key: str) -> UUID | None:
+        if values.get(key) is None:
+            return None
+        return cls._uuid(values, key)
+
+    @staticmethod
+    def _optional_integer(values: Mapping[str, object], key: str) -> int | None:
+        value = values.get(key)
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise PermanentTaskError(f"Inbox Envelope 整数字段无效：{key}")
+        return value
+
+    @staticmethod
+    def _datetime(values: Mapping[str, object], key: str) -> datetime:
+        value = values.get(key)
+        if not isinstance(value, str):
+            raise PermanentTaskError(f"Inbox Envelope 缺少时间字段：{key}")
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError as error:
+            raise PermanentTaskError(f"Inbox Envelope 时间字段无效：{key}") from error
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise PermanentTaskError(f"Inbox Envelope 时间字段缺少时区：{key}")
+        return parsed
+
+    @staticmethod
+    @overload
+    def _enum(
+        values: Mapping[str, object], key: str, enum_type: type[ChannelPlatform]
+    ) -> ChannelPlatform: ...
+
+    @staticmethod
+    @overload
+    def _enum(
+        values: Mapping[str, object], key: str, enum_type: type[ExternalConversationKind]
+    ) -> ExternalConversationKind: ...
+
+    @staticmethod
+    @overload
+    def _enum(
+        values: Mapping[str, object], key: str, enum_type: type[ContentBlockKind]
+    ) -> ContentBlockKind: ...
+
+    @staticmethod
+    def _enum(
+        values: Mapping[str, object],
+        key: str,
+        enum_type: type[StrEnum],
+    ) -> StrEnum:
+        value = values.get(key)
+        if not isinstance(value, str):
+            raise PermanentTaskError(f"Inbox Envelope 枚举字段缺失：{key}")
+        try:
+            return enum_type(value)
+        except ValueError as error:
+            raise PermanentTaskError(f"Inbox Envelope 枚举字段无效：{key}") from error
 
 
 __all__ = [
     "InboundAcceptance",
+    "InboundAttachmentServiceFactory",
     "InboundConflictError",
+    "InboundConversationProcessor",
+    "InboundConversationServiceFactory",
     "InboundGatewayRepository",
     "InboundGatewayService",
     "InboundMessageTaskHandler",
     "InboundNotFoundError",
+    "InboundProcessingResult",
     "InboundValidationError",
 ]

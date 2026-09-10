@@ -30,6 +30,9 @@ const conversationKindLabels = { direct: '私聊', group: '群聊' } as const
 const inboxStatusLabels = {
   pending: '待处理', processing: '处理中', completed: '已完成', dead_letter: '死信', canceled: '已取消',
 } as const
+const runStatusLabels = {
+  queued: '排队中', running: '运行中', completed: '已完成', cancelled: '已取消', failed: '失败',
+} as const
 
 function shortDigest(value: string | null) {
   return value ? `${value.slice(0, 12)}…${value.slice(-8)}` : '根会话'
@@ -124,6 +127,7 @@ export function IntegrationsPage() {
     { key: 'digests', label: '安全标识摘要', render: (row) => <div className="digest-stack"><code title={row.external_subject_digest}>主体 {shortDigest(row.external_subject_digest)}</code><code title={row.external_conversation_digest}>会话 {shortDigest(row.external_conversation_digest)}</code><code title={row.external_message_digest}>消息 {shortDigest(row.external_message_digest)}</code></div> },
     { key: 'content', label: '内容元数据', render: (row) => `${row.content_block_count} 块 · ${row.content_kinds.join('、') || '无'}` },
     { key: 'status', label: '状态', render: (row) => <div className="channel-status-stack"><span className={`entity-status task-${row.status}`}>{inboxStatusLabels[row.status]}</span><small>{row.job_status ? backgroundJobStatusLabels[row.job_status] : '任务不可用'}</small></div> },
+    { key: 'agent-run', label: 'Agent Run', render: (row) => row.run_id ? <div className="table-primary"><strong>{row.run_status ? runStatusLabels[row.run_status] : '状态待同步'}</strong><code title={row.run_id}>{row.run_id}</code><small>{row.idempotent_replay ? '幂等重放' : '首次处理'}</small></div> : <span>尚未创建</span> },
     { key: 'received', label: '接收时间', render: (row) => new Date(row.received_at).toLocaleString('zh-CN') },
     { key: 'actions', label: '操作', render: (row) => <button disabled={!canReplay || !['dead_letter', 'canceled'].includes(row.status)} onClick={() => window.confirm('确认从已净化 Envelope 安全重放？') && replay.mutate(row.id)}><ListRestart size={12} />重放</button> },
   ], [canReplay, replay])
@@ -136,7 +140,7 @@ export function IntegrationsPage() {
 
   return <div className="page">
     <section className="page-heading compact">
-      <div><p className="eyebrow">真实 IM 接入前的稳定路由边界</p><h1>外部身份与 Inbox</h1><p>用不可变平台 ID 映射本地身份与会话；入站事件先验签、限时、限量、净化和幂等落库，再交给 Worker。</p></div>
+      <div><p className="eyebrow">真实 IM 接入前的稳定路由边界</p><h1>外部身份与 Inbox</h1><p>用不可变平台 ID 映射本地身份与会话；入站事件完成验签、净化和幂等落库后，由 Worker 接入真实 Conversation 与 Agent Run。</p></div>
       <span className="phase-tag">Envelope v1</span>
     </section>
     {loadingError && <div className="notice error">外部接入数据读取失败，请检查 API 与迁移状态。</div>}

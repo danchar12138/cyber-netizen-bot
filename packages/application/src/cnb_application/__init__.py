@@ -98,11 +98,15 @@ from cnb_application.evaluation_service import (
 )
 from cnb_application.inbound_service import (
     InboundAcceptance,
+    InboundAttachmentServiceFactory,
     InboundConflictError,
+    InboundConversationProcessor,
+    InboundConversationServiceFactory,
     InboundGatewayRepository,
     InboundGatewayService,
     InboundMessageTaskHandler,
     InboundNotFoundError,
+    InboundProcessingResult,
     InboundValidationError,
 )
 from cnb_application.memory_service import (
@@ -227,11 +231,15 @@ __all__ = [
     "ExportSnapshot",
     "ForgetResult",
     "InboundAcceptance",
+    "InboundAttachmentServiceFactory",
     "InboundConflictError",
+    "InboundConversationProcessor",
+    "InboundConversationServiceFactory",
     "InboundGatewayRepository",
     "InboundGatewayService",
     "InboundMessageTaskHandler",
     "InboundNotFoundError",
+    "InboundProcessingResult",
     "InboundValidationError",
     "InvalidCursorError",
     "LoadedModelInput",

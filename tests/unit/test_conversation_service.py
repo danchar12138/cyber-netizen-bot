@@ -1,7 +1,7 @@
 """最小对话应用服务的幂等、流式与恢复测试。"""
 
 from collections.abc import AsyncIterator
-from uuid import NAMESPACE_DNS, uuid4, uuid5
+from uuid import NAMESPACE_DNS, UUID, uuid4, uuid5
 
 from cnb_application import (
     CognitionService,
@@ -125,6 +125,29 @@ class RoutingModelProviderResolver:
         return self._providers[(provider, model)]
 
 
+class ChannelRecordingResolver:
+    """记录模型凭证解析收到的渠道作用域。"""
+
+    def __init__(self) -> None:
+        self.provider = StubModelProvider()
+        self.calls: list[tuple[str, str, object | None]] = []
+
+    async def resolve(
+        self,
+        *,
+        provider: str,
+        model: str,
+        tenant_id: object,
+        agent_id: object | None = None,
+        channel_id: object | None = None,
+        user_id: object | None = None,
+        run_id: object | None = None,
+    ) -> ModelProvider:
+        del tenant_id, agent_id, user_id, run_id
+        self.calls.append((provider, model, channel_id))
+        return self.provider
+
+
 def _identity() -> DevelopmentIdentity:
     return DevelopmentIdentity(
         tenant_id=uuid5(NAMESPACE_DNS, "test.tenant"),
@@ -142,6 +165,7 @@ def _service(
     cognition_repository: MemoryCognitionRepository | None = None,
     configuration_service: ConfigurationService | None = None,
     reliability_guard: ModelReliabilityGuard | None = None,
+    channel_id: UUID | None = None,
 ) -> ConversationService:
     identity = _identity()
     return ConversationService(
@@ -156,6 +180,7 @@ def _service(
             cognition_repository or MemoryCognitionRepository(), agent_id=identity.agent_id
         ),
         identity=identity,
+        channel_id=channel_id,
         reliability_guard=reliability_guard,
     )
 
@@ -234,6 +259,52 @@ async def test_message_idempotency_does_not_create_duplicate_runs() -> None:
     assert replay.run.id == first.run.id
     messages = await service.list_messages(conversation.id, limit=20, cursor=None)
     assert len(messages.items) == 2
+
+
+async def test_channel_scope_reaches_run_snapshot_runtime_and_provider_resolution() -> None:
+    repository = MemoryConversationRepository()
+    configuration = ConfigurationService(
+        build_default_registry(),
+        MemoryConfigurationRepository(),
+    )
+    channel_id = uuid4()
+    draft = await configuration.create_draft(
+        note="渠道模型覆盖",
+        values=(
+            ConfigEntry(
+                key="model.chat.provider",
+                scope_type=ConfigScope.CHANNEL,
+                scope_id=channel_id,
+                value="openai",
+            ),
+            ConfigEntry(
+                key="model.openai.model",
+                scope_type=ConfigScope.CHANNEL,
+                scope_id=channel_id,
+                value="channel-model-v1",
+            ),
+        ),
+    )
+    await configuration.publish(draft.id)
+    resolver = ChannelRecordingResolver()
+    service = _service(
+        repository,
+        resolver=resolver,
+        configuration_service=configuration,
+        channel_id=channel_id,
+    )
+    conversation = await service.create_conversation(title="渠道作用域")
+
+    pending = await service.send_message(
+        conversation.id,
+        client_message_id=uuid4(),
+        content="你好，验证渠道配置",
+    )
+    completed = await service.execute_run(pending)
+
+    assert pending.run.model_profile == "openai/channel-model-v1"
+    assert completed.status is AgentRunStatus.COMPLETED
+    assert resolver.calls == [("openai", "channel-model-v1", channel_id)]
 
 
 async def test_streamed_run_persists_message_usage_and_ordered_events() -> None:

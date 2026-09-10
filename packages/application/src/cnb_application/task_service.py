@@ -1,7 +1,10 @@
 """可恢复后台任务、事务事件、重放和主动行为调度用例。"""
 
+import asyncio
 import json
+import logging
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Protocol
@@ -31,6 +34,8 @@ from cnb_domain import (
     TaskCounts,
     WorkerHeartbeat,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class TaskValidationError(ValueError):
@@ -121,6 +126,15 @@ class TaskRepository(Protocol):
         worker_id: str,
         now: datetime,
     ) -> JobClaim | None: ...
+
+    async def renew_job_lease(
+        self,
+        *,
+        job_id: UUID,
+        attempt_id: UUID,
+        worker_id: str,
+        now: datetime,
+    ) -> bool: ...
 
     async def complete_job(
         self,
@@ -572,39 +586,70 @@ class BackgroundTaskService:
         )
         if claim is None:
             return None
-        handler = handlers.get(claim.job.kind)
+        renewal = asyncio.create_task(
+            self._renew_job_lease(claim, worker_id),
+            name=f"job-lease-{claim.job.id}",
+        )
         try:
-            if handler is None:
-                raise PermanentTaskError(f"未注册任务处理器：{claim.job.kind.value}")
-            result = self._result(await handler.handle(claim.job))
-        except Exception as error:
-            permanent = isinstance(error, PermanentTaskError)
-            timed_out = isinstance(error, TimeoutError)
-            delay = claim.job.retry_base_seconds * 2 ** min(max(0, claim.job.attempt_count - 1), 8)
-            failed = await self._repository.fail_job(
+            handler = handlers.get(claim.job.kind)
+            try:
+                if handler is None:
+                    raise PermanentTaskError(f"未注册任务处理器：{claim.job.kind.value}")
+                result = self._result(await handler.handle(claim.job))
+            except Exception as error:
+                permanent = isinstance(error, PermanentTaskError)
+                timed_out = isinstance(error, TimeoutError)
+                delay = claim.job.retry_base_seconds * 2 ** min(
+                    max(0, claim.job.attempt_count - 1), 8
+                )
+                return await self._repository.fail_job(
+                    job_id=claim.job.id,
+                    attempt_id=claim.attempt.id,
+                    worker_id=worker_id,
+                    error_code=type(error).__name__[:120],
+                    error_summary="任务执行失败；详细异常仅保留在受控日志中。",
+                    permanent=permanent,
+                    timed_out=timed_out,
+                    retry_at=datetime.now(UTC) + timedelta(seconds=delay),
+                    retry_outbox=self._outbox(
+                        claim.job,
+                        now=datetime.now(UTC),
+                        available_at=datetime.now(UTC) + timedelta(seconds=delay),
+                    ),
+                    now=datetime.now(UTC),
+                )
+            return await self._repository.complete_job(
                 job_id=claim.job.id,
                 attempt_id=claim.attempt.id,
                 worker_id=worker_id,
-                error_code=type(error).__name__[:120],
-                error_summary="任务执行失败；详细异常仅保留在受控日志中。",
-                permanent=permanent,
-                timed_out=timed_out,
-                retry_at=datetime.now(UTC) + timedelta(seconds=delay),
-                retry_outbox=self._outbox(
-                    claim.job,
-                    now=datetime.now(UTC),
-                    available_at=datetime.now(UTC) + timedelta(seconds=delay),
-                ),
+                result_summary=result,
                 now=datetime.now(UTC),
             )
-            return failed
-        return await self._repository.complete_job(
-            job_id=claim.job.id,
-            attempt_id=claim.attempt.id,
-            worker_id=worker_id,
-            result_summary=result,
-            now=datetime.now(UTC),
-        )
+        finally:
+            renewal.cancel()
+            with suppress(asyncio.CancelledError):
+                await renewal
+
+    async def _renew_job_lease(self, claim: JobClaim, worker_id: str) -> None:
+        """执行长任务期间定期续租，防止恢复器并发重投同一运行。"""
+        interval = max(0.25, min(30.0, claim.job.lease_seconds / 3))
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                renewed = await self._repository.renew_job_lease(
+                    job_id=claim.job.id,
+                    attempt_id=claim.attempt.id,
+                    worker_id=worker_id,
+                    now=datetime.now(UTC),
+                )
+            except Exception:
+                logger.exception(
+                    "后台任务租约续期失败",
+                    extra={"job_id": str(claim.job.id), "worker_id": worker_id},
+                )
+                continue
+            if not renewed:
+                return
 
     async def heartbeat(
         self,
