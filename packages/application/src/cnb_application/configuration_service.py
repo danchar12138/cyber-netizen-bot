@@ -11,6 +11,8 @@ from cnb_application.configuration_registry import (
     ConfigurationValidationError,
 )
 from cnb_domain import (
+    CONFIGURATION_PACKAGE_FORMAT,
+    CONFIGURATION_PACKAGE_SCHEMA_VERSION,
     ConfigDifference,
     ConfigDiffKind,
     ConfigEntry,
@@ -146,6 +148,33 @@ class ConfigurationService:
         self._validate_memory_recall_entries(values)
         return await self._repository.create_draft(
             note=note.strip() if note and note.strip() else None,
+            values=values,
+            actor_id=actor_id,
+        )
+
+    async def import_draft(
+        self,
+        *,
+        package_format: str,
+        schema_version: str,
+        source_version: int,
+        source_note: str | None,
+        values: tuple[ConfigEntry, ...],
+        actor_id: UUID | None = None,
+    ) -> ConfigVersion:
+        """校验可移植配置包，并以新草稿导入，绝不直接覆盖生效版本。"""
+        if package_format != CONFIGURATION_PACKAGE_FORMAT:
+            raise ConfigurationValidationError(f"不支持的配置包格式：{package_format}")
+        if schema_version != CONFIGURATION_PACKAGE_SCHEMA_VERSION:
+            raise ConfigurationValidationError(f"不支持的配置包 Schema 版本：{schema_version}")
+        normalized_source_note = (
+            source_note.strip() if source_note and source_note.strip() else None
+        )
+        note = f"从配置包 v{source_version} 导入"
+        if normalized_source_note is not None:
+            note = f"{note}：{normalized_source_note}"
+        return await self.create_draft(
+            note=note[:1000],
             values=values,
             actor_id=actor_id,
         )

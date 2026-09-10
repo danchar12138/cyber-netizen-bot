@@ -6,6 +6,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from cnb_domain import (
+    CONFIGURATION_PACKAGE_FORMAT,
+    CONFIGURATION_PACKAGE_SCHEMA_VERSION,
     ConfigDiffKind,
     ConfigScope,
     ConfigValueKind,
@@ -82,6 +84,29 @@ class ConfigVersionListResponse(BaseModel):
     """按最新版本优先排列的配置版本历史。"""
 
     versions: tuple[ConfigVersionResponse, ...]
+
+
+class ConfigPackageSource(BaseModel):
+    """配置包的来源版本元数据，不包含内部资源 ID 或操作者信息。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1)
+    status: ConfigVersionStatus
+    note: str | None = Field(default=None, max_length=1000)
+    created_at: datetime
+    published_at: datetime | None
+
+
+class ConfigPackageDocument(BaseModel):
+    """可移植的非密钥运行配置包；导入始终创建新草稿。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    format: str = Field(default=CONFIGURATION_PACKAGE_FORMAT, max_length=64)
+    schema_version: str = Field(default=CONFIGURATION_PACKAGE_SCHEMA_VERSION, max_length=16)
+    source: ConfigPackageSource
+    values: tuple[ConfigValueInput, ...] = Field(max_length=10_000)
 
 
 class ConfigDifferenceResponse(BaseModel):

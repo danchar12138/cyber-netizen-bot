@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CircleDashed,
+  Download,
   Eye,
+  FileUp,
   History,
   KeyRound,
   RotateCcw,
@@ -11,7 +13,7 @@ import {
   Trash2,
   UploadCloud,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   type ConfigDefinition,
@@ -20,6 +22,7 @@ import {
   type ConfigVersion,
   clearSecret,
   createConfigDraft,
+  exportConfigPackage,
   formatConfigValue,
   formatConfigVersionStatus,
   getAdminSession,
@@ -29,6 +32,7 @@ import {
   getDevelopmentIdentity,
   getEffectiveConfiguration,
   getSecrets,
+  importConfigPackage,
   publishConfigVersion,
   rollbackConfigVersion,
   rotateSecret,
@@ -163,6 +167,8 @@ export function ConfigurationPage() {
   const [values, setValues] = useState<Record<string, ConfigValue>>({})
   const [currentDraft, setCurrentDraft] = useState<ConfigVersion | null>(null)
   const [secretValues, setSecretValues] = useState<Record<string, string>>({})
+  const [transferMessage, setTransferMessage] = useState<string | null>(null)
+  const importInput = useRef<HTMLInputElement>(null)
   const registry = useQuery({ queryKey: ['config-registry'], queryFn: getConfigRegistry })
   const history = useQuery({ queryKey: ['config-versions'], queryFn: getConfigVersions })
   const identity = useQuery({ queryKey: ['development-identity'], queryFn: getDevelopmentIdentity })
@@ -241,6 +247,40 @@ export function ConfigurationPage() {
     onSuccess: refreshHistory,
   })
 
+  const exportPackage = useMutation({
+    mutationFn: exportConfigPackage,
+    onSuccess: (packageDocument) => {
+      const blob = new Blob([JSON.stringify(packageDocument, null, 2)], {
+        type: 'application/json;charset=utf-8',
+      })
+      const downloadUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = downloadUrl
+      link.download = `cnb-configuration-v${packageDocument.source.version}.json`
+      link.click()
+      URL.revokeObjectURL(downloadUrl)
+      setTransferMessage(`配置 v${packageDocument.source.version} 已安全导出，文件不包含密钥。`)
+    },
+  })
+
+  const importPackage = useMutation({
+    mutationFn: async (file: File) => {
+      if (file.size > 2 * 1024 * 1024) throw new Error('配置包不能超过 2 MiB')
+      let packageDocument: unknown
+      try {
+        packageDocument = JSON.parse(await file.text())
+      } catch {
+        throw new Error('配置包不是有效的 JSON 文件')
+      }
+      return importConfigPackage(packageDocument as Parameters<typeof importConfigPackage>[0])
+    },
+    onSuccess: async (draft) => {
+      setCurrentDraft(draft)
+      setTransferMessage(`配置包已导入为草稿 v${draft.version}，请检查差异后再发布。`)
+      await refreshHistory()
+    },
+  })
+
   const writeSecret = useMutation({
     mutationFn: async (definition: ConfigDefinition) => {
       if (scope !== 'system' && !scopeId) throw new Error(`${scopeLabels[scope]}作用域需要有效 UUID`)
@@ -283,7 +323,8 @@ export function ConfigurationPage() {
     (effective.data?.values ?? []).map((item) => [item.key, item]),
   )
   const operationError = createDraft.error ?? publishDraft.error ?? rollbackVersion.error
-    ?? writeSecret.error ?? verifySecret.error ?? removeSecret.error
+    ?? exportPackage.error ?? importPackage.error ?? writeSecret.error ?? verifySecret.error
+    ?? removeSecret.error
 
   return (
     <div className="page">
@@ -295,6 +336,20 @@ export function ConfigurationPage() {
         </div>
         {tab === 'runtime' && (
           <div className="heading-actions">
+            <input
+              ref={importInput}
+              type="file"
+              accept="application/json,.json"
+              hidden
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0]
+                event.currentTarget.value = ''
+                if (file) importPackage.mutate(file)
+              }}
+            />
+            <button className="secondary-button" disabled={!canWrite || importPackage.isPending} onClick={() => importInput.current?.click()}>
+              <FileUp size={15} /> 导入配置包
+            </button>
             <button className="secondary-button" disabled={!canWrite || createDraft.isPending} onClick={() => createDraft.mutate()}>
               <Save size={15} /> 保存新草稿
             </button>
@@ -322,6 +377,7 @@ export function ConfigurationPage() {
         </div>
       )}
       {operationError && <div className="notice error">{operationError.message}</div>}
+      {transferMessage && <div className="notice info">{transferMessage}</div>}
 
       <section className="config-context panel">
         <div className="config-tabs" role="tablist" aria-label="配置类型">
@@ -347,6 +403,9 @@ export function ConfigurationPage() {
             <div className="version-row" key={version.id}>
               <div><strong>v{version.version}</strong><span className={`version-status ${version.status}`}>{formatConfigVersionStatus(version.status)}</span></div>
               <small>{version.note || '无版本说明'}</small>
+              <button type="button" onClick={() => exportPackage.mutate(version.id)} disabled={exportPackage.isPending}>
+                <Download size={12} /> 安全导出
+              </button>
               {version.status !== 'draft' && (
                 <button type="button" onClick={() => rollbackVersion.mutate(version.id)} disabled={!canWrite || rollbackVersion.isPending}>
                   <RotateCcw size={12} /> 回滚到此版本

@@ -4,11 +4,13 @@ const tenantId = '44444444-4444-4444-8444-444444444444'
 const userId = '22222222-2222-4222-8222-222222222222'
 const agentId = '33333333-3333-4333-8333-333333333333'
 const versionId = '11111111-1111-4111-8111-111111111111'
+const importedVersionId = '66666666-6666-4666-8666-666666666666'
 const secretId = '55555555-5555-4555-8555-555555555555'
 const timestamp = '2026-09-09T08:00:00Z'
 
 test('可以预览并发布配置差异以及安全写入密钥', async ({ page }) => {
   let versionStatus: 'draft' | 'published' | null = null
+  let imported = false
   let secretConfigured = false
   await page.route('**/api/v1/administration/session', async (route) => {
     await route.fulfill({
@@ -74,7 +76,22 @@ test('可以预览并发布配置差异以及安全写入密钥', async ({ page 
     await route.fulfill({
       json: {
         versions: versionStatus
-          ? [{
+          ? [
+            ...(imported ? [{
+              id: importedVersionId,
+              version: 2,
+              status: 'draft',
+              note: '从配置包 v1 导入：切换正式模型',
+              created_at: timestamp,
+              published_at: null,
+              values: [{
+                key: 'model.chat.provider',
+                scope_type: 'system',
+                scope_id: null,
+                value: 'openai',
+              }],
+            }] : []),
+            {
               id: versionId,
               version: 1,
               status: versionStatus,
@@ -87,7 +104,8 @@ test('可以预览并发布配置差异以及安全写入密钥', async ({ page 
                 scope_id: null,
                 value: 'openai',
               }],
-            }]
+            },
+          ]
           : [],
       },
     })
@@ -163,6 +181,35 @@ test('可以预览并发布配置差异以及安全写入密钥', async ({ page 
       },
     })
   })
+  await page.route(`**/api/v1/configuration/versions/${versionId}/export`, async (route) => {
+    await route.fulfill({ json: configurationPackage() })
+  })
+  await page.route('**/api/v1/configuration/imports', async (route) => {
+    const body = route.request().postDataJSON() as ReturnType<typeof configurationPackage>
+    expect(body).toEqual(configurationPackage())
+    expect(JSON.stringify(body)).not.toContain('plaintext')
+    imported = true
+    await route.fulfill({
+      status: 201,
+      json: {
+        id: importedVersionId,
+        version: 2,
+        status: 'draft',
+        note: '从配置包 v1 导入：切换正式模型',
+        created_at: timestamp,
+        published_at: null,
+        values: body.values,
+      },
+    })
+  })
+  await page.route(
+    `**/api/v1/configuration/versions/${importedVersionId}/diff`,
+    async (route) => {
+      await route.fulfill({
+        json: { base_version: 1, target_version: 2, changes: [] },
+      })
+    },
+  )
   await page.route('**/api/v1/configuration/secrets', async (route) => {
     if (route.request().method() === 'POST') {
       const body = route.request().postDataJSON() as { plaintext: string }
@@ -183,12 +230,42 @@ test('可以预览并发布配置差异以及安全写入密钥', async ({ page 
   await page.getByRole('button', { name: '校验并发布' }).click()
   await expect(page.getByText('已发布')).toBeVisible()
 
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: '安全导出' }).click()
+  expect((await download).suggestedFilename()).toBe('cnb-configuration-v1.json')
+  await page.locator('input[type="file"][accept="application/json,.json"]').setInputFiles({
+    name: '中文配置基线.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(configurationPackage())),
+  })
+  await expect(page.getByText('配置包已导入为草稿 v2，请检查差异后再发布。')).toBeVisible()
+
   await page.getByRole('button', { name: '密钥管理' }).click()
   await page.getByPlaceholder('输入密钥').fill('仅供浏览器测试的虚假凭证')
   await page.getByRole('button', { name: '写入' }).click()
   await expect(page.getByText(/••••虚假凭证/)).toBeVisible()
   await expect(page.getByPlaceholder('输入新值以轮换')).toHaveValue('')
 })
+
+function configurationPackage() {
+  return {
+    format: 'cnb-runtime-configuration',
+    schema_version: '1',
+    source: {
+      version: 1,
+      status: 'published',
+      note: '切换正式模型',
+      created_at: timestamp,
+      published_at: timestamp,
+    },
+    values: [{
+      key: 'model.chat.provider',
+      scope_type: 'system',
+      scope_id: null,
+      value: 'openai',
+    }],
+  }
+}
 
 function secretMetadata() {
   return {

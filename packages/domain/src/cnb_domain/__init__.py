@@ -35,6 +35,8 @@ from cnb_domain.cognition import (
     RunStepRecord,
 )
 from cnb_domain.configuration import (
+    CONFIGURATION_PACKAGE_FORMAT,
+    CONFIGURATION_PACKAGE_SCHEMA_VERSION,
     ConfigDefinition,
     ConfigDifference,
     ConfigDiffKind,
@@ -134,6 +136,8 @@ from cnb_domain.tasks import (
 )
 
 __all__ = [
+    "CONFIGURATION_PACKAGE_FORMAT",
+    "CONFIGURATION_PACKAGE_SCHEMA_VERSION",
     "ActionCandidateRecord",
     "ActiveAlert",
     "AdminPermission",

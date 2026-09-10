@@ -27,7 +27,10 @@ from cnb_contracts import (
     ConfigDifferenceResponse,
     ConfigDiffResponse,
     ConfigDraftCreate,
+    ConfigPackageDocument,
+    ConfigPackageSource,
     ConfigRegistryResponse,
+    ConfigValueInput,
     ConfigValueResponse,
     ConfigVersionListResponse,
     ConfigVersionResponse,
@@ -100,6 +103,41 @@ async def get_version(
         return _version_response(await service.get_version(version_id))
     except ConfigurationNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+
+
+@router.get("/versions/{version_id}/export", response_model=ConfigPackageDocument)
+async def export_version(
+    version_id: UUID,
+    response: Response,
+    service: Annotated[ConfigurationService, Depends(get_configuration_service)],
+) -> ConfigPackageDocument:
+    """导出可移植的非密钥配置包，文件中不包含内部资源 ID。"""
+    try:
+        version = await service.get_version(version_id)
+    except ConfigurationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    response.headers["Content-Disposition"] = (
+        f'attachment; filename="cnb-configuration-v{version.version}.json"'
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return ConfigPackageDocument(
+        source=ConfigPackageSource(
+            version=version.version,
+            status=version.status,
+            note=version.note,
+            created_at=version.created_at,
+            published_at=version.published_at,
+        ),
+        values=tuple(
+            ConfigValueInput(
+                key=item.key,
+                scope_type=item.scope_type,
+                scope_id=item.scope_id,
+                value=item.value,
+            )
+            for item in version.values
+        ),
+    )
 
 
 @router.get("/versions/{version_id}/diff", response_model=ConfigDiffResponse)
@@ -198,6 +236,45 @@ async def create_draft(
         ) from error
     except ConfigurationConflictError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+
+@router.post(
+    "/imports",
+    response_model=ConfigVersionResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(AdminPermission.CONFIGURATION_WRITE))],
+)
+async def import_configuration_package(
+    command: ConfigPackageDocument,
+    service: Annotated[ConfigurationService, Depends(get_configuration_service)],
+    actor_id: Annotated[UUID, Depends(get_current_actor_id)],
+) -> ConfigVersionResponse:
+    """将配置包校验为新草稿；导入不会直接发布或覆盖当前配置。"""
+    entries = tuple(
+        ConfigEntry(
+            key=item.key,
+            scope_type=item.scope_type,
+            scope_id=item.scope_id,
+            value=item.value,
+        )
+        for item in command.values
+    )
+    try:
+        imported = await service.import_draft(
+            package_format=command.format,
+            schema_version=command.schema_version,
+            source_version=command.source.version,
+            source_note=command.source.note,
+            values=entries,
+            actor_id=actor_id,
+        )
+    except ConfigurationValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    except ConfigurationConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return _version_response(imported)
 
 
 @router.post(

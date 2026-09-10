@@ -372,6 +372,19 @@ export interface ConfigVersion {
   values: ConfigVersionValue[]
 }
 
+export interface ConfigPackageDocument {
+  format: string
+  schema_version: string
+  source: {
+    version: number
+    status: ConfigVersionStatus
+    note: string | null
+    created_at: string
+    published_at: string | null
+  }
+  values: ConfigVersionValue[]
+}
+
 export type ConversationStatus = 'active' | 'archived'
 export type MessageStatus =
   | 'received'
@@ -1532,6 +1545,12 @@ export const getConfigVersions = () =>
 
 export const createConfigDraft = (command: ConfigDraftCommand) =>
   postJson<ConfigVersion>('/api/v1/configuration/drafts', command)
+
+export const exportConfigPackage = (versionId: string) =>
+  getJson<ConfigPackageDocument>(`/api/v1/configuration/versions/${versionId}/export`)
+
+export const importConfigPackage = (document: ConfigPackageDocument) =>
+  postJson<ConfigVersion>('/api/v1/configuration/imports', document)
 
 export const publishConfigVersion = (versionId: string) =>
   postJson<ConfigVersion>(`/api/v1/configuration/versions/${versionId}/publish`)

@@ -44,6 +44,51 @@ async def test_unknown_keys_are_rejected(service: ConfigurationService) -> None:
         )
 
 
+async def test_configuration_package_import_creates_a_validated_draft(
+    service: ConfigurationService,
+) -> None:
+    imported = await service.import_draft(
+        package_format="cnb-runtime-configuration",
+        schema_version="1",
+        source_version=7,
+        source_note="生产基线",
+        values=(
+            ConfigEntry(
+                key="memory.recall.limit",
+                scope_type=ConfigScope.SYSTEM,
+                value=16,
+            ),
+        ),
+    )
+
+    assert imported.status is ConfigVersionStatus.DRAFT
+    assert imported.note == "从配置包 v7 导入：生产基线"
+    assert imported.values[0].value == 16
+
+
+@pytest.mark.parametrize(
+    ("package_format", "schema_version", "message"),
+    [
+        ("unknown-format", "1", "不支持的配置包格式"),
+        ("cnb-runtime-configuration", "99", "不支持的配置包 Schema 版本"),
+    ],
+)
+async def test_configuration_package_import_rejects_incompatible_documents(
+    service: ConfigurationService,
+    package_format: str,
+    schema_version: str,
+    message: str,
+) -> None:
+    with pytest.raises(ConfigurationValidationError, match=message):
+        await service.import_draft(
+            package_format=package_format,
+            schema_version=schema_version,
+            source_version=1,
+            source_note=None,
+            values=(),
+        )
+
+
 @pytest.mark.parametrize(
     ("values", "message"),
     [

@@ -8,6 +8,9 @@ from uuid import UUID
 type JsonPrimitive = str | int | float | bool | None
 type JsonValue = JsonPrimitive | list[JsonValue] | dict[str, JsonValue]
 
+CONFIGURATION_PACKAGE_FORMAT = "cnb-runtime-configuration"
+CONFIGURATION_PACKAGE_SCHEMA_VERSION = "1"
+
 
 class ConfigScope(StrEnum):
     """支持的配置覆盖作用域，按从宽泛到具体排列。"""

@@ -21,6 +21,7 @@ from cnb_contracts import (
     CognitionResourceResponse,
     CognitiveRunTraceResponse,
     ComponentHealth,
+    ConfigPackageDocument,
     ConfigRegistryResponse,
     ConfigVersionListResponse,
     ConfigVersionResponse,
@@ -665,6 +666,89 @@ async def test_configuration_draft_publish_and_rollback_flow() -> None:
     versions = ConfigVersionListResponse.model_validate(versions_response.json())
     assert [item.version for item in versions.versions] == [2, 1]
     assert versions.versions[1].status == "superseded"
+
+
+async def test_configuration_package_export_and_safe_draft_import() -> None:
+    repository = MemoryConfigurationRepository()
+    async with AsyncClient(transport=_transport(repository), base_url="http://test") as client:
+        draft_response = await client.post(
+            "/api/v1/configuration/drafts",
+            json={
+                "note": "可移植基线",
+                "values": [
+                    {
+                        "key": "cognition.context.max_tokens",
+                        "scope_type": "system",
+                        "value": 24000,
+                    }
+                ],
+            },
+        )
+        draft = ConfigVersionResponse.model_validate(draft_response.json())
+        await client.post(
+            "/api/v1/configuration/secrets",
+            json={
+                "key": "model.openai.api_key",
+                "scope_type": "system",
+                "plaintext": "绝不能进入配置包的虚假密钥",
+            },
+        )
+
+        export_response = await client.get(f"/api/v1/configuration/versions/{draft.id}/export")
+        package = ConfigPackageDocument.model_validate(export_response.json())
+        import_response = await client.post(
+            "/api/v1/configuration/imports",
+            json=package.model_dump(mode="json"),
+        )
+        incompatible_payload = package.model_dump(mode="json")
+        incompatible_payload["schema_version"] = "99"
+        incompatible_response = await client.post(
+            "/api/v1/configuration/imports",
+            json=incompatible_payload,
+        )
+        secret_value = "不允许混入普通配置包的材料"
+        secret_payload = package.model_dump(mode="json")
+        secret_payload["values"] = [
+            {
+                "key": "model.openai.api_key",
+                "scope_type": "system",
+                "scope_id": None,
+                "value": secret_value,
+            }
+        ]
+        secret_import_response = await client.post(
+            "/api/v1/configuration/imports",
+            json=secret_payload,
+        )
+
+    imported = ConfigVersionResponse.model_validate(import_response.json())
+    assert export_response.status_code == 200
+    assert export_response.headers["cache-control"] == "no-store"
+    assert export_response.headers["content-disposition"] == (
+        'attachment; filename="cnb-configuration-v1.json"'
+    )
+    assert package.format == "cnb-runtime-configuration"
+    assert package.schema_version == "1"
+    assert package.source.version == draft.version
+    assert package.values[0].value == 24000
+    assert "绝不能进入配置包的虚假密钥" not in export_response.text
+    assert "plaintext" not in export_response.text
+    assert import_response.status_code == 201
+    assert imported.status == "draft"
+    assert imported.version == 2
+    assert imported.note == "从配置包 v1 导入：可移植基线"
+    assert imported.values == draft.values
+    assert incompatible_response.status_code == 422
+    assert (
+        "不支持的配置包 Schema 版本"
+        in ApiErrorResponse.model_validate(incompatible_response.json()).error.message
+    )
+    assert secret_import_response.status_code == 422
+    assert (
+        "密钥配置必须通过密钥存储处理"
+        in ApiErrorResponse.model_validate(secret_import_response.json()).error.message
+    )
+    assert secret_value not in secret_import_response.text
 
 
 async def test_configuration_diff_effective_sources_and_secret_lifecycle() -> None:
