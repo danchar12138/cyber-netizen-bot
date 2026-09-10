@@ -3484,6 +3484,13 @@ export type HealthResponse = {
 };
 
 /**
+ * IdentityGovernanceSource
+ *
+ * 后台可解释的身份或角色来源。
+ */
+export type IdentityGovernanceSource = 'oidc' | 'development';
+
+/**
  * InboundAcceptanceResponse
  */
 export type InboundAcceptanceResponse = {
@@ -3868,6 +3875,38 @@ export type LifecycleRunResponse = {
 export type LifecycleRunStatus = 'running' | 'succeeded' | 'failed';
 
 /**
+ * ManagedAdminSessionResponse
+ *
+ * 不包含访问令牌及其不可逆摘要的管理会话。
+ */
+export type ManagedAdminSessionResponse = {
+    /**
+     * Expires At
+     */
+    expires_at: string;
+    /**
+     * External Identity Id
+     */
+    external_identity_id: string;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Issued At
+     */
+    issued_at: string;
+    /**
+     * Last Seen At
+     */
+    last_seen_at: string;
+    /**
+     * Revoked At
+     */
+    revoked_at: string | null;
+};
+
+/**
  * ManagedAgentCopyCommand
  *
  * 从已有 Agent 复制已发布认知资源的命令。
@@ -3954,6 +3993,129 @@ export type ManagedAgentResponse = {
      * Tenant Id
      */
     tenant_id: string;
+};
+
+/**
+ * ManagedConversationMembershipResponse
+ *
+ * 用户参与会话的治理摘要，不返回任何消息正文。
+ */
+export type ManagedConversationMembershipResponse = {
+    /**
+     * Agent Id
+     */
+    agent_id: string;
+    /**
+     * Conversation Id
+     */
+    conversation_id: string;
+    /**
+     * Deleted At
+     */
+    deleted_at: string | null;
+    /**
+     * Joined At
+     */
+    joined_at: string;
+    /**
+     * Role
+     */
+    role: string;
+    status: ConversationStatus;
+    /**
+     * Title
+     */
+    title: string;
+};
+
+/**
+ * ManagedExternalIdentityResponse
+ *
+ * 不包含令牌或原始 claim 的 OIDC 身份绑定。
+ */
+export type ManagedExternalIdentityResponse = {
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Issuer
+     */
+    issuer: string;
+    /**
+     * Last Authenticated At
+     */
+    last_authenticated_at: string;
+    /**
+     * Subject
+     */
+    subject: string;
+};
+
+/**
+ * ManagedRoleAssignmentResponse
+ *
+ * 用户当前管理角色及可信来源。
+ */
+export type ManagedRoleAssignmentResponse = {
+    /**
+     * Created At
+     */
+    created_at: string;
+    role: AdminRole;
+    source: IdentityGovernanceSource;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * ManagedTenantResponse
+ *
+ * 用户所属租户的安全摘要。
+ */
+export type ManagedTenantResponse = {
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    status: EntityStatus;
+};
+
+/**
+ * ManagedUserDetailResponse
+ *
+ * 用户身份、授权、管理会话和会话成员的统一视图。
+ */
+export type ManagedUserDetailResponse = {
+    /**
+     * Admin Sessions
+     */
+    admin_sessions: Array<ManagedAdminSessionResponse>;
+    /**
+     * Conversation Memberships
+     */
+    conversation_memberships: Array<ManagedConversationMembershipResponse>;
+    /**
+     * External Identities
+     */
+    external_identities: Array<ManagedExternalIdentityResponse>;
+    role_assignment: ManagedRoleAssignmentResponse | null;
+    tenant: ManagedTenantResponse;
+    user: ManagedUserResponse;
 };
 
 /**
@@ -5695,6 +5857,18 @@ export type UserDataForgetCommand = {
 };
 
 /**
+ * UserSessionRevokeCommand
+ *
+ * 撤销管理会话所需的逐字确认短语。
+ */
+export type UserSessionRevokeCommand = {
+    /**
+     * Confirmation
+     */
+    confirmation: string;
+};
+
+/**
  * WorkerHeartbeatResponse
  *
  * 仍在新鲜时间窗内的 Worker。
@@ -6595,6 +6769,134 @@ export type PostApiV1AdministrationUsersStatusResponses = {
 };
 
 export type PostApiV1AdministrationUsersStatusResponse = PostApiV1AdministrationUsersStatusResponses[keyof PostApiV1AdministrationUsersStatusResponses];
+
+export type GetApiV1AdministrationUsersByUserIdData = {
+    body?: never;
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/api/v1/administration/users/{user_id}';
+};
+
+export type GetApiV1AdministrationUsersByUserIdErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1AdministrationUsersByUserIdError = GetApiV1AdministrationUsersByUserIdErrors[keyof GetApiV1AdministrationUsersByUserIdErrors];
+
+export type GetApiV1AdministrationUsersByUserIdResponses = {
+    /**
+     * Successful Response
+     */
+    200: ManagedUserDetailResponse;
+};
+
+export type GetApiV1AdministrationUsersByUserIdResponse = GetApiV1AdministrationUsersByUserIdResponses[keyof GetApiV1AdministrationUsersByUserIdResponses];
+
+export type PostApiV1AdministrationUsersByUserIdSessionsBySessionIdRevokeData = {
+    body: UserSessionRevokeCommand;
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/api/v1/administration/users/{user_id}/sessions/{session_id}/revoke';
+};
+
+export type PostApiV1AdministrationUsersByUserIdSessionsBySessionIdRevokeErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1AdministrationUsersByUserIdSessionsBySessionIdRevokeError = PostApiV1AdministrationUsersByUserIdSessionsBySessionIdRevokeErrors[keyof PostApiV1AdministrationUsersByUserIdSessionsBySessionIdRevokeErrors];
+
+export type PostApiV1AdministrationUsersByUserIdSessionsBySessionIdRevokeResponses = {
+    /**
+     * Successful Response
+     */
+    200: ManagedAdminSessionResponse;
+};
+
+export type PostApiV1AdministrationUsersByUserIdSessionsBySessionIdRevokeResponse = PostApiV1AdministrationUsersByUserIdSessionsBySessionIdRevokeResponses[keyof PostApiV1AdministrationUsersByUserIdSessionsBySessionIdRevokeResponses];
 
 export type GetApiV1AuthConfigData = {
     body?: never;

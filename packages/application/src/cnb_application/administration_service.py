@@ -17,13 +17,16 @@ from cnb_application.pagination import (
 from cnb_domain import (
     AGENT_ARCHIVE_CONFIRMATION_PREFIX,
     AGENT_DELETE_CONFIRMATION_PREFIX,
+    USER_SESSION_REVOKE_CONFIRMATION_PREFIX,
     AgentImpactCounts,
     AgentLifecycleImpact,
     AgentLifecycleStatus,
     AuditRecord,
     EntityStatus,
+    ManagedAdminSession,
     ManagedAgent,
     ManagedUser,
+    ManagedUserDetail,
     ManagementOverview,
 )
 
@@ -144,6 +147,23 @@ class AdministrationRepository(Protocol):
         limit: int,
         cursor: EntityCursor | None,
     ) -> tuple[ManagedUser, ...]: ...
+
+    async def get_user_detail(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+    ) -> ManagedUserDetail | None: ...
+
+    async def revoke_admin_session(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+        session_id: UUID,
+        actor_id: UUID,
+        revoked_at: datetime,
+    ) -> ManagedAdminSession: ...
 
     async def update_user_status(
         self,
@@ -379,6 +399,42 @@ class AdministrationService:
             user_ids=user_ids,
             status=status,
             actor_id=actor_id,
+        )
+
+    async def get_user_detail(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+    ) -> ManagedUserDetail:
+        """返回当前租户内不含凭证与令牌摘要的用户身份治理详情。"""
+        detail = await self._repository.get_user_detail(
+            tenant_id=tenant_id,
+            user_id=user_id,
+        )
+        if detail is None:
+            raise AdministrationNotFoundError("用户不存在")
+        return detail
+
+    async def revoke_admin_session(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+        session_id: UUID,
+        actor_id: UUID,
+        confirmation: str,
+    ) -> ManagedAdminSession:
+        """逐字确认后撤销用户的指定管理会话。"""
+        expected = f"{USER_SESSION_REVOKE_CONFIRMATION_PREFIX}{session_id}"
+        if confirmation != expected:
+            raise AdministrationValidationError(f"撤销操作必须准确输入：{expected}")
+        return await self._repository.revoke_admin_session(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            session_id=session_id,
+            actor_id=actor_id,
+            revoked_at=datetime.now(UTC),
         )
 
     async def list_audit_records(

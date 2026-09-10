@@ -6,10 +6,11 @@ from enum import StrEnum
 from uuid import UUID
 
 from cnb_domain.configuration import JsonValue
-from cnb_domain.conversation import EntityStatus
+from cnb_domain.conversation import ConversationStatus, EntityStatus
 
 AGENT_ARCHIVE_CONFIRMATION_PREFIX = "确认归档 Agent "
 AGENT_DELETE_CONFIRMATION_PREFIX = "确认删除 Agent "
+USER_SESSION_REVOKE_CONFIRMATION_PREFIX = "确认撤销管理会话 "
 
 
 class AgentLifecycleStatus(StrEnum):
@@ -27,6 +28,13 @@ class AdminRole(StrEnum):
     ADMIN = "admin"
     OPERATOR = "operator"
     VIEWER = "viewer"
+
+
+class IdentityGovernanceSource(StrEnum):
+    """后台可解释的身份或角色来源。"""
+
+    OIDC = "oidc"
+    DEVELOPMENT = "development"
 
 
 class AdminPermission(StrEnum):
@@ -151,6 +159,74 @@ class ManagedUser:
     display_name: str
     status: EntityStatus
     created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedTenant:
+    """用户详情中可安全展示的当前租户摘要。"""
+
+    id: UUID
+    name: str
+    status: EntityStatus
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedRoleAssignment:
+    """管理角色及其可信来源，不包含原始 OIDC claim。"""
+
+    role: AdminRole
+    source: IdentityGovernanceSource
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedExternalIdentity:
+    """经验证后绑定到本地用户的 OIDC 主体。"""
+
+    id: UUID
+    issuer: str
+    subject: str
+    created_at: datetime
+    last_authenticated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedAdminSession:
+    """不包含访问令牌及其摘要的管理会话投影。"""
+
+    id: UUID
+    external_identity_id: UUID
+    issued_at: datetime
+    expires_at: datetime
+    last_seen_at: datetime
+    revoked_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedConversationMembership:
+    """用户参与会话的最小治理投影，不包含消息正文。"""
+
+    conversation_id: UUID
+    agent_id: UUID
+    title: str
+    role: str
+    status: ConversationStatus
+    joined_at: datetime
+    deleted_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedUserDetail:
+    """按租户聚合且不含正文、凭证和令牌信息的用户身份详情。"""
+
+    user: ManagedUser
+    tenant: ManagedTenant
+    role_assignment: ManagedRoleAssignment | None
+    external_identities: tuple[ManagedExternalIdentity, ...]
+    admin_sessions: tuple[ManagedAdminSession, ...]
+    conversation_memberships: tuple[ManagedConversationMembership, ...]
 
 
 @dataclass(frozen=True, slots=True)

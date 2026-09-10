@@ -5675,6 +5675,15 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "IdentityGovernanceSource": {
+        "description": "后台可解释的身份或角色来源。",
+        "enum": [
+          "oidc",
+          "development"
+        ],
+        "title": "IdentityGovernanceSource",
+        "type": "string"
+      },
       "InboundAcceptanceResponse": {
         "properties": {
           "created": {
@@ -6381,6 +6390,58 @@
         "title": "LifecycleRunStatus",
         "type": "string"
       },
+      "ManagedAdminSessionResponse": {
+        "description": "不包含访问令牌及其不可逆摘要的管理会话。",
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "external_identity_id": {
+            "format": "uuid",
+            "title": "External Identity Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "issued_at": {
+            "format": "date-time",
+            "title": "Issued At",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          }
+        },
+        "required": [
+          "id",
+          "external_identity_id",
+          "issued_at",
+          "expires_at",
+          "last_seen_at",
+          "revoked_at"
+        ],
+        "title": "ManagedAdminSessionResponse",
+        "type": "object"
+      },
       "ManagedAgentCopyCommand": {
         "description": "从已有 Agent 复制已发布认知资源的命令。",
         "properties": {
@@ -6531,6 +6592,208 @@
           "purge_after"
         ],
         "title": "ManagedAgentResponse",
+        "type": "object"
+      },
+      "ManagedConversationMembershipResponse": {
+        "description": "用户参与会话的治理摘要，不返回任何消息正文。",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "conversation_id": {
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "joined_at": {
+            "format": "date-time",
+            "title": "Joined At",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ConversationStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "agent_id",
+          "title",
+          "role",
+          "status",
+          "joined_at",
+          "deleted_at"
+        ],
+        "title": "ManagedConversationMembershipResponse",
+        "type": "object"
+      },
+      "ManagedExternalIdentityResponse": {
+        "description": "不包含令牌或原始 claim 的 OIDC 身份绑定。",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "issuer": {
+            "title": "Issuer",
+            "type": "string"
+          },
+          "last_authenticated_at": {
+            "format": "date-time",
+            "title": "Last Authenticated At",
+            "type": "string"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "issuer",
+          "subject",
+          "created_at",
+          "last_authenticated_at"
+        ],
+        "title": "ManagedExternalIdentityResponse",
+        "type": "object"
+      },
+      "ManagedRoleAssignmentResponse": {
+        "description": "用户当前管理角色及可信来源。",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/AdminRole"
+          },
+          "source": {
+            "$ref": "#/components/schemas/IdentityGovernanceSource"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "source",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ManagedRoleAssignmentResponse",
+        "type": "object"
+      },
+      "ManagedTenantResponse": {
+        "description": "用户所属租户的安全摘要。",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/EntityStatus"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "created_at"
+        ],
+        "title": "ManagedTenantResponse",
+        "type": "object"
+      },
+      "ManagedUserDetailResponse": {
+        "description": "用户身份、授权、管理会话和会话成员的统一视图。",
+        "properties": {
+          "admin_sessions": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedAdminSessionResponse"
+            },
+            "title": "Admin Sessions",
+            "type": "array"
+          },
+          "conversation_memberships": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedConversationMembershipResponse"
+            },
+            "title": "Conversation Memberships",
+            "type": "array"
+          },
+          "external_identities": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedExternalIdentityResponse"
+            },
+            "title": "External Identities",
+            "type": "array"
+          },
+          "role_assignment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManagedRoleAssignmentResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tenant": {
+            "$ref": "#/components/schemas/ManagedTenantResponse"
+          },
+          "user": {
+            "$ref": "#/components/schemas/ManagedUserResponse"
+          }
+        },
+        "required": [
+          "user",
+          "tenant",
+          "role_assignment",
+          "external_identities",
+          "admin_sessions",
+          "conversation_memberships"
+        ],
+        "title": "ManagedUserDetailResponse",
         "type": "object"
       },
       "ManagedUserListResponse": {
@@ -9514,6 +9777,22 @@
         "title": "UserDataForgetCommand",
         "type": "object"
       },
+      "UserSessionRevokeCommand": {
+        "description": "撤销管理会话所需的逐字确认短语。",
+        "properties": {
+          "confirmation": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Confirmation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirmation"
+        ],
+        "title": "UserSessionRevokeCommand",
+        "type": "object"
+      },
       "WorkerHeartbeatResponse": {
         "description": "仍在新鲜时间窗内的 Worker。",
         "properties": {
@@ -11339,6 +11618,274 @@
           }
         },
         "summary": "Update User Status",
+        "tags": [
+          "administration"
+        ]
+      }
+    },
+    "/api/v1/administration/users/{user_id}": {
+      "get": {
+        "description": "返回当前租户内不含凭证与令牌摘要的用户身份治理详情。",
+        "operationId": "get_api_v1_administration_users_by_user_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedUserDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "Get User Detail",
+        "tags": [
+          "administration"
+        ]
+      }
+    },
+    "/api/v1/administration/users/{user_id}/sessions/{session_id}/revoke": {
+      "post": {
+        "description": "逐字确认并审计地撤销当前租户内的指定管理会话。",
+        "operationId": "post_api_v1_administration_users_by_user_id_sessions_by_session_id_revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserSessionRevokeCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedAdminSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "Revoke User Admin Session",
         "tags": [
           "administration"
         ]

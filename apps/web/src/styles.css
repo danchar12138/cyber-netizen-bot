@@ -107,6 +107,27 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .agent-confirmation-box { display: grid; grid-template-columns: minmax(160px, .55fr) minmax(260px, 1.45fr); gap: 9px 12px; align-items: center; padding: 13px; border: 1px solid #623a2e; background: #241511; border-radius: 8px; }
 .agent-confirmation-box code { color: #e0aa97; font-size: 9px; overflow-wrap: anywhere; }
 .agent-confirmation-box input, .agent-confirmation-box .heading-actions { grid-column: 2; }
+.user-identity-panel { display: grid; gap: 18px; margin-bottom: 16px; }
+.user-identity-panel .panel-heading { margin-bottom: 0; }
+.user-identity-panel h2 { margin: 3px 0 0; color: #dcebe5; font-size: 20px; }
+.identity-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+.identity-summary-grid article { min-width: 0; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 5px 8px; padding: 12px; border: 1px solid #1d3b31; background: #091713; border-radius: 8px; }
+.identity-summary-grid svg { grid-row: span 2; color: #61d493; }
+.identity-summary-grid span, .identity-summary-grid small { color: #66877b; font-size: 8px; }
+.identity-summary-grid strong { color: #bdd4ca; font-size: 12px; }
+.identity-summary-grid code, .identity-row code { color: #78aa97; font-size: 8px; overflow-wrap: anywhere; }
+.identity-summary-grid article > code, .identity-summary-grid article > small { grid-column: 1 / -1; }
+.identity-section { display: grid; gap: 8px; }
+.identity-section h3 { display: flex; align-items: center; gap: 7px; margin: 0; color: #9fc0b4; font-size: 11px; }
+.identity-section > .notice { margin: 0; }
+.empty-inline { margin: 0; padding: 11px; color: #66877b; border: 1px dashed #28473d; border-radius: 7px; font-size: 9px; }
+.identity-row { min-width: 0; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 11px; border: 1px solid #173029; background: #091713; border-radius: 7px; }
+.identity-row > div { min-width: 0; display: grid; gap: 4px; }
+.identity-row span { color: #66877b; font-size: 8px; }
+.identity-row strong { color: #aac7bc; font-size: 9px; overflow-wrap: anywhere; }
+.session-revoke-confirmation { grid-column: 1 / -1; display: grid !important; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid #4d3028; }
+.session-revoke-confirmation label { grid-column: 1 / -1; color: #c89584; font-size: 9px; }
+.session-revoke-confirmation input { min-width: 0; width: 100%; padding: 9px 10px; color: #bdd2ca; border: 1px solid #623a2e; outline: 0; background: #17100e; border-radius: 7px; }
 .notice { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; padding: 12px 14px; border-radius: 9px; font-size: 11px; }
 .notice.warning { color: #d8b979; border: 1px solid #665026; background: #261e0e; }
 .notice.error { color: #e9a08b; border: 1px solid #6b3528; background: #2b1511; }
@@ -631,7 +652,9 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .lifecycle-grid, .lifecycle-drill-form { grid-template-columns: 1fr; }
     .evaluation-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .agent-create-panel { grid-template-columns: 1fr; }
-    .agent-impact-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .agent-impact-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .identity-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .identity-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .evaluation-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lifecycle-manifest, .lifecycle-confirmation, .lifecycle-verifications { grid-column: auto; }
   .config-sections { display: none; }
@@ -669,6 +692,8 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .agent-rename-form, .agent-confirmation-box { grid-template-columns: 1fr; }
   .agent-confirmation-box input, .agent-confirmation-box .heading-actions { grid-column: auto; }
   .agent-impact-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .identity-summary-grid, .identity-row, .session-revoke-confirmation { grid-template-columns: 1fr; }
+  .session-revoke-confirmation label { grid-column: auto; }
   .task-create-form { grid-template-columns: 1fr; }
   .channel-catalog-grid, .channel-lab-grid { grid-template-columns: 1fr; }
   .channel-create-form, .channel-credential-form { grid-template-columns: 1fr; }

@@ -35,6 +35,8 @@ from cnb_contracts import (
     EvaluationRunResponse,
     EvaluationSuiteResponse,
     HealthResponse,
+    ManagedAdminSessionResponse,
+    ManagedUserDetailResponse,
     MessageAcceptedResponse,
     MessageFeedbackResponse,
     MessageListResponse,
@@ -43,9 +45,16 @@ from cnb_contracts import (
     SystemOverviewResponse,
     TaskStatusResponse,
 )
-from cnb_domain import AdminPrincipal, AdminRole, DevelopmentIdentity, JsonValue
+from cnb_domain import (
+    AdminPrincipal,
+    AdminRole,
+    DevelopmentIdentity,
+    JsonValue,
+    ManagedAdminSession,
+)
 from cnb_infrastructure import (
     InMemoryMemoryRepository,
+    MemoryAdministrationRepository,
     MemoryAttachmentRepository,
     MemoryConfigurationRepository,
     MemoryConversationRepository,
@@ -613,6 +622,81 @@ async def test_agent_user_management_bulk_confirmation_and_audit_flow() -> None:
     assert update_response.json()["items"][0]["status"] == "disabled"
     assert audit_response.json()["items"][0]["action"] == "agent.status_updated"
     assert viewer_update.status_code == 403
+
+
+async def test_user_identity_detail_and_admin_session_revoke_are_safe_and_tenant_scoped() -> None:
+    identity = DevelopmentIdentity(
+        tenant_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.tenant"),
+        user_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.user"),
+        agent_id=uuid5(NAMESPACE_DNS, "cyber-netizen.local.agent"),
+        user_name="本地开发者",
+        agent_name="赛博网友",
+    )
+    repository = MemoryAdministrationRepository(identity)
+    now = datetime.now(UTC)
+    session = ManagedAdminSession(
+        id=uuid4(),
+        external_identity_id=uuid4(),
+        issued_at=now - timedelta(minutes=5),
+        expires_at=now + timedelta(hours=1),
+        last_seen_at=now,
+        revoked_at=None,
+    )
+    repository.seed_admin_session(identity.user_id, session)
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+        administration_repository=repository,
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        detail_response = await client.get(f"/api/v1/administration/users/{identity.user_id}")
+        cross_tenant_user = await client.get(f"/api/v1/administration/users/{uuid4()}")
+        invisible_session = await client.post(
+            f"/api/v1/administration/users/{uuid4()}/sessions/{session.id}/revoke",
+            json={"confirmation": f"确认撤销管理会话 {session.id}"},
+        )
+        invalid_confirmation = await client.post(
+            f"/api/v1/administration/users/{identity.user_id}/sessions/{session.id}/revoke",
+            json={"confirmation": "确认撤销"},
+        )
+        viewer_revoke = await client.post(
+            f"/api/v1/administration/users/{identity.user_id}/sessions/{session.id}/revoke",
+            json={"confirmation": f"确认撤销管理会话 {session.id}"},
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        revoked_response = await client.post(
+            f"/api/v1/administration/users/{identity.user_id}/sessions/{session.id}/revoke",
+            json={"confirmation": f"确认撤销管理会话 {session.id}"},
+        )
+        repeated_revoke = await client.post(
+            f"/api/v1/administration/users/{identity.user_id}/sessions/{session.id}/revoke",
+            json={"confirmation": f"确认撤销管理会话 {session.id}"},
+        )
+        audit_response = await client.get(
+            "/api/v1/administration/audit",
+            params={"action": "admin_session.revoked"},
+        )
+
+    detail = ManagedUserDetailResponse.model_validate(detail_response.json())
+    revoked = ManagedAdminSessionResponse.model_validate(revoked_response.json())
+    serialized = f"{detail_response.text}{revoked_response.text}{audit_response.text}".lower()
+    assert detail_response.status_code == 200
+    assert detail.tenant.name == "本地开发环境"
+    assert detail.role_assignment is not None
+    assert detail.role_assignment.source == "development"
+    assert detail.external_identities == ()
+    assert detail.admin_sessions[0].id == session.id
+    assert cross_tenant_user.status_code == 404
+    assert invisible_session.status_code == 404
+    assert invalid_confirmation.status_code == 422
+    assert viewer_revoke.status_code == 403
+    assert revoked.revoked_at is not None
+    assert repeated_revoke.status_code == 409
+    assert audit_response.json()["items"][0]["resource_id"] == str(session.id)
+    assert "token_hash" not in serialized
+    assert "access_token" not in serialized
 
 
 async def test_multi_agent_creation_copy_selection_and_conversation_isolation() -> None:

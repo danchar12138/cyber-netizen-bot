@@ -18,28 +18,42 @@ from cnb_application import (
     EntityCursor,
 )
 from cnb_domain import (
+    AdminRole,
     AgentImpactCounts,
     AgentLifecycleStatus,
     AuditRecord,
+    ConversationStatus,
     DevelopmentIdentity,
     EntityStatus,
+    IdentityGovernanceSource,
     JsonValue,
+    ManagedAdminSession,
     ManagedAgent,
+    ManagedConversationMembership,
+    ManagedExternalIdentity,
+    ManagedRoleAssignment,
+    ManagedTenant,
     ManagedUser,
+    ManagedUserDetail,
     ManagementOverview,
 )
 from cnb_infrastructure.models import (
+    AdminSession,
     Agent,
     AgentRunModel,
     AuditLog,
     ChannelInstanceModel,
     CognitionResourceVersionModel,
+    ConversationMember,
     ConversationModel,
     EvaluationRunModel,
     EvaluationSuiteModel,
+    ExternalIdentity,
     MemoryModel,
     RelationshipModel,
+    RoleAssignment,
     ScheduledActionModel,
+    Tenant,
     User,
 )
 
@@ -84,6 +98,19 @@ class MemoryAdministrationRepository:
                 created_at=now,
             )
         }
+        self._tenant = ManagedTenant(
+            id=identity.tenant_id,
+            name="本地开发环境",
+            status=EntityStatus.ACTIVE,
+            created_at=now,
+        )
+        self._development_role = ManagedRoleAssignment(
+            role=AdminRole.ADMIN,
+            source=IdentityGovernanceSource.DEVELOPMENT,
+            created_at=now,
+            updated_at=now,
+        )
+        self._admin_sessions: dict[tuple[UUID, UUID], ManagedAdminSession] = {}
         self._audit_records: list[AuditRecord] = []
         self._agent_impacts: dict[UUID, AgentImpactCounts] = {}
         self._next_audit_id = 1
@@ -423,6 +450,66 @@ class MemoryAdministrationRepository:
             )
             return updated
 
+    async def get_user_detail(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+    ) -> ManagedUserDetail | None:
+        async with self._lock:
+            user = self._users.get(user_id)
+            if user is None or user.tenant_id != tenant_id or self._tenant.id != tenant_id:
+                return None
+            return ManagedUserDetail(
+                user=user,
+                tenant=self._tenant,
+                role_assignment=self._development_role,
+                external_identities=(),
+                admin_sessions=tuple(
+                    sorted(
+                        (
+                            item
+                            for (session_user_id, _), item in self._admin_sessions.items()
+                            if session_user_id == user_id
+                        ),
+                        key=lambda item: (item.last_seen_at, item.id),
+                        reverse=True,
+                    )
+                ),
+                conversation_memberships=(),
+            )
+
+    async def revoke_admin_session(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+        session_id: UUID,
+        actor_id: UUID,
+        revoked_at: datetime,
+    ) -> ManagedAdminSession:
+        async with self._lock:
+            user = self._users.get(user_id)
+            if user is None or user.tenant_id != tenant_id:
+                raise AdministrationNotFoundError("用户不存在")
+            key = (user_id, session_id)
+            item = self._admin_sessions.get(key)
+            if item is None:
+                raise AdministrationNotFoundError("管理会话不存在")
+            if item.revoked_at is not None:
+                raise AdministrationConflictError("管理会话已撤销")
+            revoked = replace(item, revoked_at=revoked_at)
+            self._admin_sessions[key] = revoked
+            self._append_audit(
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                action="admin_session.revoked",
+                resource_type="admin_session",
+                resource_id=str(session_id),
+                detail={"user_id": str(user_id), "revoked_at": revoked_at.isoformat()},
+            )
+            return revoked
+
     async def list_audit_records(
         self,
         *,
@@ -479,6 +566,10 @@ class MemoryAdministrationRepository:
     def seed_agent_impact(self, agent_id: UUID, counts: AgentImpactCounts) -> None:
         """仅供无数据库测试设置影响统计。"""
         self._agent_impacts[agent_id] = counts
+
+    def seed_admin_session(self, user_id: UUID, item: ManagedAdminSession) -> None:
+        """仅供无数据库测试注入管理会话；开发运行时默认不伪造 OIDC 数据。"""
+        self._admin_sessions[(user_id, item.id)] = item
 
     def _ensure_unique_agent_name(
         self,
@@ -1007,6 +1098,120 @@ class SqlAlchemyAdministrationRepository:
             ).all()
             return tuple(self._user(row) for row in rows)
 
+    async def get_user_detail(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+    ) -> ManagedUserDetail | None:
+        async with self._session_factory() as session:
+            user = await session.scalar(
+                select(User).where(User.tenant_id == tenant_id, User.id == user_id)
+            )
+            if user is None:
+                return None
+            tenant = await session.scalar(select(Tenant).where(Tenant.id == tenant_id))
+            if tenant is None:
+                return None
+            role_assignment = await session.scalar(
+                select(RoleAssignment).where(
+                    RoleAssignment.tenant_id == tenant_id,
+                    RoleAssignment.user_id == user_id,
+                )
+            )
+            external_identities = (
+                await session.scalars(
+                    select(ExternalIdentity)
+                    .where(
+                        ExternalIdentity.tenant_id == tenant_id,
+                        ExternalIdentity.user_id == user_id,
+                    )
+                    .order_by(
+                        ExternalIdentity.last_authenticated_at.desc(),
+                        ExternalIdentity.id.desc(),
+                    )
+                )
+            ).all()
+            admin_sessions = (
+                await session.scalars(
+                    select(AdminSession)
+                    .where(
+                        AdminSession.tenant_id == tenant_id,
+                        AdminSession.user_id == user_id,
+                    )
+                    .order_by(AdminSession.last_seen_at.desc(), AdminSession.id.desc())
+                )
+            ).all()
+            membership_rows = (
+                await session.execute(
+                    select(ConversationMember, ConversationModel)
+                    .join(
+                        ConversationModel,
+                        ConversationModel.id == ConversationMember.conversation_id,
+                    )
+                    .where(
+                        ConversationModel.tenant_id == tenant_id,
+                        ConversationMember.user_id == user_id,
+                    )
+                    .order_by(
+                        ConversationMember.joined_at.desc(),
+                        ConversationMember.id.desc(),
+                    )
+                )
+            ).all()
+            return ManagedUserDetail(
+                user=self._user(user),
+                tenant=self._tenant(tenant),
+                role_assignment=(
+                    None if role_assignment is None else self._role_assignment(role_assignment)
+                ),
+                external_identities=tuple(
+                    self._external_identity(row) for row in external_identities
+                ),
+                admin_sessions=tuple(self._admin_session(row) for row in admin_sessions),
+                conversation_memberships=tuple(
+                    self._conversation_membership(member, conversation)
+                    for member, conversation in membership_rows
+                ),
+            )
+
+    async def revoke_admin_session(
+        self,
+        *,
+        tenant_id: UUID,
+        user_id: UUID,
+        session_id: UUID,
+        actor_id: UUID,
+        revoked_at: datetime,
+    ) -> ManagedAdminSession:
+        async with self._session_factory() as session, session.begin():
+            row = await session.scalar(
+                select(AdminSession)
+                .where(
+                    AdminSession.tenant_id == tenant_id,
+                    AdminSession.user_id == user_id,
+                    AdminSession.id == session_id,
+                )
+                .with_for_update()
+            )
+            if row is None:
+                raise AdministrationNotFoundError("管理会话不存在")
+            if row.revoked_at is not None:
+                raise AdministrationConflictError("管理会话已撤销")
+            row.revoked_at = revoked_at
+            session.add(
+                AuditLog(
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                    action="admin_session.revoked",
+                    resource_type="admin_session",
+                    resource_id=str(session_id),
+                    detail={"user_id": str(user_id), "revoked_at": revoked_at.isoformat()},
+                )
+            )
+            await session.flush()
+            return self._admin_session(row)
+
     async def update_user_status(
         self,
         *,
@@ -1101,6 +1306,60 @@ class SqlAlchemyAdministrationRepository:
             display_name=row.display_name,
             status=EntityStatus(row.status),
             created_at=row.created_at,
+        )
+
+    @staticmethod
+    def _tenant(row: Tenant) -> ManagedTenant:
+        return ManagedTenant(
+            id=row.id,
+            name=row.name,
+            status=EntityStatus(row.status),
+            created_at=row.created_at,
+        )
+
+    @staticmethod
+    def _role_assignment(row: RoleAssignment) -> ManagedRoleAssignment:
+        return ManagedRoleAssignment(
+            role=AdminRole(row.role),
+            source=IdentityGovernanceSource(row.source),
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
+    @staticmethod
+    def _external_identity(row: ExternalIdentity) -> ManagedExternalIdentity:
+        return ManagedExternalIdentity(
+            id=row.id,
+            issuer=row.issuer,
+            subject=row.subject,
+            created_at=row.created_at,
+            last_authenticated_at=row.last_authenticated_at,
+        )
+
+    @staticmethod
+    def _admin_session(row: AdminSession) -> ManagedAdminSession:
+        return ManagedAdminSession(
+            id=row.id,
+            external_identity_id=row.external_identity_id,
+            issued_at=row.issued_at,
+            expires_at=row.expires_at,
+            last_seen_at=row.last_seen_at,
+            revoked_at=row.revoked_at,
+        )
+
+    @staticmethod
+    def _conversation_membership(
+        member: ConversationMember,
+        conversation: ConversationModel,
+    ) -> ManagedConversationMembership:
+        return ManagedConversationMembership(
+            conversation_id=conversation.id,
+            agent_id=conversation.agent_id,
+            title=conversation.title,
+            role=member.role,
+            status=ConversationStatus(conversation.status),
+            joined_at=member.joined_at,
+            deleted_at=conversation.deleted_at,
         )
 
     @staticmethod

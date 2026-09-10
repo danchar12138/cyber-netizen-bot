@@ -28,13 +28,20 @@ from cnb_contracts import (
     AuditRecordListResponse,
     AuditRecordResponse,
     BulkStatusUpdateCommand,
+    ManagedAdminSessionResponse,
     ManagedAgentCopyCommand,
     ManagedAgentCreateCommand,
     ManagedAgentListResponse,
     ManagedAgentRenameCommand,
     ManagedAgentResponse,
+    ManagedConversationMembershipResponse,
+    ManagedExternalIdentityResponse,
+    ManagedRoleAssignmentResponse,
+    ManagedTenantResponse,
+    ManagedUserDetailResponse,
     ManagedUserListResponse,
     ManagedUserResponse,
+    UserSessionRevokeCommand,
 )
 from cnb_domain import (
     AdminPermission,
@@ -43,6 +50,8 @@ from cnb_domain import (
     AgentLifecycleImpact,
     AgentLifecycleStatus,
     EntityStatus,
+    ManagedAdminSession,
+    ManagedUserDetail,
 )
 
 router = APIRouter(prefix="/administration", tags=["administration"])
@@ -366,6 +375,59 @@ async def list_users(
     )
 
 
+@router.get(
+    "/users/{user_id}",
+    response_model=ManagedUserDetailResponse,
+    dependencies=[Depends(require_permission(AdminPermission.USER_READ))],
+)
+async def get_user_detail(
+    user_id: UUID,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[AdministrationService, Depends(get_administration_service)],
+) -> ManagedUserDetailResponse:
+    """返回当前租户内不含凭证与令牌摘要的用户身份治理详情。"""
+    try:
+        detail = await service.get_user_detail(
+            tenant_id=principal.tenant_id,
+            user_id=user_id,
+        )
+    except AdministrationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    return _user_detail_response(detail)
+
+
+@router.post(
+    "/users/{user_id}/sessions/{session_id}/revoke",
+    response_model=ManagedAdminSessionResponse,
+    dependencies=[Depends(require_permission(AdminPermission.USER_WRITE))],
+)
+async def revoke_user_admin_session(
+    user_id: UUID,
+    session_id: UUID,
+    command: UserSessionRevokeCommand,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[AdministrationService, Depends(get_administration_service)],
+) -> ManagedAdminSessionResponse:
+    """逐字确认并审计地撤销当前租户内的指定管理会话。"""
+    try:
+        item = await service.revoke_admin_session(
+            tenant_id=principal.tenant_id,
+            user_id=user_id,
+            session_id=session_id,
+            actor_id=principal.user_id,
+            confirmation=command.confirmation,
+        )
+    except AdministrationValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    except AdministrationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except AdministrationConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return _admin_session_response(item)
+
+
 @router.post(
     "/users/status",
     response_model=ManagedUserListResponse,
@@ -457,4 +519,41 @@ def _impact_response(impact: AgentLifecycleImpact) -> AgentLifecycleImpactRespon
         archive_confirmation=impact.archive_confirmation,
         delete_confirmation=impact.delete_confirmation,
         deleted_agent_retention_days=impact.deleted_agent_retention_days,
+    )
+
+
+def _admin_session_response(item: ManagedAdminSession) -> ManagedAdminSessionResponse:
+    """显式白名单映射管理会话，防止持久化令牌字段进入响应。"""
+    return ManagedAdminSessionResponse(
+        id=item.id,
+        external_identity_id=item.external_identity_id,
+        issued_at=item.issued_at,
+        expires_at=item.expires_at,
+        last_seen_at=item.last_seen_at,
+        revoked_at=item.revoked_at,
+    )
+
+
+def _user_detail_response(detail: ManagedUserDetail) -> ManagedUserDetailResponse:
+    """按公开字段映射用户详情，令牌、claim 与消息正文不参与序列化。"""
+    return ManagedUserDetailResponse(
+        user=ManagedUserResponse.model_validate(detail.user, from_attributes=True),
+        tenant=ManagedTenantResponse.model_validate(detail.tenant, from_attributes=True),
+        role_assignment=(
+            None
+            if detail.role_assignment is None
+            else ManagedRoleAssignmentResponse.model_validate(
+                detail.role_assignment,
+                from_attributes=True,
+            )
+        ),
+        external_identities=tuple(
+            ManagedExternalIdentityResponse.model_validate(item, from_attributes=True)
+            for item in detail.external_identities
+        ),
+        admin_sessions=tuple(_admin_session_response(item) for item in detail.admin_sessions),
+        conversation_memberships=tuple(
+            ManagedConversationMembershipResponse.model_validate(item, from_attributes=True)
+            for item in detail.conversation_memberships
+        ),
     )

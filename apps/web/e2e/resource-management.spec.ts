@@ -246,3 +246,105 @@ test('可以预览影响后重命名、归档并将 Agent 置入软删除保留�
   await expect(page.getByRole('table').getByText('等待清理')).toBeVisible()
   await expect(page.getByText(/最早物理清理时间/)).toBeVisible()
 })
+
+test('可以查看用户完整身份治理详情并逐字确认撤销管理会话', async ({ page }) => {
+  const sessionId = '88888888-8888-4888-8888-888888888888'
+  const identityId = '99999999-9999-4999-8999-999999999999'
+  let revokedAt: string | null = null
+
+  await page.route('**/api/v1/administration/session', async (route) => {
+    await route.fulfill({ json: {
+      tenant_id: tenantId,
+      user_id: userId,
+      display_name: '身份治理管理员',
+      role: 'admin',
+      permissions: ['user:read', 'user:write', 'audit:read'],
+      authentication_mode: 'oidc',
+    } })
+  })
+  await page.route('**/api/v1/administration/users?*', async (route) => {
+    await route.fulfill({ json: {
+      items: [{
+        id: userId,
+        tenant_id: tenantId,
+        display_name: '身份治理管理员',
+        status: 'active',
+        created_at: timestamp,
+      }],
+      next_cursor: null,
+    } })
+  })
+  await page.route(`**/api/v1/administration/users/${userId}`, async (route) => {
+    await route.fulfill({ json: {
+      user: {
+        id: userId,
+        tenant_id: tenantId,
+        display_name: '身份治理管理员',
+        status: 'active',
+        created_at: timestamp,
+      },
+      tenant: { id: tenantId, name: '人格实验室', status: 'active', created_at: timestamp },
+      role_assignment: {
+        role: 'admin', source: 'oidc', created_at: timestamp, updated_at: timestamp,
+      },
+      external_identities: [{
+        id: identityId,
+        issuer: 'https://identity.example.test/realms/cnb',
+        subject: 'admin-subject',
+        created_at: timestamp,
+        last_authenticated_at: timestamp,
+      }],
+      admin_sessions: [{
+        id: sessionId,
+        external_identity_id: identityId,
+        issued_at: timestamp,
+        expires_at: '2099-09-10T12:00:00Z',
+        last_seen_at: timestamp,
+        revoked_at: revokedAt,
+      }],
+      conversation_memberships: [{
+        conversation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        agent_id: agentId,
+        title: '共同打磨人格',
+        role: 'owner',
+        status: 'active',
+        joined_at: timestamp,
+        deleted_at: null,
+      }],
+    } })
+  })
+  await page.route(
+    `**/api/v1/administration/users/${userId}/sessions/${sessionId}/revoke`,
+    async (route) => {
+      expect(route.request().postDataJSON()).toEqual({
+        confirmation: `确认撤销管理会话 ${sessionId}`,
+      })
+      revokedAt = '2026-09-10T12:00:00Z'
+      await route.fulfill({ json: {
+        id: sessionId,
+        external_identity_id: identityId,
+        issued_at: timestamp,
+        expires_at: '2099-09-10T12:00:00Z',
+        last_seen_at: timestamp,
+        revoked_at: revokedAt,
+      } })
+    },
+  )
+
+  await page.goto('/users')
+  await page.getByRole('checkbox', { name: `选择 身份治理管理员 ${userId} active` }).check()
+  await expect(page.getByRole('region', { name: '用户身份治理' })).toContainText('人格实验室')
+  await expect(page.getByText('OIDC 可信声明同步')).toBeVisible()
+  await expect(page.getByText('https://identity.example.test/realms/cnb')).toBeVisible()
+  await expect(page.getByText('共同打磨人格')).toBeVisible()
+  await expect(page.getByText(/如果撤销的会话正被本页面使用/)).toBeVisible()
+
+  await page.getByRole('button', { name: '撤销', exact: true }).click()
+  const confirmation = page.getByLabel('管理会话撤销确认短语')
+  await confirmation.fill('确认撤销')
+  await expect(page.getByRole('button', { name: '确认撤销' })).toBeDisabled()
+  await confirmation.fill(`确认撤销管理会话 ${sessionId}`)
+  await page.getByRole('button', { name: '确认撤销' }).click()
+  await expect(page.getByText(/已撤销/)).toBeVisible()
+  await expect(page.getByRole('button', { name: '撤销', exact: true })).not.toBeVisible()
+})

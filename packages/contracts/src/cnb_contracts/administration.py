@@ -9,7 +9,9 @@ from cnb_domain import (
     AdminPermission,
     AdminRole,
     AgentLifecycleStatus,
+    ConversationStatus,
     EntityStatus,
+    IdentityGovernanceSource,
     JsonValue,
 )
 
@@ -128,6 +130,74 @@ class ManagedUserListResponse(BaseModel):
 
     items: tuple[ManagedUserResponse, ...]
     next_cursor: str | None
+
+
+class ManagedTenantResponse(BaseModel):
+    """用户所属租户的安全摘要。"""
+
+    id: UUID
+    name: str
+    status: EntityStatus
+    created_at: datetime
+
+
+class ManagedRoleAssignmentResponse(BaseModel):
+    """用户当前管理角色及可信来源。"""
+
+    role: AdminRole
+    source: IdentityGovernanceSource
+    created_at: datetime
+    updated_at: datetime
+
+
+class ManagedExternalIdentityResponse(BaseModel):
+    """不包含令牌或原始 claim 的 OIDC 身份绑定。"""
+
+    id: UUID
+    issuer: str
+    subject: str
+    created_at: datetime
+    last_authenticated_at: datetime
+
+
+class ManagedAdminSessionResponse(BaseModel):
+    """不包含访问令牌及其不可逆摘要的管理会话。"""
+
+    id: UUID
+    external_identity_id: UUID
+    issued_at: datetime
+    expires_at: datetime
+    last_seen_at: datetime
+    revoked_at: datetime | None
+
+
+class ManagedConversationMembershipResponse(BaseModel):
+    """用户参与会话的治理摘要，不返回任何消息正文。"""
+
+    conversation_id: UUID
+    agent_id: UUID
+    title: str
+    role: str
+    status: ConversationStatus
+    joined_at: datetime
+    deleted_at: datetime | None
+
+
+class ManagedUserDetailResponse(BaseModel):
+    """用户身份、授权、管理会话和会话成员的统一视图。"""
+
+    user: ManagedUserResponse
+    tenant: ManagedTenantResponse
+    role_assignment: ManagedRoleAssignmentResponse | None
+    external_identities: tuple[ManagedExternalIdentityResponse, ...]
+    admin_sessions: tuple[ManagedAdminSessionResponse, ...]
+    conversation_memberships: tuple[ManagedConversationMembershipResponse, ...]
+
+
+class UserSessionRevokeCommand(BaseModel):
+    """撤销管理会话所需的逐字确认短语。"""
+
+    confirmation: str = Field(min_length=1, max_length=200)
 
 
 class BulkStatusUpdateCommand(BaseModel):

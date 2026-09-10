@@ -15,6 +15,7 @@ import type {
   MessageAcceptedResponse,
   MessagePartResponse,
   MessageResponse,
+  ManagedUserDetailResponse,
 } from './api-client/generated/types.gen'
 import {
   ApiClientError,
@@ -1404,6 +1405,18 @@ export const getManagedUsers = (search = '', status?: string) =>
       entity_status: status === 'active' || status === 'disabled' ? status : undefined,
     },
   })
+
+export const getManagedUserDetail = (userId: string): Promise<ManagedUserDetailResponse> =>
+  apiSdk.getApiV1AdministrationUsersByUserId({ path: { user_id: userId } })
+
+export const revokeManagedUserSession = (
+  userId: string,
+  sessionId: string,
+  confirmation: string,
+) => apiSdk.postApiV1AdministrationUsersByUserIdSessionsBySessionIdRevoke({
+  path: { user_id: userId, session_id: sessionId },
+  body: { confirmation },
+})
 
 export const updateManagedUserStatus = (
   ids: string[],

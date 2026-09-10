@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   adminRoleLabels,
+  auditActionLabels,
+  auditResourceLabels,
   channelCapabilityLabels,
   channelDegradationLabels,
   cognitiveActionLabels,
@@ -24,6 +26,8 @@ describe('管理后台中文显示文案', () => {
     expect(secretIntegrityLabels.valid).toBe('完整性正常')
     expect(formatEnvironment('production')).toBe('生产环境')
     expect(formatLogLevel('INFO')).toBe('信息')
+    expect(auditActionLabels['admin_session.revoked']).toBe('撤销管理会话')
+    expect(auditResourceLabels.admin_session).toBe('管理会话')
   })
 
   it('覆盖拟人认知与长期记忆协议值', () => {

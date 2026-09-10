@@ -350,6 +350,7 @@ export const auditActionLabels: Readonly<Record<string, string>> = {
   'agent.archived': '归档 Agent',
   'agent.soft_deleted': '软删除 Agent',
   'user.status_updated': '更新用户状态',
+  'admin_session.revoked': '撤销管理会话',
   'user.data_forgotten': '永久遗忘用户数据',
   'configuration.draft_created': '创建配置草稿',
   'configuration.published': '发布配置版本',
@@ -391,6 +392,7 @@ export const auditActionLabels: Readonly<Record<string, string>> = {
 export const auditResourceLabels: Readonly<Record<string, string>> = {
   agent: 'Agent',
   user: '用户',
+  admin_session: '管理会话',
   configuration_version: '配置版本',
   secret_reference: '密钥引用',
   channel_instance: '渠道实例',
@@ -428,6 +430,7 @@ export const metadataKeyLabels: Readonly<Record<string, string>> = {
   copied_resource_count: '已复制认知版本数',
   archived_at: '归档时间',
   deleted_at: '软删除时间',
+  revoked_at: '撤销时间',
   purge_after: '最早物理清理时间',
   retention_days: '保留天数',
   runtime_intake_blocked: '已阻止新运行',

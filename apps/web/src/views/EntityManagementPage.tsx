@@ -17,6 +17,7 @@ import {
 } from '../api'
 import { setSelectedAgentId } from '../agentSelection'
 import { AdminDataTable, type AdminTableColumn } from '../components/AdminDataTable'
+import { UserIdentityPanel } from '../components/UserIdentityPanel'
 import { adminRoleLabels } from '../displayLabels'
 import { invalidateAcrossTabs } from '../tabSync'
 
@@ -93,6 +94,7 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
     },
   })
   const selectedAgentId = isAgent && selected.size === 1 ? ([...selected][0] ?? null) : null
+  const selectedUserId = !isAgent && selected.size === 1 ? ([...selected][0] ?? null) : null
   const selectedAgent = useMemo(
     () => entities.data?.find((item) => item.id === selectedAgentId) ?? null,
     [entities.data, selectedAgentId],
@@ -347,6 +349,14 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
             </>
           )}
         </section>
+      )}
+
+      {selectedUserId && (
+        <UserIdentityPanel
+          userId={selectedUserId}
+          currentUserId={session.data?.user_id}
+          canWrite={canWrite}
+        />
       )}
 
       <section className="panel table-panel">

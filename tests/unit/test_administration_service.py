@@ -1,6 +1,6 @@
 """管理资源搜索、分页、批量确认与审计测试。"""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -23,6 +23,8 @@ from cnb_domain import (
     CognitionResourceKind,
     DevelopmentIdentity,
     EntityStatus,
+    IdentityGovernanceSource,
+    ManagedAdminSession,
 )
 from cnb_infrastructure import (
     MemoryAdministrationRepository,
@@ -91,6 +93,84 @@ async def test_bulk_status_change_requires_explicit_confirmation() -> None:
             status=EntityStatus.DISABLED,
             actor_id=identity.user_id,
             confirmed=False,
+        )
+
+
+async def test_user_detail_marks_development_identity_without_fabricated_oidc_data() -> None:
+    identity = _identity()
+    service = _service(MemoryAdministrationRepository(identity))
+
+    detail = await service.get_user_detail(
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+    )
+
+    assert detail.tenant.name == "本地开发环境"
+    assert detail.role_assignment is not None
+    assert detail.role_assignment.source is IdentityGovernanceSource.DEVELOPMENT
+    assert detail.external_identities == ()
+    assert detail.admin_sessions == ()
+    assert detail.conversation_memberships == ()
+
+    with pytest.raises(AdministrationNotFoundError, match="用户不存在"):
+        await service.get_user_detail(tenant_id=uuid4(), user_id=identity.user_id)
+
+
+async def test_admin_session_revoke_requires_exact_confirmation_and_is_idempotency_safe() -> None:
+    identity = _identity()
+    repository = MemoryAdministrationRepository(identity)
+    service = _service(repository)
+    now = datetime.now(UTC)
+    session = ManagedAdminSession(
+        id=uuid4(),
+        external_identity_id=uuid4(),
+        issued_at=now - timedelta(minutes=10),
+        expires_at=now + timedelta(hours=1),
+        last_seen_at=now,
+        revoked_at=None,
+    )
+    repository.seed_admin_session(identity.user_id, session)
+
+    with pytest.raises(AdministrationValidationError, match="必须准确输入"):
+        await service.revoke_admin_session(
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            session_id=session.id,
+            actor_id=identity.user_id,
+            confirmation="确认撤销",
+        )
+
+    revoked = await service.revoke_admin_session(
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+        session_id=session.id,
+        actor_id=identity.user_id,
+        confirmation=f"确认撤销管理会话 {session.id}",
+    )
+    detail = await service.get_user_detail(
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+    )
+    audit = await service.list_audit_records(
+        tenant_id=identity.tenant_id,
+        search=None,
+        action="admin_session.revoked",
+        limit=20,
+        cursor=None,
+    )
+
+    assert revoked.revoked_at is not None
+    assert detail.admin_sessions == (revoked,)
+    assert audit.items[0].resource_id == str(session.id)
+    assert "token" not in str(audit.items[0].detail).lower()
+
+    with pytest.raises(AdministrationConflictError, match="已撤销"):
+        await service.revoke_admin_session(
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            session_id=session.id,
+            actor_id=identity.user_id,
+            confirmation=f"确认撤销管理会话 {session.id}",
         )
 
 
