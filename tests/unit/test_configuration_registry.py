@@ -60,6 +60,30 @@ def test_reflection_policy_is_runtime_managed_with_safe_defaults() -> None:
         assert definition.maximum == 0.2
 
 
+def test_long_conversation_compression_is_runtime_managed_and_bounded() -> None:
+    definitions = {item.key: item for item in build_default_registry().all()}
+    enabled = definitions["cognition.context.summary_enabled"]
+    assert enabled.value_kind is ConfigValueKind.BOOLEAN
+    assert enabled.default is True
+    assert ConfigScope.AGENT in enabled.scopes
+
+    expected_defaults = {
+        "cognition.context.source_message_limit": 240,
+        "cognition.context.recent_message_limit": 24,
+        "cognition.context.summary_chunk_size": 8,
+        "cognition.context.summary_max_levels": 4,
+        "cognition.context.summary_token_budget": 4096,
+    }
+    for key, default in expected_defaults.items():
+        definition = definitions[key]
+        assert definition.section == "cognition"
+        assert definition.value_kind is ConfigValueKind.INTEGER
+        assert definition.default == default
+        assert definition.minimum is not None
+        assert definition.maximum is not None
+        assert definition.minimum <= default <= definition.maximum
+
+
 def test_registry_rejects_duplicate_keys() -> None:
     definition = ConfigDefinition(
         key="test.enabled",

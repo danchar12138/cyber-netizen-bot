@@ -15,6 +15,8 @@ from cnb_application import (
 )
 from cnb_cognition import (
     UNTRUSTED_CONTEXT_POLICY,
+    AnthropomorphicCognitiveRuntime,
+    CognitiveRuntime,
     MinimalCognitiveRuntime,
     ModelCapabilities,
     ModelProvider,
@@ -34,6 +36,7 @@ from cnb_domain import (
     DevelopmentIdentity,
     InvocationStatus,
     JsonValue,
+    Message,
     MessageFeedbackRating,
     MessageStatus,
 )
@@ -69,6 +72,48 @@ class StubModelProvider:
         yield ModelStreamEvent(delta="你")
         yield ModelStreamEvent(delta="好呀")
         yield ModelStreamEvent(usage=ModelUsage(input_tokens=2, output_tokens=3))
+
+
+class RequestRecordingProvider:
+    """记录模型请求，用于验证长对话摘要经过安全封装。"""
+
+    def __init__(self) -> None:
+        self.requests: list[ModelRequest] = []
+
+    @property
+    def name(self) -> str:
+        return "request-recorder"
+
+    @property
+    def model(self) -> str:
+        return "request-recorder-v1"
+
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        return ModelCapabilities(True, False, False, False)
+
+    async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
+        self.requests.append(request)
+        yield ModelStreamEvent(delta="已记录")
+        yield ModelStreamEvent(usage=ModelUsage(input_tokens=20, output_tokens=2))
+
+
+class ContextLimitRecordingRepository(MemoryConversationRepository):
+    """记录长对话读取上限，同时复用真实内存仓储行为。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.context_limits: list[int] = []
+
+    async def list_context_messages(
+        self, *, conversation_id: UUID, user_id: UUID, limit: int
+    ) -> tuple[Message, ...]:
+        self.context_limits.append(limit)
+        return await super().list_context_messages(
+            conversation_id=conversation_id,
+            user_id=user_id,
+            limit=limit,
+        )
 
 
 class ScriptedModelProvider:
@@ -170,11 +215,12 @@ def _service(
     reliability_guard: ModelReliabilityGuard | None = None,
     channel_id: UUID | None = None,
     task_service: BackgroundTaskService | None = None,
+    runtime: CognitiveRuntime | None = None,
 ) -> ConversationService:
     identity = _identity()
     return ConversationService(
         repository=repository,
-        runtime=MinimalCognitiveRuntime(),
+        runtime=runtime or MinimalCognitiveRuntime(),
         model_provider_resolver=(resolver or StaticModelProviderResolver(StubModelProvider())),
         configuration_service=(
             configuration_service
@@ -310,6 +356,108 @@ async def test_channel_scope_reaches_run_snapshot_runtime_and_provider_resolutio
     assert pending.run.model_profile == "openai/channel-model-v1"
     assert completed.status is AgentRunStatus.COMPLETED
     assert resolver.calls == [("openai", "channel-model-v1", channel_id)]
+
+
+async def test_long_conversation_uses_frozen_compression_policy_and_safe_summary() -> None:
+    identity = _identity()
+    repository = ContextLimitRecordingRepository()
+    configuration = ConfigurationService(
+        build_default_registry(),
+        MemoryConfigurationRepository(),
+    )
+    draft = await configuration.create_draft(
+        note="启用测试用长对话压缩窗口",
+        values=(
+            ConfigEntry(
+                key="cognition.context.source_message_limit",
+                scope_type=ConfigScope.AGENT,
+                scope_id=identity.agent_id,
+                value=40,
+            ),
+            ConfigEntry(
+                key="cognition.context.recent_message_limit",
+                scope_type=ConfigScope.AGENT,
+                scope_id=identity.agent_id,
+                value=4,
+            ),
+            ConfigEntry(
+                key="cognition.context.summary_chunk_size",
+                scope_type=ConfigScope.AGENT,
+                scope_id=identity.agent_id,
+                value=2,
+            ),
+            ConfigEntry(
+                key="cognition.context.summary_token_budget",
+                scope_type=ConfigScope.AGENT,
+                scope_id=identity.agent_id,
+                value=256,
+            ),
+        ),
+    )
+    await configuration.publish(draft.id)
+    provider = RequestRecordingProvider()
+    cognition_repository = MemoryCognitionRepository()
+    service = _service(
+        repository,
+        resolver=StaticModelProviderResolver(provider),
+        cognition_repository=cognition_repository,
+        configuration_service=configuration,
+        runtime=AnthropomorphicCognitiveRuntime(),
+    )
+    conversation = await service.create_conversation(title="长对话压缩测试")
+    for index in range(5):
+        earlier = await service.send_message(
+            conversation.id,
+            client_message_id=uuid4(),
+            content=f"第 {index} 轮项目交流，继续跟进既定计划。",
+        )
+        await service.execute_run(earlier)
+
+    pending = await service.send_message(
+        conversation.id,
+        client_message_id=uuid4(),
+        content="第 5 轮交流，现在应该继续做什么？",
+    )
+    disabled = await configuration.create_draft(
+        note="新运行关闭摘要，不应影响已冻结的 Run",
+        values=(
+            ConfigEntry(
+                key="cognition.context.summary_enabled",
+                scope_type=ConfigScope.AGENT,
+                scope_id=identity.agent_id,
+                value=False,
+            ),
+        ),
+    )
+    await configuration.publish(disabled.id)
+
+    completed = await service.execute_run(pending)
+
+    assert completed.status is AgentRunStatus.COMPLETED
+    request = provider.requests[-1]
+    text_inputs = tuple(
+        part.text
+        for message in request.messages
+        for part in message.content
+        if isinstance(part, ModelTextInput)
+    )
+    assert any("较早对话分层摘要" in read_untrusted_content(text) for text in text_inputs)
+    assert any(
+        '"source":"retrieved_context"' in text and "较早对话分层摘要" in text
+        for text in text_inputs
+    )
+    assert len(request.messages) < 11
+    cognition = CognitionService(cognition_repository, agent_id=identity.agent_id)
+    trace = await cognition.get_run_trace(
+        run_id=pending.run.id,
+        tenant_id=identity.tenant_id,
+    )
+    context_detail = trace.steps[1].detail
+    assert context_detail["compression_applied"] is True
+    assert context_detail["source_message_count"] == 11
+    assert context_detail["recent_message_count"] == 4
+    assert "既定计划" not in str(context_detail)
+    assert repository.context_limits == [41, 41, 41, 41, 41, 41]
 
 
 async def test_reflection_job_only_contains_stable_resource_ids() -> None:

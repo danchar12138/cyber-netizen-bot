@@ -3,9 +3,12 @@
 from cnb_cognition.context import (
     ContextAssembler,
     ContextAssembly,
+    ContextCompression,
+    ContextCompressionReport,
     ContextFragment,
     ContextFragmentKind,
     ContextRole,
+    HierarchicalContextCompressor,
     estimate_tokens,
 )
 from cnb_cognition.memory import (
@@ -95,6 +98,8 @@ __all__ = [
     "CognitiveStep",
     "ContextAssembler",
     "ContextAssembly",
+    "ContextCompression",
+    "ContextCompressionReport",
     "ContextFragment",
     "ContextFragmentKind",
     "ContextRole",
@@ -102,6 +107,7 @@ __all__ = [
     "DeterministicPolicyGate",
     "DeterministicReflectionEngine",
     "EmbeddingEncoder",
+    "HierarchicalContextCompressor",
     "HybridMemoryRanker",
     "HybridRecallWeights",
     "MemoryRecallTraceItem",

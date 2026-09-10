@@ -51,6 +51,9 @@ describe('管理后台中文显示文案', () => {
     expect(formatMetadataEntries({ memory_decision: 'skip_small_talk', relationship_signals: ['warmth'] })).toBe(
       '记忆写入决策：跳过寒暄；关系信号：友好或感谢',
     )
+    expect(formatMetadataEntries({ compression_applied: true, summary_levels: 3 })).toBe(
+      '已应用长对话压缩：是；摘要层级：3',
+    )
   })
 
   it('将配置协议选项显示为自然中文并保留未知扩展值', () => {

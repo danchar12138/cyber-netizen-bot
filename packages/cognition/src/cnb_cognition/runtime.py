@@ -12,6 +12,7 @@ from cnb_cognition.context import (
     ContextFragment,
     ContextFragmentKind,
     ContextRole,
+    HierarchicalContextCompressor,
 )
 from cnb_cognition.persona import AffectState, PersonaProfile
 from cnb_cognition.policy import (
@@ -73,6 +74,11 @@ class CognitiveContext:
     prior_affect: AffectState | None = None
     policy: PolicyRuleSet = field(default_factory=PolicyRuleSet)
     context_token_budget: int = 24000
+    context_summary_enabled: bool = True
+    context_recent_message_limit: int = 24
+    context_summary_chunk_size: int = 8
+    context_summary_max_levels: int = 4
+    context_summary_token_budget: int = 4096
     affect_half_life_seconds: int = 21600
     memory_recall_trace: tuple[MemoryRecallTraceItem, ...] = ()
     relationship_version: int | None = None
@@ -150,18 +156,29 @@ class AnthropomorphicCognitiveRuntime:
         self,
         *,
         context_assembler: ContextAssembler | None = None,
+        context_compressor: HierarchicalContextCompressor | None = None,
         policy_gate: DeterministicPolicyGate | None = None,
     ) -> None:
         self._context_assembler = context_assembler or ContextAssembler()
+        self._context_compressor = context_compressor or HierarchicalContextCompressor()
         self._policy_gate = policy_gate or DeterministicPolicyGate()
 
     async def run(self, event: AgentEvent, context: CognitiveContext) -> AgentDecision:
         perception = self._perceive(event)
         affect = self._update_affect(event, context, perception)
         fragments = self._normalize_fragments(event, context)
-        assembly = self._context_assembler.assemble(
+        compression = self._context_compressor.compress(
             fragments,
+            enabled=context.context_summary_enabled,
+            recent_message_limit=context.context_recent_message_limit,
+            chunk_size=context.context_summary_chunk_size,
+            max_levels=context.context_summary_max_levels,
+            summary_token_budget=context.context_summary_token_budget,
+        )
+        assembly = self._context_assembler.assemble(
+            compression.fragments,
             token_budget=context.context_token_budget,
+            compression=compression.report,
         )
         social_mind = self._social_mind(context.persona, affect, perception)
         candidates = self._deliberate(event, perception, social_mind)
@@ -434,13 +451,44 @@ class AnthropomorphicCognitiveRuntime:
             CognitiveStep(
                 2,
                 CognitiveStage.CONTEXT_ASSEMBLY,
-                "已按来源、优先级和 Token 预算选择上下文。",
+                "已按来源、分层摘要、优先级和 Token 预算选择上下文。",
                 {
                     "selected_count": len(assembly.fragments),
                     "omitted_count": len(assembly.omitted_fragment_ids),
                     "truncated_count": len(assembly.truncated_fragment_ids),
                     "estimated_tokens": assembly.estimated_tokens,
                     "token_budget": assembly.token_budget,
+                    "compression_applied": bool(
+                        assembly.compression and assembly.compression.applied
+                    ),
+                    "source_message_count": (
+                        assembly.compression.source_message_count if assembly.compression else 0
+                    ),
+                    "recent_message_count": (
+                        assembly.compression.recent_message_count if assembly.compression else 0
+                    ),
+                    "summarized_message_count": (
+                        assembly.compression.summarized_message_count if assembly.compression else 0
+                    ),
+                    "summary_covered_message_count": (
+                        assembly.compression.summary_covered_message_count
+                        if assembly.compression
+                        else 0
+                    ),
+                    "summary_fragment_count": (
+                        assembly.compression.summary_fragment_count if assembly.compression else 0
+                    ),
+                    "summary_levels": (
+                        assembly.compression.summary_levels if assembly.compression else 0
+                    ),
+                    "estimated_summary_tokens": (
+                        assembly.compression.estimated_summary_tokens if assembly.compression else 0
+                    ),
+                    "omitted_summary_fragment_count": (
+                        assembly.compression.omitted_summary_fragment_count
+                        if assembly.compression
+                        else 0
+                    ),
                 },
             ),
             CognitiveStep(

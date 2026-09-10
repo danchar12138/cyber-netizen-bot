@@ -16,6 +16,7 @@ from cnb_cognition import (
     ContextFragmentKind,
     ContextRole,
     DeterministicPolicyGate,
+    HierarchicalContextCompressor,
     MemoryRecallTraceItem,
     PolicyRuleSet,
     ToolPolicyContext,
@@ -103,6 +104,150 @@ def test_context_assembler_truncates_oversized_required_fragment() -> None:
     assert "预算截断" in result.fragments[0].content
     assert result.truncated_fragment_ids == ("trigger",)
     assert result.estimated_tokens <= 30
+
+
+def _conversation_fragments(count: int) -> tuple[ContextFragment, ...]:
+    return tuple(
+        ContextFragment(
+            fragment_id=f"message-{index}",
+            kind=ContextFragmentKind.RECENT_MESSAGE,
+            role=ContextRole.USER if index % 2 == 0 else ContextRole.ASSISTANT,
+            content=(
+                "我的密码是 sk-this-credential-must-not-survive"
+                if index == 2
+                else f"第 {index} 条交流，围绕长期项目规划和当前进展。"
+            ),
+            priority=min(99, 55 + index),
+            ordinal=index,
+            source_id=str(index),
+        )
+        for index in range(count)
+    )
+
+
+def test_hierarchical_context_compressor_keeps_short_conversation_unchanged() -> None:
+    fragments = _conversation_fragments(4)
+
+    result = HierarchicalContextCompressor().compress(
+        fragments,
+        enabled=True,
+        recent_message_limit=4,
+        chunk_size=2,
+        max_levels=4,
+        summary_token_budget=256,
+    )
+
+    assert result.fragments == fragments
+    assert result.report.applied is False
+    assert result.report.source_message_count == 4
+    assert result.report.summary_fragment_count == 0
+
+
+def test_hierarchical_context_compressor_is_deterministic_and_redacts_credentials() -> None:
+    fragments = _conversation_fragments(36)
+    compressor = HierarchicalContextCompressor()
+
+    result = compressor.compress(
+        fragments,
+        enabled=True,
+        recent_message_limit=4,
+        chunk_size=2,
+        max_levels=5,
+        summary_token_budget=320,
+    )
+    replay = compressor.compress(
+        fragments,
+        enabled=True,
+        recent_message_limit=4,
+        chunk_size=2,
+        max_levels=5,
+        summary_token_budget=320,
+    )
+
+    summaries = tuple(
+        item for item in result.fragments if item.kind is ContextFragmentKind.CONVERSATION_SUMMARY
+    )
+    recent = tuple(
+        item for item in result.fragments if item.kind is ContextFragmentKind.RECENT_MESSAGE
+    )
+    assert result == replay
+    assert result.report.applied is True
+    assert result.report.summarized_message_count == 32
+    assert 0 < result.report.summary_covered_message_count <= 32
+    assert result.report.summary_levels >= 2
+    assert result.report.estimated_summary_tokens <= 320
+    assert [item.fragment_id for item in recent] == [
+        "message-32",
+        "message-33",
+        "message-34",
+        "message-35",
+    ]
+    assert summaries
+    assert all(item.summary_level >= 1 and item.source_count >= 1 for item in summaries)
+    assert "sk-this-credential-must-not-survive" not in "".join(item.content for item in summaries)
+
+
+def test_hierarchical_context_compressor_replaces_credential_in_selected_summary() -> None:
+    result = HierarchicalContextCompressor().compress(
+        _conversation_fragments(5),
+        enabled=True,
+        recent_message_limit=1,
+        chunk_size=8,
+        max_levels=1,
+        summary_token_budget=1000,
+    )
+    content = next(
+        item.content
+        for item in result.fragments
+        if item.kind is ContextFragmentKind.CONVERSATION_SUMMARY
+    )
+
+    assert "[疑似凭据已省略]" in content
+    assert "sk-this-credential-must-not-survive" not in content
+
+
+def test_hierarchical_context_compressor_hard_caps_single_summary() -> None:
+    result = HierarchicalContextCompressor().compress(
+        _conversation_fragments(10),
+        enabled=True,
+        recent_message_limit=2,
+        chunk_size=16,
+        max_levels=1,
+        summary_token_budget=40,
+    )
+    summary = next(
+        item for item in result.fragments if item.kind is ContextFragmentKind.CONVERSATION_SUMMARY
+    )
+
+    assert summary.tokens <= 40
+    assert "预算截断" in summary.content
+    assert result.report.estimated_summary_tokens <= 40
+
+
+async def test_runtime_trace_reports_compression_without_message_content() -> None:
+    event = _event("这是当前必须保留的问题？")
+    context = CognitiveContext(
+        run_id=uuid4(),
+        configuration_version=1,
+        persona_version=1,
+        prompt_version=1,
+        context_fragments=_conversation_fragments(30),
+        context_token_budget=2000,
+        context_recent_message_limit=4,
+        context_summary_chunk_size=2,
+        context_summary_max_levels=5,
+        context_summary_token_budget=320,
+    )
+
+    decision = await AnthropomorphicCognitiveRuntime().run(event, context)
+    detail = decision.steps[1].detail
+
+    assert decision.context is not None
+    assert detail["compression_applied"] is True
+    assert detail["summarized_message_count"] == 27
+    assert detail["recent_message_count"] == 4
+    assert any(item.source_id == str(event.event_id) for item in decision.context.fragments)
+    assert "长期项目规划" not in str(detail)
 
 
 def test_affect_state_decays_toward_neutral_baseline() -> None:

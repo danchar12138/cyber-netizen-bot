@@ -552,10 +552,26 @@ class ConversationService:
             # 将这种竞争误判为模型失败，更不能再次产生流式输出。
             return pending.run
         try:
+            configuration = await self._configuration_service.resolve_effective(
+                tenant_id=self._identity.tenant_id,
+                agent_id=self._identity.agent_id,
+                channel_id=self._channel_id,
+                user_id=self._identity.user_id,
+                version=pending.run.configuration_version,
+            )
+            source_message_limit = max(
+                self._integer_setting(
+                    configuration.values, "cognition.context.source_message_limit"
+                ),
+                self._integer_setting(
+                    configuration.values, "cognition.context.recent_message_limit"
+                ),
+            )
             context_messages = await self._repository.list_context_messages(
                 conversation_id=pending.conversation.id,
                 user_id=self._identity.user_id,
-                limit=40,
+                # 仓储结果还包括当前尚未完成的回复占位消息。
+                limit=source_message_limit + 1,
             )
             trigger_index = next(
                 (
@@ -568,13 +584,6 @@ class ConversationService:
             if trigger_index is None:
                 raise ConversationConflictError("Agent Run 的触发消息不在会话上下文中")
             context_messages = context_messages[: trigger_index + 1]
-            configuration = await self._configuration_service.resolve_effective(
-                tenant_id=self._identity.tenant_id,
-                agent_id=self._identity.agent_id,
-                channel_id=self._channel_id,
-                user_id=self._identity.user_id,
-                version=pending.run.configuration_version,
-            )
             bundle = await self._cognition_service.resolve_runtime_bundle(
                 tenant_id=self._identity.tenant_id,
                 agent_id=self._identity.agent_id,
@@ -614,6 +623,21 @@ class ConversationService:
                 prior_affect=prior_affect,
                 policy=bundle.policy,
                 context_token_budget=context_budget,
+                context_summary_enabled=self._boolean_setting(
+                    configuration.values, "cognition.context.summary_enabled"
+                ),
+                context_recent_message_limit=self._integer_setting(
+                    configuration.values, "cognition.context.recent_message_limit"
+                ),
+                context_summary_chunk_size=self._integer_setting(
+                    configuration.values, "cognition.context.summary_chunk_size"
+                ),
+                context_summary_max_levels=self._integer_setting(
+                    configuration.values, "cognition.context.summary_max_levels"
+                ),
+                context_summary_token_budget=self._integer_setting(
+                    configuration.values, "cognition.context.summary_token_budget"
+                ),
                 affect_half_life_seconds=affect_half_life,
                 memory_recall_trace=memory_trace,
                 relationship_version=relationship_version,
@@ -1209,7 +1233,11 @@ class ConversationService:
             role = ModelRole.USER if fragment.role is ContextRole.USER else ModelRole.ASSISTANT
             source = (
                 UntrustedContentSource.RETRIEVED_CONTEXT
-                if fragment.kind is ContextFragmentKind.LONG_TERM_MEMORY
+                if fragment.kind
+                in {
+                    ContextFragmentKind.LONG_TERM_MEMORY,
+                    ContextFragmentKind.CONVERSATION_SUMMARY,
+                }
                 else UntrustedContentSource.USER_MESSAGE
             )
             content = (
@@ -1349,6 +1377,13 @@ class ConversationService:
         value = values.get(key)
         if not isinstance(value, int) or isinstance(value, bool):
             raise ConversationConflictError(f"生效配置中的整数参数无效：{key}")
+        return value
+
+    @staticmethod
+    def _boolean_setting(values: Mapping[str, object], key: str) -> bool:
+        value = values.get(key)
+        if not isinstance(value, bool):
+            raise ConversationConflictError(f"生效配置中的布尔参数无效：{key}")
         return value
 
     @staticmethod
