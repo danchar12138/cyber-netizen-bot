@@ -1552,6 +1552,12 @@ async def test_channel_management_simulation_delivery_and_secret_boundary_api() 
         conversation_repository=MemoryConversationRepository(),
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        default_agent_id = (await client.get("/api/v1/chat/identity")).json()["agent_id"]
+        other_agent = await client.post(
+            "/api/v1/administration/agents",
+            json={"name": "渠道隔离伙伴"},
+        )
+        other_agent_id = other_agent.json()["id"]
         catalog = await client.get("/api/v1/channels/catalog")
         model_capabilities = await client.get("/api/v1/channels/model-capabilities")
         web = await client.post(
@@ -1565,6 +1571,31 @@ async def test_channel_management_simulation_delivery_and_secret_boundary_api() 
             },
         )
         web_id = web.json()["id"]
+        other_web = await client.post(
+            "/api/v1/channels",
+            headers={"X-CNB-Agent-ID": other_agent_id},
+            json={
+                "name": "内部 Web",
+                "platform": "web",
+                "status": "disabled",
+                "rate_limit_per_minute": 10,
+                "settings": {"audience": "isolated"},
+            },
+        )
+        default_channels = await client.get("/api/v1/channels")
+        other_channels = await client.get(
+            "/api/v1/channels",
+            headers={"X-CNB-Agent-ID": other_agent_id},
+        )
+        cross_agent_channel = await client.get(
+            f"/api/v1/channels/{web_id}",
+            headers={"X-CNB-Agent-ID": other_agent_id},
+        )
+        cross_agent_update = await client.patch(
+            f"/api/v1/channels/{web_id}",
+            headers={"X-CNB-Agent-ID": other_agent_id},
+            json={"status": "disabled", "confirmed": True},
+        )
         delivery_command = {
             "recipient_id": "browser-session",
             "blocks": [{"kind": "markdown", "text": "你好，**渠道**"}],
@@ -1615,6 +1646,11 @@ async def test_channel_management_simulation_delivery_and_secret_boundary_api() 
             },
         )
         feishu_id = feishu.json()["id"]
+        cross_agent_credential = await client.put(
+            f"/api/v1/channels/{feishu_id}/credential",
+            headers={"X-CNB-Agent-ID": other_agent_id},
+            json={"credential": "禁止写入其他 Agent"},
+        )
         tested = await client.post(f"/api/v1/channels/{feishu_id}/connection-test")
         placeholder_delivery = await client.post(
             f"/api/v1/channels/{feishu_id}/deliveries",
@@ -1624,6 +1660,16 @@ async def test_channel_management_simulation_delivery_and_secret_boundary_api() 
             },
         )
         events = await client.get("/api/v1/channels/diagnostics/events", params={"limit": 100})
+        other_events = await client.get(
+            "/api/v1/channels/diagnostics/events",
+            params={"limit": 100},
+            headers={"X-CNB-Agent-ID": other_agent_id},
+        )
+        cross_agent_events = await client.get(
+            "/api/v1/channels/diagnostics/events",
+            params={"channel_id": web_id, "limit": 100},
+            headers={"X-CNB-Agent-ID": other_agent_id},
+        )
         viewer_create = await client.post(
             "/api/v1/channels",
             headers={"X-CNB-Development-Role": "viewer"},
@@ -1644,6 +1690,15 @@ async def test_channel_management_simulation_delivery_and_secret_boundary_api() 
     ]
     assert model_capabilities.json()["items"][1]["document_input"] is True
     assert web.status_code == 201
+    assert web.json()["agent_id"] == default_agent_id
+    assert other_web.status_code == 201
+    assert other_web.json()["agent_id"] == other_agent_id
+    assert [item["id"] for item in default_channels.json()["items"]] == [web_id]
+    assert [item["id"] for item in other_channels.json()["items"]] == [other_web.json()["id"]]
+    assert cross_agent_channel.status_code == 404
+    assert cross_agent_update.status_code == 404
+    assert cross_agent_credential.status_code == 404
+    assert cross_agent_events.status_code == 404
     assert first_delivery.status_code == replayed_delivery.status_code == 200
     assert replayed_delivery.json()["idempotent_replay"] is True
     assert inbound.json()["blocks"][0]["text"] == "模拟入站消息"
@@ -1657,6 +1712,7 @@ async def test_channel_management_simulation_delivery_and_secret_boundary_api() 
     assert placeholder_delivery.status_code == 503
     assert events.status_code == 200
     assert all("text" not in item["payload_summary"] for item in events.json()["items"])
+    assert other_events.json()["items"] == []
     assert viewer_create.status_code == 403
 
 

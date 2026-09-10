@@ -2213,7 +2213,7 @@
         "type": "object"
       },
       "ChannelInstanceListResponse": {
-        "description": "当前租户全部渠道实例。",
+        "description": "当前租户所选 Agent 的全部渠道实例。",
         "properties": {
           "items": {
             "items": {
@@ -2232,6 +2232,11 @@
       "ChannelInstanceResponse": {
         "description": "不包含凭证明文、定位符或远端原始响应的渠道视图。",
         "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
           "capabilities": {
             "$ref": "#/components/schemas/ChannelCapabilitiesResponse"
           },
@@ -2327,6 +2332,7 @@
         "required": [
           "id",
           "tenant_id",
+          "agent_id",
           "name",
           "platform",
           "display_name",

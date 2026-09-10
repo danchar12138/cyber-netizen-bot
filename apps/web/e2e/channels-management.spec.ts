@@ -3,6 +3,8 @@ import { expect, test } from './fixtures'
 
 const tenantId = '44444444-4444-4444-8444-444444444444'
 const userId = '22222222-2222-4222-8222-222222222222'
+const agentId = '33333333-3333-4333-8333-333333333333'
+const otherAgentId = '77777777-7777-4777-8777-777777777777'
 const channelId = '55555555-5555-4555-8555-555555555555'
 const timestamp = '2026-09-10T08:00:00Z'
 
@@ -14,12 +16,19 @@ const webCapabilities = {
 }
 
 test('可以管理渠道、运行能力协商并查看安全诊断', async ({ page }) => {
+  const scopedRequestAgents: Array<string | undefined> = []
   await page.route('**/api/v1/administration/session', async (route) => {
     await route.fulfill({ json: {
       tenant_id: tenantId, user_id: userId, display_name: '本地开发者', role: 'admin',
-      permissions: ['channel:read', 'channel:write', 'channel:send', 'channel_credential:manage'],
+      permissions: ['agent:read', 'channel:read', 'channel:write', 'channel:send', 'channel_credential:manage'],
       authentication_mode: 'development',
     } })
+  })
+  await page.route('**/api/v1/administration/agents?*', async (route) => {
+    await route.fulfill({ json: { items: [
+      { id: agentId, tenant_id: tenantId, name: '赛博网友', status: 'active', created_at: timestamp },
+      { id: otherAgentId, tenant_id: tenantId, name: '安静伙伴', status: 'active', created_at: timestamp },
+    ], next_cursor: null } })
   })
   await page.route('**/api/v1/channels/catalog', async (route) => {
     await route.fulfill({ json: { items: [
@@ -36,17 +45,21 @@ test('可以管理渠道、运行能力协商并查看安全诊断', async ({ pa
     ] } })
   })
   const instance = {
-    id: channelId, tenant_id: tenantId, name: '内部 Web', platform: 'web', display_name: '内部 Web',
+    id: channelId, tenant_id: tenantId, agent_id: agentId, name: '内部 Web', platform: 'web', display_name: '内部 Web',
     implementation_status: 'ready', status: 'enabled', rate_limit_per_minute: 60,
     settings: { audience: 'internal' }, credential_configured: true, capabilities: webCapabilities,
     health_status: 'healthy', health_detail: '内部 Web Adapter 已就绪，无需外部凭证。',
     last_checked_at: timestamp, created_by: userId, created_at: timestamp, updated_at: timestamp,
   }
   await page.route('**/api/v1/channels', async (route) => {
-    await route.fulfill({ json: { items: [instance] } })
+    const selectedAgent = route.request().headers()['x-cnb-agent-id']
+    scopedRequestAgents.push(selectedAgent)
+    await route.fulfill({ json: { items: selectedAgent === otherAgentId ? [] : [instance] } })
   })
   await page.route('**/api/v1/channels/diagnostics/events?*', async (route) => {
-    await route.fulfill({ json: { items: [{
+    const selectedAgent = route.request().headers()['x-cnb-agent-id']
+    scopedRequestAgents.push(selectedAgent)
+    await route.fulfill({ json: { items: selectedAgent === otherAgentId ? [] : [{
       id: '66666666-6666-4666-8666-666666666666', channel_id: channelId,
       direction: 'system', event_type: 'connection.tested', status: 'delivered',
       external_event_id: null, idempotency_key: 'connection-test:1', external_message_id: null,
@@ -62,6 +75,7 @@ test('可以管理渠道、运行能力协商并查看安全诊断', async ({ pa
     } })
   })
   await page.route(`**/api/v1/channels/${channelId}/connection-test`, async (route) => {
+    scopedRequestAgents.push(route.request().headers()['x-cnb-agent-id'])
     await route.fulfill({ json: instance })
   })
 
@@ -69,6 +83,7 @@ test('可以管理渠道、运行能力协商并查看安全诊断', async ({ pa
   await expect(page.getByRole('heading', { name: '渠道与适配器' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '平台能力模拟器' })).toBeVisible()
   await expect(page.getByText('凭证只写入信封加密存储')).toBeVisible()
+  await expect(page.getByText(`当前标识：${agentId}。`)).toBeVisible()
   await expect(page.getByText('流式响应', { exact: true }).first()).toBeVisible()
   await page.getByRole('button', { name: '运行能力协商' }).click()
   await expect(page.getByText('发生透明降级')).toBeVisible()
@@ -76,5 +91,15 @@ test('可以管理渠道、运行能力协商并查看安全诊断', async ({ pa
   await page.getByRole('button', { name: '连接测试' }).click()
   await expect(page.getByText('连接测试', { exact: true }).last()).toBeVisible()
   await expect(page.getByText(/系统 · 66666666/)).toBeVisible()
+  await page.getByLabel('当前 Agent').selectOption(otherAgentId)
+  await expect(page.getByText(`当前标识：${otherAgentId}。`)).toBeVisible()
+  await expect(page.getByText('尚未创建渠道实例')).toBeVisible()
+  expect(scopedRequestAgents).toContain(agentId)
+  expect(scopedRequestAgents).toContain(otherAgentId)
+  expect(
+    scopedRequestAgents
+      .filter((value) => value !== undefined)
+      .every((value) => value === agentId || value === otherAgentId),
+  ).toBe(true)
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
 })

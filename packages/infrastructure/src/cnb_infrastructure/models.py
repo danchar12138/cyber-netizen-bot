@@ -1873,13 +1873,16 @@ class WorkerHeartbeatModel(Base):
 
 
 class ChannelInstanceModel(Base):
-    """租户隔离且不保存凭证明文的渠道实例。"""
+    """归属单一 Agent 且不保存凭证明文的渠道实例。"""
 
     __tablename__ = "channel_instances"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     platform: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -1912,8 +1915,20 @@ class ChannelInstanceModel(Base):
             "rate_limit_per_minute BETWEEN 1 AND 10000",
             name="ck_channel_instances_rate_limit",
         ),
-        UniqueConstraint("tenant_id", "name", name="uq_channel_instances_tenant_name"),
-        Index("ix_channel_instances_tenant_platform", "tenant_id", "platform", "status"),
+        Index(
+            "uq_channel_instances_tenant_agent_name_ci",
+            "tenant_id",
+            "agent_id",
+            func.lower(name),
+            unique=True,
+        ),
+        Index(
+            "ix_channel_instances_tenant_agent_platform",
+            "tenant_id",
+            "agent_id",
+            "platform",
+            "status",
+        ),
     )
 
 

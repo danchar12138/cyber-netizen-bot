@@ -1339,7 +1339,7 @@ export type ChannelInstanceCreate = {
 /**
  * ChannelInstanceListResponse
  *
- * 当前租户全部渠道实例。
+ * 当前租户所选 Agent 的全部渠道实例。
  */
 export type ChannelInstanceListResponse = {
     /**
@@ -1354,6 +1354,10 @@ export type ChannelInstanceListResponse = {
  * 不包含凭证明文、定位符或远端原始响应的渠道视图。
  */
 export type ChannelInstanceResponse = {
+    /**
+     * Agent Id
+     */
+    agent_id: string;
     capabilities: ChannelCapabilitiesResponse;
     /**
      * Created At

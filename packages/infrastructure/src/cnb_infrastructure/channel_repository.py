@@ -42,6 +42,7 @@ class MemoryChannelRepository:
         async with self._lock:
             if any(
                 item.tenant_id == instance.tenant_id
+                and item.agent_id == instance.agent_id
                 and item.name.casefold() == instance.name.casefold()
                 for item in self.instances.values()
             ):
@@ -53,15 +54,26 @@ class MemoryChannelRepository:
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         channel_id: UUID,
     ) -> ChannelInstance | None:
         item = self.instances.get(channel_id)
-        return item if item is not None and item.tenant_id == tenant_id else None
+        return (
+            item
+            if item is not None and item.tenant_id == tenant_id and item.agent_id == agent_id
+            else None
+        )
 
-    async def list_instances(self, *, tenant_id: UUID) -> tuple[ChannelInstance, ...]:
+    async def list_instances(
+        self, *, tenant_id: UUID, agent_id: UUID
+    ) -> tuple[ChannelInstance, ...]:
         return tuple(
             sorted(
-                (item for item in self.instances.values() if item.tenant_id == tenant_id),
+                (
+                    item
+                    for item in self.instances.values()
+                    if item.tenant_id == tenant_id and item.agent_id == agent_id
+                ),
                 key=lambda item: (item.created_at, str(item.id)),
             )
         )
@@ -76,11 +88,16 @@ class MemoryChannelRepository:
         del actor_id, action
         async with self._lock:
             current = self.instances.get(instance.id)
-            if current is None or current.tenant_id != instance.tenant_id:
+            if (
+                current is None
+                or current.tenant_id != instance.tenant_id
+                or current.agent_id != instance.agent_id
+            ):
                 raise LookupError(f"渠道实例不存在：{instance.id}")
             if any(
                 item.id != instance.id
                 and item.tenant_id == instance.tenant_id
+                and item.agent_id == instance.agent_id
                 and item.name.casefold() == instance.name.casefold()
                 for item in self.instances.values()
             ):
@@ -143,15 +160,22 @@ class MemoryChannelRepository:
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         channel_id: UUID | None,
         limit: int,
     ) -> tuple[ChannelDiagnosticEvent, ...]:
+        visible_channel_ids = {
+            item.id
+            for item in self.instances.values()
+            if item.tenant_id == tenant_id and item.agent_id == agent_id
+        }
         return tuple(
             sorted(
                 (
                     item
                     for item in self.events.values()
                     if item.tenant_id == tenant_id
+                    and item.channel_id in visible_channel_ids
                     and (channel_id is None or item.channel_id == channel_id)
                 ),
                 key=lambda item: (item.occurred_at, str(item.id)),
@@ -202,6 +226,7 @@ class SqlAlchemyChannelRepository:
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         channel_id: UUID,
     ) -> ChannelInstance | None:
         async with self._session_factory() as session:
@@ -209,16 +234,22 @@ class SqlAlchemyChannelRepository:
                 select(ChannelInstanceModel).where(
                     ChannelInstanceModel.id == channel_id,
                     ChannelInstanceModel.tenant_id == tenant_id,
+                    ChannelInstanceModel.agent_id == agent_id,
                 )
             )
         return self._instance(row) if row is not None else None
 
-    async def list_instances(self, *, tenant_id: UUID) -> tuple[ChannelInstance, ...]:
+    async def list_instances(
+        self, *, tenant_id: UUID, agent_id: UUID
+    ) -> tuple[ChannelInstance, ...]:
         async with self._session_factory() as session:
             rows = (
                 await session.scalars(
                     select(ChannelInstanceModel)
-                    .where(ChannelInstanceModel.tenant_id == tenant_id)
+                    .where(
+                        ChannelInstanceModel.tenant_id == tenant_id,
+                        ChannelInstanceModel.agent_id == agent_id,
+                    )
                     .order_by(ChannelInstanceModel.created_at, ChannelInstanceModel.id)
                 )
             ).all()
@@ -238,6 +269,7 @@ class SqlAlchemyChannelRepository:
                     .where(
                         ChannelInstanceModel.id == instance.id,
                         ChannelInstanceModel.tenant_id == instance.tenant_id,
+                        ChannelInstanceModel.agent_id == instance.agent_id,
                     )
                     .with_for_update()
                 )
@@ -325,11 +357,21 @@ class SqlAlchemyChannelRepository:
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         channel_id: UUID | None,
         limit: int,
     ) -> tuple[ChannelDiagnosticEvent, ...]:
-        statement = select(ChannelDiagnosticEventModel).where(
-            ChannelDiagnosticEventModel.tenant_id == tenant_id
+        statement = (
+            select(ChannelDiagnosticEventModel)
+            .join(
+                ChannelInstanceModel,
+                ChannelInstanceModel.id == ChannelDiagnosticEventModel.channel_id,
+            )
+            .where(
+                ChannelDiagnosticEventModel.tenant_id == tenant_id,
+                ChannelInstanceModel.tenant_id == tenant_id,
+                ChannelInstanceModel.agent_id == agent_id,
+            )
         )
         if channel_id is not None:
             statement = statement.where(ChannelDiagnosticEventModel.channel_id == channel_id)
@@ -385,6 +427,7 @@ class SqlAlchemyChannelRepository:
         return ChannelInstanceModel(
             id=item.id,
             tenant_id=item.tenant_id,
+            agent_id=item.agent_id,
             name=item.name,
             platform=item.platform.value,
             status=item.status.value,
@@ -421,6 +464,7 @@ class SqlAlchemyChannelRepository:
         return ChannelInstance(
             id=row.id,
             tenant_id=row.tenant_id,
+            agent_id=row.agent_id,
             name=row.name,
             platform=ChannelPlatform(row.platform),
             status=ChannelInstanceStatus(row.status),
@@ -468,6 +512,7 @@ class SqlAlchemyChannelRepository:
                 resource_type="channel_instance",
                 resource_id=str(instance.id),
                 detail={
+                    "agent_id": str(instance.agent_id),
                     "platform": instance.platform.value,
                     "status": instance.status.value,
                     "rate_limit_per_minute": instance.rate_limit_per_minute,

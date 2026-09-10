@@ -20,6 +20,7 @@ import {
   type ChannelPlatform,
   type ModelCapabilityProfile,
 } from '../api'
+import { useSelectedAgentId } from '../agentSelection'
 import { AdminDataTable, type AdminTableColumn } from '../components/AdminDataTable'
 import {
   channelCapabilityLabels,
@@ -54,6 +55,11 @@ function modelInputs(profile: ModelCapabilityProfile) {
 }
 
 export function ChannelsPage() {
+  const selectedAgentId = useSelectedAgentId()
+  return <ChannelsPageContent key={selectedAgentId ?? 'default'} selectedAgentId={selectedAgentId} />
+}
+
+function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | null }) {
   const queryClient = useQueryClient()
   const [name, setName] = useState('内部 Web')
   const [platform, setPlatform] = useState<ChannelPlatform>('web')
@@ -72,16 +78,22 @@ export function ChannelsPage() {
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const catalog = useQuery({ queryKey: ['channel-catalog'], queryFn: getChannelCatalog })
   const models = useQuery({ queryKey: ['model-capabilities'], queryFn: getModelCapabilities })
-  const instances = useQuery({ queryKey: ['channel-instances'], queryFn: getChannelInstances })
-  const events = useQuery({ queryKey: ['channel-events'], queryFn: () => getChannelEvents() })
+  const instances = useQuery({
+    queryKey: ['channel-instances', selectedAgentId],
+    queryFn: getChannelInstances,
+  })
+  const events = useQuery({
+    queryKey: ['channel-events', selectedAgentId],
+    queryFn: () => getChannelEvents(),
+  })
   const canWrite = session.data?.permissions.includes('channel:write') ?? false
   const canSend = session.data?.permissions.includes('channel:send') ?? false
   const canManageCredential = session.data?.permissions.includes('channel_credential:manage') ?? false
 
   const refresh = async () => {
     await Promise.all([
-      invalidateAcrossTabs(queryClient, ['channel-instances']),
-      invalidateAcrossTabs(queryClient, ['channel-events']),
+      invalidateAcrossTabs(queryClient, ['channel-instances', selectedAgentId]),
+      invalidateAcrossTabs(queryClient, ['channel-events', selectedAgentId]),
     ])
   }
   const createMutation = useMutation({
@@ -190,6 +202,7 @@ export function ChannelsPage() {
       {(catalog.isError || models.isError || instances.isError || events.isError) && <div className="notice error">渠道数据读取失败，请检查 API 与迁移状态。</div>}
       {(formError || operationError) && <div className="notice error">{formError || operationError?.message}</div>}
       <div className="notice info"><ShieldCheck size={17} /><div><strong>凭证只写入信封加密存储</strong><span>API、页面、诊断事件和审计记录只展示是否已配置；能力降级会明确列出，不会静默丢弃图片、文件、线程或流式语义。</span></div></div>
+      <div className="notice info"><RadioTower size={17} /><div><strong>渠道严格归属当前 Agent</strong><span>创建、凭证、连接测试、收发模拟和诊断事件均按全局选择隔离；当前标识：{selectedAgentId ?? '默认 Agent'}。</span></div></div>
 
       <section className="channel-catalog-grid" aria-label="Adapter 能力目录">
         {(catalog.data?.items ?? []).map((item) => <article className="panel channel-catalog-card" key={item.platform}>

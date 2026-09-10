@@ -134,6 +134,7 @@ class ChannelInstanceResponse(BaseModel):
 
     id: UUID
     tenant_id: UUID
+    agent_id: UUID
     name: str
     platform: ChannelPlatform
     display_name: str
@@ -152,7 +153,7 @@ class ChannelInstanceResponse(BaseModel):
 
 
 class ChannelInstanceListResponse(BaseModel):
-    """当前租户全部渠道实例。"""
+    """当前租户所选 Agent 的全部渠道实例。"""
 
     items: tuple[ChannelInstanceResponse, ...]
 

@@ -162,6 +162,7 @@ export interface ChannelCatalogItem {
 export interface ChannelInstance {
   id: string
   tenant_id: string
+  agent_id: string
   name: string
   platform: ChannelPlatform
   display_name: string

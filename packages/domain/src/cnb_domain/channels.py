@@ -96,10 +96,11 @@ class MultimodalContentBlock:
 
 @dataclass(frozen=True, slots=True)
 class ChannelInstance:
-    """一个租户隔离且不直接保存凭证明文的渠道实例。"""
+    """一个归属单一 Agent 且不直接保存凭证明文的渠道实例。"""
 
     id: UUID
     tenant_id: UUID
+    agent_id: UUID
     name: str
     platform: ChannelPlatform
     status: ChannelInstanceStatus

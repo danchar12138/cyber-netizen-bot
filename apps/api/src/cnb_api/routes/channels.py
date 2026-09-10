@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from cnb_adapters import ChannelAdapterError, ChannelCapabilityError
-from cnb_api.dependencies import get_channel_service, require_permission
+from cnb_api.dependencies import get_channel_service, get_request_identity, require_permission
 from cnb_application import (
     ChannelConflictError,
     ChannelInstanceView,
@@ -43,6 +43,7 @@ from cnb_domain import (
     AdminPrincipal,
     ChannelCapabilities,
     ChannelDiagnosticEvent,
+    DevelopmentIdentity,
     MultimodalContentBlock,
 )
 
@@ -66,6 +67,7 @@ def _instance_response(value: ChannelInstanceView) -> ChannelInstanceResponse:
     return ChannelInstanceResponse(
         id=item.id,
         tenant_id=item.tenant_id,
+        agent_id=item.agent_id,
         name=item.name,
         platform=item.platform,
         display_name=value.display_name,
@@ -164,11 +166,16 @@ async def model_capabilities() -> ModelCapabilityMatrixResponse:
 )
 async def list_instances(
     principal: Annotated[AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_READ))],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
     service: Annotated[ChannelService, Depends(get_channel_service)],
 ) -> ChannelInstanceListResponse:
     return ChannelInstanceListResponse(
         items=tuple(
-            _instance_response(item) for item in await service.list(tenant_id=principal.tenant_id)
+            _instance_response(item)
+            for item in await service.list(
+                tenant_id=principal.tenant_id,
+                agent_id=identity.agent_id,
+            )
         )
     )
 
@@ -179,11 +186,13 @@ async def create_instance(
     principal: Annotated[
         AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_WRITE))
     ],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
     service: Annotated[ChannelService, Depends(get_channel_service)],
 ) -> ChannelInstanceResponse:
     try:
         item = await service.create(
             tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
             name=command.name,
             platform=command.platform,
             status=command.status,
@@ -201,11 +210,16 @@ async def create_instance(
 async def get_instance(
     channel_id: UUID,
     principal: Annotated[AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_READ))],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
     service: Annotated[ChannelService, Depends(get_channel_service)],
 ) -> ChannelInstanceResponse:
     """读取当前租户的单个渠道实例和安全凭证状态。"""
     try:
-        item = await service.get(tenant_id=principal.tenant_id, channel_id=channel_id)
+        item = await service.get(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            channel_id=channel_id,
+        )
     except ChannelNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     return _instance_response(item)
@@ -218,11 +232,13 @@ async def update_instance(
     principal: Annotated[
         AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_WRITE))
     ],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
     service: Annotated[ChannelService, Depends(get_channel_service)],
 ) -> ChannelInstanceResponse:
     try:
         item = await service.update(
             tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
             channel_id=channel_id,
             actor_id=principal.user_id,
             name=command.name,
@@ -246,11 +262,13 @@ async def set_credential(
         AdminPrincipal,
         Depends(require_permission(AdminPermission.CHANNEL_CREDENTIAL_MANAGE)),
     ],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
     service: Annotated[ChannelService, Depends(get_channel_service)],
 ) -> ChannelInstanceResponse:
     try:
         item = await service.set_credential(
             tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
             channel_id=channel_id,
             plaintext=command.credential.get_secret_value(),
             actor_id=principal.user_id,
@@ -270,11 +288,13 @@ async def clear_credential(
         AdminPrincipal,
         Depends(require_permission(AdminPermission.CHANNEL_CREDENTIAL_MANAGE)),
     ],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
     service: Annotated[ChannelService, Depends(get_channel_service)],
 ) -> ChannelInstanceResponse:
     try:
         item = await service.clear_credential(
             tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
             channel_id=channel_id,
             actor_id=principal.user_id,
             confirmed=command.confirmed,
@@ -292,11 +312,13 @@ async def test_connection(
     principal: Annotated[
         AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_WRITE))
     ],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
     service: Annotated[ChannelService, Depends(get_channel_service)],
 ) -> ChannelInstanceResponse:
     try:
         item = await service.test_connection(
             tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
             channel_id=channel_id,
             actor_id=principal.user_id,
         )
@@ -342,11 +364,13 @@ async def deliver(
     channel_id: UUID,
     command: ChannelDeliveryRequest,
     principal: Annotated[AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_SEND))],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
     service: Annotated[ChannelService, Depends(get_channel_service)],
 ) -> ChannelDeliveryResponse:
     try:
         result = await service.deliver(
             tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
             channel_id=channel_id,
             recipient_id=command.recipient_id,
             blocks=tuple(_block_input(item) for item in command.blocks),
@@ -379,11 +403,13 @@ async def simulate_inbound(
     channel_id: UUID,
     command: ChannelInboundSimulationCommand,
     principal: Annotated[AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_SEND))],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
     service: Annotated[ChannelService, Depends(get_channel_service)],
 ) -> ChannelInboundResponse:
     try:
         event = await service.normalize_inbound(
             tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
             channel_id=channel_id,
             payload=command.payload,
         )
@@ -414,12 +440,14 @@ async def simulate_inbound(
 async def list_events(
     principal: Annotated[AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_READ))],
     service: Annotated[ChannelService, Depends(get_channel_service)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
     channel_id: Annotated[UUID | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> ChannelDiagnosticEventListResponse:
     try:
         events = await service.events(
             tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
             channel_id=channel_id,
             limit=limit,
         )

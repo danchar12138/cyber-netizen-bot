@@ -100,10 +100,13 @@ class ChannelRepository(Protocol):
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         channel_id: UUID,
     ) -> ChannelInstance | None: ...
 
-    async def list_instances(self, *, tenant_id: UUID) -> tuple[ChannelInstance, ...]: ...
+    async def list_instances(
+        self, *, tenant_id: UUID, agent_id: UUID
+    ) -> tuple[ChannelInstance, ...]: ...
 
     async def update_instance(
         self,
@@ -131,6 +134,7 @@ class ChannelRepository(Protocol):
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         channel_id: UUID | None,
         limit: int,
     ) -> tuple[ChannelDiagnosticEvent, ...]: ...
@@ -184,6 +188,7 @@ class ChannelService:
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         name: str,
         platform: ChannelPlatform,
         status: ChannelInstanceStatus,
@@ -197,6 +202,7 @@ class ChannelService:
         instance = ChannelInstance(
             id=uuid4(),
             tenant_id=tenant_id,
+            agent_id=agent_id,
             name=self._text(name, "渠道名称", 120),
             platform=platform,
             status=status,
@@ -220,24 +226,35 @@ class ChannelService:
         if credential is not None:
             await self.set_credential(
                 tenant_id=tenant_id,
+                agent_id=agent_id,
                 channel_id=stored.id,
                 plaintext=credential,
                 actor_id=actor_id,
             )
         return await self._view(stored)
 
-    async def get(self, *, tenant_id: UUID, channel_id: UUID) -> ChannelInstanceView:
-        instance = await self._required(tenant_id=tenant_id, channel_id=channel_id)
+    async def get(
+        self, *, tenant_id: UUID, agent_id: UUID, channel_id: UUID
+    ) -> ChannelInstanceView:
+        instance = await self._required(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+        )
         return await self._view(instance)
 
-    async def list(self, *, tenant_id: UUID) -> tuple[ChannelInstanceView, ...]:
-        instances = await self._repository.list_instances(tenant_id=tenant_id)
+    async def list(self, *, tenant_id: UUID, agent_id: UUID) -> tuple[ChannelInstanceView, ...]:
+        instances = await self._repository.list_instances(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+        )
         return tuple([await self._view(instance) for instance in instances])
 
     async def update(
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         channel_id: UUID,
         actor_id: UUID,
         name: str | None,
@@ -248,7 +265,11 @@ class ChannelService:
     ) -> ChannelInstanceView:
         if not confirmed:
             raise ChannelValidationError("渠道状态与设置变更必须明确确认")
-        current = await self._required(tenant_id=tenant_id, channel_id=channel_id)
+        current = await self._required(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+        )
         updated = replace(
             current,
             name=self._text(name, "渠道名称", 120) if name is not None else current.name,
@@ -281,11 +302,16 @@ class ChannelService:
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         channel_id: UUID,
         plaintext: str,
         actor_id: UUID,
     ) -> ChannelInstanceView:
-        instance = await self._required(tenant_id=tenant_id, channel_id=channel_id)
+        instance = await self._required(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+        )
         if instance.platform is ChannelPlatform.WEB:
             raise ChannelConflictError("内部 Web Adapter 不使用外部凭证")
         if not plaintext:
@@ -303,13 +329,18 @@ class ChannelService:
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         channel_id: UUID,
         actor_id: UUID,
         confirmed: bool,
     ) -> ChannelInstanceView:
         if not confirmed:
             raise ChannelValidationError("清除渠道凭证必须明确确认")
-        instance = await self._required(tenant_id=tenant_id, channel_id=channel_id)
+        instance = await self._required(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+        )
         key = _CREDENTIAL_KEYS.get(instance.platform)
         if key is None:
             raise ChannelConflictError("内部 Web Adapter 没有可清除凭证")
@@ -332,10 +363,15 @@ class ChannelService:
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         channel_id: UUID,
         actor_id: UUID,
     ) -> ChannelInstanceView:
-        instance = await self._required(tenant_id=tenant_id, channel_id=channel_id)
+        instance = await self._required(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+        )
         if instance.status is ChannelInstanceStatus.DISABLED:
             health_status = ChannelHealthStatus.DISABLED
             detail = "渠道实例已停用，未执行连接测试。"
@@ -424,6 +460,7 @@ class ChannelService:
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         channel_id: UUID,
         recipient_id: str,
         blocks: tuple[MultimodalContentBlock, ...],
@@ -433,7 +470,11 @@ class ChannelService:
         edit_message_id: str | None,
         proactive: bool,
     ) -> ChannelDeliveryReceipt:
-        instance = await self._required(tenant_id=tenant_id, channel_id=channel_id)
+        instance = await self._required(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+        )
         normalized_key = self._text(idempotency_key, "发送幂等键", 255)
         existing = await self._repository.get_event_by_idempotency(
             tenant_id=tenant_id,
@@ -514,10 +555,15 @@ class ChannelService:
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         channel_id: UUID,
         payload: Mapping[str, JsonValue],
     ) -> ChannelInboundEvent:
-        instance = await self._required(tenant_id=tenant_id, channel_id=channel_id)
+        instance = await self._required(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+        )
         if instance.status is ChannelInstanceStatus.DISABLED:
             raise ChannelConflictError("渠道实例已停用")
         adapter = self._adapters.get(instance.platform)
@@ -550,22 +596,35 @@ class ChannelService:
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         channel_id: UUID | None,
         limit: int,
     ) -> tuple[ChannelDiagnosticEvent, ...]:
         if not 1 <= limit <= 500:
             raise ChannelValidationError("诊断事件数量必须位于 1 到 500 之间")
         if channel_id is not None:
-            await self._required(tenant_id=tenant_id, channel_id=channel_id)
+            await self._required(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                channel_id=channel_id,
+            )
         return await self._repository.list_events(
             tenant_id=tenant_id,
+            agent_id=agent_id,
             channel_id=channel_id,
             limit=limit,
         )
 
-    async def _required(self, *, tenant_id: UUID, channel_id: UUID) -> ChannelInstance:
+    async def _required(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID,
+    ) -> ChannelInstance:
         instance = await self._repository.get_instance(
             tenant_id=tenant_id,
+            agent_id=agent_id,
             channel_id=channel_id,
         )
         if instance is None:

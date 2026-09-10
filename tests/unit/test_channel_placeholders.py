@@ -170,7 +170,7 @@ def test_capability_negotiation_transparently_degrades_and_splits_content() -> N
 
 
 async def test_web_adapter_delivery_is_idempotent_and_rate_limited() -> None:
-    tenant_id, actor_id = uuid4(), uuid4()
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
     repository = MemoryChannelRepository()
     service = ChannelService(
         repository,
@@ -179,6 +179,7 @@ async def test_web_adapter_delivery_is_idempotent_and_rate_limited() -> None:
     )
     instance = await service.create(
         tenant_id=tenant_id,
+        agent_id=agent_id,
         name="内部 Web",
         platform=ChannelPlatform.WEB,
         status=ChannelInstanceStatus.ENABLED,
@@ -190,6 +191,7 @@ async def test_web_adapter_delivery_is_idempotent_and_rate_limited() -> None:
     block = MultimodalContentBlock(kind=ContentBlockKind.MARKDOWN, text="你好，**世界**")
     first = await service.deliver(
         tenant_id=tenant_id,
+        agent_id=agent_id,
         channel_id=instance.instance.id,
         recipient_id="browser-session",
         blocks=(block,),
@@ -201,6 +203,7 @@ async def test_web_adapter_delivery_is_idempotent_and_rate_limited() -> None:
     )
     replay = await service.deliver(
         tenant_id=tenant_id,
+        agent_id=agent_id,
         channel_id=instance.instance.id,
         recipient_id="browser-session",
         blocks=(block,),
@@ -215,6 +218,7 @@ async def test_web_adapter_delivery_is_idempotent_and_rate_limited() -> None:
     with pytest.raises(ChannelRateLimitError, match="每分钟发送上限"):
         await service.deliver(
             tenant_id=tenant_id,
+            agent_id=agent_id,
             channel_id=instance.instance.id,
             recipient_id="browser-session",
             blocks=(block,),
@@ -227,12 +231,13 @@ async def test_web_adapter_delivery_is_idempotent_and_rate_limited() -> None:
 
 
 async def test_placeholder_credentials_never_turn_into_false_healthy_state() -> None:
-    tenant_id, actor_id = uuid4(), uuid4()
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
     repository = MemoryChannelRepository()
     secrets = MemorySecretStore()
     service = ChannelService(repository, build_default_channel_registry(), secrets)
     instance = await service.create(
         tenant_id=tenant_id,
+        agent_id=agent_id,
         name="飞书预留",
         platform=ChannelPlatform.FEISHU,
         status=ChannelInstanceStatus.ENABLED,
@@ -243,6 +248,7 @@ async def test_placeholder_credentials_never_turn_into_false_healthy_state() -> 
     )
     tested = await service.test_connection(
         tenant_id=tenant_id,
+        agent_id=agent_id,
         channel_id=instance.instance.id,
         actor_id=actor_id,
     )
@@ -252,6 +258,7 @@ async def test_placeholder_credentials_never_turn_into_false_healthy_state() -> 
     with pytest.raises(ChannelNotConfiguredError, match="未发送任何外部消息"):
         await service.deliver(
             tenant_id=tenant_id,
+            agent_id=agent_id,
             channel_id=instance.instance.id,
             recipient_id="open-id",
             blocks=(MultimodalContentBlock(kind=ContentBlockKind.TEXT, text="不会发出"),),
@@ -264,7 +271,8 @@ async def test_placeholder_credentials_never_turn_into_false_healthy_state() -> 
 
 
 async def test_channel_views_use_secret_metadata_and_remain_tenant_isolated() -> None:
-    tenant_id, other_tenant_id, actor_id = uuid4(), uuid4(), uuid4()
+    tenant_id, other_tenant_id = uuid4(), uuid4()
+    agent_id, other_agent_id, actor_id = uuid4(), uuid4(), uuid4()
     secrets = MetadataOnlySecretStore()
     service = ChannelService(
         MemoryChannelRepository(),
@@ -274,6 +282,7 @@ async def test_channel_views_use_secret_metadata_and_remain_tenant_isolated() ->
 
     created = await service.create(
         tenant_id=tenant_id,
+        agent_id=agent_id,
         name="飞书元数据边界",
         platform=ChannelPlatform.FEISHU,
         status=ChannelInstanceStatus.DISABLED,
@@ -284,11 +293,27 @@ async def test_channel_views_use_secret_metadata_and_remain_tenant_isolated() ->
     )
 
     assert created.credential_configured is True
-    assert (await service.list(tenant_id=tenant_id))[0].credential_configured is True
-    assert await service.list(tenant_id=other_tenant_id) == ()
+    await service.create(
+        tenant_id=tenant_id,
+        agent_id=other_agent_id,
+        name="飞书元数据边界",
+        platform=ChannelPlatform.FEISHU,
+        status=ChannelInstanceStatus.DISABLED,
+        rate_limit_per_minute=60,
+        settings={},
+        credential=None,
+        actor_id=actor_id,
+    )
+
+    assert (await service.list(tenant_id=tenant_id, agent_id=agent_id))[
+        0
+    ].credential_configured is True
+    assert len(await service.list(tenant_id=tenant_id, agent_id=other_agent_id)) == 1
+    assert await service.list(tenant_id=other_tenant_id, agent_id=agent_id) == ()
     with pytest.raises(ChannelNotFoundError, match="渠道实例不存在"):
         await service.get(
-            tenant_id=other_tenant_id,
+            tenant_id=tenant_id,
+            agent_id=other_agent_id,
             channel_id=created.instance.id,
         )
 
@@ -303,6 +328,7 @@ async def test_channel_public_settings_reject_nested_secret_like_fields() -> Non
     with pytest.raises(ChannelValidationError, match="禁止包含疑似密钥字段"):
         await service.create(
             tenant_id=uuid4(),
+            agent_id=uuid4(),
             name="不安全设置",
             platform=ChannelPlatform.FEISHU,
             status=ChannelInstanceStatus.DISABLED,
