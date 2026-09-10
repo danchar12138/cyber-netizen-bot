@@ -17,6 +17,7 @@ import { DashboardPage } from './views/DashboardPage'
 import { DataLifecyclePage } from './views/DataLifecyclePage'
 import { EntityManagementPage } from './views/EntityManagementPage'
 import { EvaluationsPage } from './views/EvaluationsPage'
+import { IntegrationsPage } from './views/IntegrationsPage'
 import { MemoryPage } from './views/MemoryPage'
 import { ObservabilityPage } from './views/ObservabilityPage'
 import { SectionRoutePage } from './views/SectionRoutePage'
@@ -133,6 +134,12 @@ const channelsRoute = createRoute({
   component: ChannelsPage,
 })
 
+const integrationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/integrations',
+  component: IntegrationsPage,
+})
+
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
@@ -168,6 +175,7 @@ const routeTree = rootRoute.addChildren([
   evaluationsRoute,
   observabilityRoute,
   channelsRoute,
+  integrationsRoute,
   tasksRoute,
   settingsRoute,
   dataLifecycleRoute,

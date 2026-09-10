@@ -24,6 +24,7 @@ from cnb_api.routes import (
     data_lifecycle,
     evaluations,
     health,
+    inbound,
     memory,
     observability,
     system,
@@ -40,6 +41,7 @@ from cnb_application import (
     ConversationRepository,
     DataLifecycleRepository,
     EvaluationRepository,
+    InboundGatewayRepository,
     MemoryRepository,
     ModelProviderResolver,
     ModelReliabilityGuard,
@@ -64,6 +66,7 @@ from cnb_infrastructure import (
     MemoryCognitionRepository,
     MemoryDataLifecycleRepository,
     MemoryEvaluationRepository,
+    MemoryInboundGatewayRepository,
     MemoryObjectStorage,
     MemoryObservabilityRepository,
     MemorySecretStore,
@@ -78,6 +81,7 @@ from cnb_infrastructure import (
     SqlAlchemyConversationRepository,
     SqlAlchemyDataLifecycleRepository,
     SqlAlchemyEvaluationRepository,
+    SqlAlchemyInboundGatewayRepository,
     SqlAlchemyMemoryRepository,
     SqlAlchemyObservabilityRepository,
     SqlAlchemySecretStore,
@@ -98,6 +102,7 @@ def create_app(
     conversation_repository: ConversationRepository | None = None,
     data_lifecycle_repository: DataLifecycleRepository | None = None,
     evaluation_repository: EvaluationRepository | None = None,
+    inbound_repository: InboundGatewayRepository | None = None,
     memory_repository: MemoryRepository | None = None,
     task_repository: TaskRepository | None = None,
     administration_repository: AdministrationRepository | None = None,
@@ -197,6 +202,14 @@ def create_app(
     application.state.conversation_repository = (
         conversation_repository or SqlAlchemyConversationRepository(session_factory)
     )
+    if inbound_repository is not None:
+        application.state.inbound_repository = inbound_repository
+    elif configuration_repository is not None or conversation_repository is not None:
+        application.state.inbound_repository = MemoryInboundGatewayRepository(
+            administration_seed_identity
+        )
+    else:
+        application.state.inbound_repository = SqlAlchemyInboundGatewayRepository(session_factory)
     if data_lifecycle_repository is not None:
         application.state.data_lifecycle_repository = data_lifecycle_repository
     elif configuration_repository is not None or conversation_repository is not None:
@@ -319,6 +332,7 @@ def create_app(
     application.include_router(cognition.router, prefix="/api/v1")
     application.include_router(evaluations.router, prefix="/api/v1")
     application.include_router(channels.router, prefix="/api/v1")
+    application.include_router(inbound.router, prefix="/api/v1")
     application.include_router(memory.router, prefix="/api/v1")
     application.include_router(observability.router, prefix="/api/v1")
     application.include_router(tasks.router, prefix="/api/v1")

@@ -74,6 +74,18 @@ class TaskRepository(Protocol):
 
     async def get_job(self, *, tenant_id: UUID, job_id: UUID) -> BackgroundJob | None: ...
 
+    async def get_inbox_event(self, *, tenant_id: UUID, inbox_id: UUID) -> InboxEvent | None: ...
+
+    async def list_inbox_events(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        status: InboxEventStatus | None,
+        channel_id: UUID | None,
+        limit: int,
+    ) -> tuple[InboxEvent, ...]: ...
+
     async def list_jobs(
         self,
         *,
@@ -225,6 +237,7 @@ _QUEUE_BY_KIND = {
     BackgroundJobKind.EMBEDDING_REBUILD: "memory",
     BackgroundJobKind.RELATIONSHIP_UPDATE: "memory",
     BackgroundJobKind.SCHEDULED_ACTION: "proactive",
+    BackgroundJobKind.INBOUND_MESSAGE: "inbound",
 }
 _TERMINAL_REPLAYABLE = {
     BackgroundJobStatus.FAILED,
@@ -352,6 +365,44 @@ class BackgroundTaskService:
         if item is None:
             raise TaskNotFoundError(f"任务不存在：{job_id}")
         return item
+
+    async def get_inbox_by_id(self, *, tenant_id: UUID, inbox_id: UUID) -> InboxEvent:
+        item = await self._repository.get_inbox_event(
+            tenant_id=tenant_id,
+            inbox_id=inbox_id,
+        )
+        if item is None:
+            raise TaskNotFoundError(f"Inbox 事件不存在：{inbox_id}")
+        return item
+
+    async def get_inbox(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        inbox_id: UUID,
+    ) -> InboxEvent:
+        item = await self.get_inbox_by_id(tenant_id=tenant_id, inbox_id=inbox_id)
+        if item.agent_id != agent_id:
+            raise TaskNotFoundError(f"Inbox 事件不存在：{inbox_id}")
+        return item
+
+    async def list_inbox(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        status: InboxEventStatus | None,
+        channel_id: UUID | None,
+        limit: int,
+    ) -> tuple[InboxEvent, ...]:
+        return await self._repository.list_inbox_events(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            status=status,
+            channel_id=channel_id,
+            limit=self._limit(limit),
+        )
 
     async def list_jobs(
         self,

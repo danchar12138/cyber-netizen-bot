@@ -1621,6 +1621,23 @@ class InboxEventModel(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error_code: Mapped[str | None] = mapped_column(String(120))
+    agent_id: Mapped[UUID | None] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"))
+    channel_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("channel_instances.id", ondelete="CASCADE")
+    )
+    schema_version: Mapped[str | None] = mapped_column(String(16))
+    platform: Mapped[str | None] = mapped_column(String(32))
+    external_event_digest: Mapped[str | None] = mapped_column(String(64))
+    external_subject_digest: Mapped[str | None] = mapped_column(String(64))
+    external_conversation_digest: Mapped[str | None] = mapped_column(String(64))
+    external_thread_digest: Mapped[str | None] = mapped_column(String(64))
+    external_message_digest: Mapped[str | None] = mapped_column(String(64))
+    user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    conversation_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL")
+    )
+    content_kinds: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    content_block_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     __table_args__ = (
         CheckConstraint(
@@ -1630,6 +1647,17 @@ class InboxEventModel(Base):
         UniqueConstraint("tenant_id", "event_key", name="uq_inbox_events_tenant_key"),
         UniqueConstraint("job_id", name="uq_inbox_events_job"),
         Index("ix_inbox_events_status", "tenant_id", "status", "received_at"),
+        Index(
+            "ix_inbox_events_agent_status",
+            "tenant_id",
+            "agent_id",
+            "status",
+            "received_at",
+        ),
+        CheckConstraint(
+            "content_block_count >= 0",
+            name="ck_inbox_events_content_block_count",
+        ),
     )
 
 
@@ -1674,7 +1702,8 @@ class BackgroundJobModel(Base):
     __table_args__ = (
         CheckConstraint(
             "kind IN ('reflection', 'episode_consolidation', 'memory_extraction', "
-            "'embedding_rebuild', 'relationship_update', 'scheduled_action')",
+            "'embedding_rebuild', 'relationship_update', 'scheduled_action', "
+            "'inbound_message')",
             name="ck_background_jobs_kind",
         ),
         CheckConstraint(
@@ -1944,6 +1973,124 @@ class ChannelInstanceModel(Base):
             "tenant_id",
             "agent_id",
             "platform",
+            "status",
+        ),
+    )
+
+
+class ExternalIdentityMappingModel(Base):
+    """平台主体到本地用户的显式、Agent 级映射。"""
+
+    __tablename__ = "external_identity_mappings"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    channel_id: Mapped[UUID] = mapped_column(
+        ForeignKey("channel_instances.id", ondelete="CASCADE"), nullable=False
+    )
+    platform: Mapped[str] = mapped_column(String(32), nullable=False)
+    external_subject_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "platform IN ('web', 'feishu', 'discord', 'telegram')",
+            name="ck_external_identity_mappings_platform",
+        ),
+        CheckConstraint(
+            "status IN ('enabled', 'disabled')",
+            name="ck_external_identity_mappings_status",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "platform",
+            "channel_id",
+            "external_subject_id",
+            name="uq_external_identity_mappings_subject",
+        ),
+        Index(
+            "ix_external_identity_mappings_agent",
+            "tenant_id",
+            "agent_id",
+            "channel_id",
+            "status",
+        ),
+    )
+
+
+class ExternalConversationMappingModel(Base):
+    """平台会话/线程到内部 Conversation 的显式映射。"""
+
+    __tablename__ = "external_conversation_mappings"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    channel_id: Mapped[UUID] = mapped_column(
+        ForeignKey("channel_instances.id", ondelete="CASCADE"), nullable=False
+    )
+    platform: Mapped[str] = mapped_column(String(32), nullable=False)
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    external_conversation_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    external_thread_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    conversation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "platform IN ('web', 'feishu', 'discord', 'telegram')",
+            name="ck_external_conversation_mappings_platform",
+        ),
+        CheckConstraint(
+            "kind IN ('direct', 'group')",
+            name="ck_external_conversation_mappings_kind",
+        ),
+        CheckConstraint(
+            "status IN ('enabled', 'disabled')",
+            name="ck_external_conversation_mappings_status",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "platform",
+            "channel_id",
+            "external_conversation_id",
+            "external_thread_id",
+            name="uq_external_conversation_mappings_route",
+        ),
+        UniqueConstraint(
+            "channel_id",
+            "conversation_id",
+            name="uq_external_conversation_mappings_local",
+        ),
+        Index(
+            "ix_external_conversation_mappings_agent",
+            "tenant_id",
+            "agent_id",
+            "channel_id",
             "status",
         ),
     )

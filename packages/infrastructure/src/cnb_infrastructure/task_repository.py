@@ -95,6 +95,32 @@ class InMemoryTaskRepository:
             item = self.jobs.get(job_id)
             return item if item is not None and item.tenant_id == tenant_id else None
 
+    async def get_inbox_event(self, *, tenant_id: UUID, inbox_id: UUID) -> InboxEvent | None:
+        async with self._lock:
+            item = self.inbox_events.get(inbox_id)
+            return item if item is not None and item.tenant_id == tenant_id else None
+
+    async def list_inbox_events(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        status: InboxEventStatus | None,
+        channel_id: UUID | None,
+        limit: int,
+    ) -> tuple[InboxEvent, ...]:
+        async with self._lock:
+            rows = [
+                item
+                for item in self.inbox_events.values()
+                if item.tenant_id == tenant_id
+                and item.agent_id == agent_id
+                and (status is None or item.status is status)
+                and (channel_id is None or item.channel_id == channel_id)
+            ]
+            rows.sort(key=lambda item: (item.received_at, str(item.id)), reverse=True)
+            return tuple(rows[:limit])
+
     async def list_jobs(
         self,
         *,
@@ -791,6 +817,44 @@ class SqlAlchemyTaskRepository:
                 )
             )
         return self._job(row) if row is not None else None
+
+    async def get_inbox_event(self, *, tenant_id: UUID, inbox_id: UUID) -> InboxEvent | None:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(InboxEventModel).where(
+                    InboxEventModel.tenant_id == tenant_id,
+                    InboxEventModel.id == inbox_id,
+                )
+            )
+        return self._inbox(row) if row is not None else None
+
+    async def list_inbox_events(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        status: InboxEventStatus | None,
+        channel_id: UUID | None,
+        limit: int,
+    ) -> tuple[InboxEvent, ...]:
+        statement = select(InboxEventModel).where(
+            InboxEventModel.tenant_id == tenant_id,
+            InboxEventModel.agent_id == agent_id,
+        )
+        if status is not None:
+            statement = statement.where(InboxEventModel.status == status.value)
+        if channel_id is not None:
+            statement = statement.where(InboxEventModel.channel_id == channel_id)
+        async with self._session_factory() as session:
+            rows = (
+                await session.scalars(
+                    statement.order_by(
+                        InboxEventModel.received_at.desc(),
+                        InboxEventModel.id.desc(),
+                    ).limit(limit)
+                )
+            ).all()
+        return tuple(self._inbox(row) for row in rows)
 
     async def list_jobs(
         self,
@@ -1534,6 +1598,47 @@ class SqlAlchemyTaskRepository:
             received_at=item.received_at,
             processed_at=item.processed_at,
             last_error_code=item.last_error_code,
+            agent_id=item.agent_id,
+            channel_id=item.channel_id,
+            schema_version=item.schema_version,
+            platform=item.platform,
+            external_event_digest=item.external_event_digest,
+            external_subject_digest=item.external_subject_digest,
+            external_conversation_digest=item.external_conversation_digest,
+            external_thread_digest=item.external_thread_digest,
+            external_message_digest=item.external_message_digest,
+            user_id=item.user_id,
+            conversation_id=item.conversation_id,
+            content_kinds=list(item.content_kinds),
+            content_block_count=item.content_block_count,
+        )
+
+    @staticmethod
+    def _inbox(row: InboxEventModel) -> InboxEvent:
+        return InboxEvent(
+            id=row.id,
+            tenant_id=row.tenant_id,
+            event_key=row.event_key,
+            event_type=row.event_type,
+            payload=cast(dict[str, JsonValue], row.payload),
+            status=InboxEventStatus(row.status),
+            job_id=row.job_id,
+            received_at=row.received_at,
+            processed_at=row.processed_at,
+            last_error_code=row.last_error_code,
+            agent_id=row.agent_id,
+            channel_id=row.channel_id,
+            schema_version=row.schema_version,
+            platform=row.platform,
+            external_event_digest=row.external_event_digest,
+            external_subject_digest=row.external_subject_digest,
+            external_conversation_digest=row.external_conversation_digest,
+            external_thread_digest=row.external_thread_digest,
+            external_message_digest=row.external_message_digest,
+            user_id=row.user_id,
+            conversation_id=row.conversation_id,
+            content_kinds=tuple(row.content_kinds),
+            content_block_count=row.content_block_count,
         )
 
     @staticmethod

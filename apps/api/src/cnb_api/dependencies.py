@@ -30,6 +30,8 @@ from cnb_application import (
     DataLifecycleService,
     EvaluationRepository,
     EvaluationService,
+    InboundGatewayRepository,
+    InboundGatewayService,
     MemoryRepository,
     MemoryService,
     ModelProviderResolver,
@@ -76,6 +78,12 @@ def get_configuration_repository(request: HTTPConnection) -> ConfigurationReposi
 def get_channel_repository(request: HTTPConnection) -> ChannelRepository:
     """返回组合根选择的渠道实例与诊断仓储。"""
     repository: ChannelRepository = request.app.state.channel_repository
+    return repository
+
+
+def get_inbound_repository(request: HTTPConnection) -> InboundGatewayRepository:
+    """返回组合根选择的外部身份与线程路由仓储。"""
+    repository: InboundGatewayRepository = request.app.state.inbound_repository
     return repository
 
 
@@ -353,6 +361,25 @@ def get_task_service(
 ) -> BackgroundTaskService:
     """构建请求级后台任务治理服务。"""
     return BackgroundTaskService(repository)
+
+
+def get_inbound_service(
+    repository: Annotated[InboundGatewayRepository, Depends(get_inbound_repository)],
+    channel_repository: Annotated[ChannelRepository, Depends(get_channel_repository)],
+    conversation_repository: Annotated[
+        ConversationRepository, Depends(get_conversation_repository)
+    ],
+    task_service: Annotated[BackgroundTaskService, Depends(get_task_service)],
+    configuration_service: Annotated[ConfigurationService, Depends(get_configuration_service)],
+) -> InboundGatewayService:
+    """构建绑定映射、可靠任务与配置中心的入站服务。"""
+    return InboundGatewayService(
+        repository=repository,
+        channel_repository=channel_repository,
+        conversation_repository=conversation_repository,
+        task_service=task_service,
+        configuration_service=configuration_service,
+    )
 
 
 def get_scheduled_action_service(

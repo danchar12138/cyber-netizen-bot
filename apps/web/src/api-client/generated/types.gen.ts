@@ -88,7 +88,7 @@ export type ActiveAlertResponse = {
  *
  * API 按能力而非页面名称执行的细粒度权限。
  */
-export type AdminPermission = 'dashboard:read' | 'configuration:read' | 'configuration:write' | 'secret:manage' | 'conversation:read' | 'conversation:use' | 'access_control:read' | 'agent:read' | 'agent:write' | 'cognition:read' | 'cognition:write' | 'cognition:evaluate' | 'evaluation:review' | 'memory:read' | 'memory:write' | 'memory:rebuild' | 'task:read' | 'task:manage' | 'proactive:manage' | 'channel:read' | 'channel:write' | 'channel:send' | 'channel_credential:manage' | 'trace:read' | 'user:read' | 'user:write' | 'audit:read' | 'data_lifecycle:read' | 'data_lifecycle:export' | 'data_lifecycle:forget' | 'data_lifecycle:retention_manage' | 'data_lifecycle:backup_drill_record';
+export type AdminPermission = 'dashboard:read' | 'configuration:read' | 'configuration:write' | 'secret:manage' | 'conversation:read' | 'conversation:use' | 'access_control:read' | 'agent:read' | 'agent:write' | 'cognition:read' | 'cognition:write' | 'cognition:evaluate' | 'evaluation:review' | 'memory:read' | 'memory:write' | 'memory:rebuild' | 'task:read' | 'task:manage' | 'proactive:manage' | 'channel:read' | 'channel:write' | 'channel:send' | 'channel_credential:manage' | 'integration:read' | 'integration:manage' | 'inbox:replay' | 'trace:read' | 'user:read' | 'user:write' | 'audit:read' | 'data_lifecycle:read' | 'data_lifecycle:export' | 'data_lifecycle:forget' | 'data_lifecycle:retention_manage' | 'data_lifecycle:backup_drill_record';
 
 /**
  * AdminRole
@@ -717,7 +717,7 @@ export type BackgroundJobDetailResponse = {
  *
  * Worker 可执行的稳定任务种类。
  */
-export type BackgroundJobKind = 'reflection' | 'episode_consolidation' | 'memory_extraction' | 'embedding_rebuild' | 'relationship_update' | 'scheduled_action';
+export type BackgroundJobKind = 'reflection' | 'episode_consolidation' | 'memory_extraction' | 'embedding_rebuild' | 'relationship_update' | 'scheduled_action' | 'inbound_message';
 
 /**
  * BackgroundJobListResponse
@@ -3036,6 +3036,195 @@ export type EvaluationSuiteResponse = {
 export type EvaluationSuiteStatus = 'draft' | 'published' | 'superseded';
 
 /**
+ * ExternalConversationKind
+ *
+ * 平台会话的稳定语义，不使用显示名称推断。
+ */
+export type ExternalConversationKind = 'direct' | 'group';
+
+/**
+ * ExternalConversationMappingCreate
+ *
+ * 显式绑定平台会话/线程与内部 Conversation。
+ */
+export type ExternalConversationMappingCreate = {
+    /**
+     * Channel Id
+     */
+    channel_id: string;
+    /**
+     * Conversation Id
+     */
+    conversation_id: string;
+    /**
+     * External Conversation Id
+     */
+    external_conversation_id: string;
+    /**
+     * External Thread Id
+     */
+    external_thread_id?: string | null;
+    kind: ExternalConversationKind;
+    /**
+     * User Id
+     */
+    user_id: string;
+};
+
+/**
+ * ExternalConversationMappingListResponse
+ */
+export type ExternalConversationMappingListResponse = {
+    /**
+     * Items
+     */
+    items: Array<ExternalConversationMappingResponse>;
+};
+
+/**
+ * ExternalConversationMappingResponse
+ */
+export type ExternalConversationMappingResponse = {
+    /**
+     * Agent Id
+     */
+    agent_id: string;
+    /**
+     * Channel Id
+     */
+    channel_id: string;
+    /**
+     * Conversation Id
+     */
+    conversation_id: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Created By
+     */
+    created_by: string;
+    /**
+     * External Conversation Id
+     */
+    external_conversation_id: string;
+    /**
+     * External Thread Id
+     */
+    external_thread_id: string | null;
+    /**
+     * Id
+     */
+    id: string;
+    kind: ExternalConversationKind;
+    platform: ChannelPlatform;
+    status: ExternalMappingStatus;
+    /**
+     * Tenant Id
+     */
+    tenant_id: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * ExternalIdentityMappingCreate
+ *
+ * 显式绑定平台主体与本地用户。
+ */
+export type ExternalIdentityMappingCreate = {
+    /**
+     * Channel Id
+     */
+    channel_id: string;
+    /**
+     * External Subject Id
+     */
+    external_subject_id: string;
+    /**
+     * User Id
+     */
+    user_id: string;
+};
+
+/**
+ * ExternalIdentityMappingListResponse
+ */
+export type ExternalIdentityMappingListResponse = {
+    /**
+     * Items
+     */
+    items: Array<ExternalIdentityMappingResponse>;
+};
+
+/**
+ * ExternalIdentityMappingResponse
+ *
+ * 可管理的身份映射；外部 ID 仅在权限保护的管理接口返回。
+ */
+export type ExternalIdentityMappingResponse = {
+    /**
+     * Agent Id
+     */
+    agent_id: string;
+    /**
+     * Channel Id
+     */
+    channel_id: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Created By
+     */
+    created_by: string;
+    /**
+     * External Subject Id
+     */
+    external_subject_id: string;
+    /**
+     * Id
+     */
+    id: string;
+    platform: ChannelPlatform;
+    status: ExternalMappingStatus;
+    /**
+     * Tenant Id
+     */
+    tenant_id: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * User Id
+     */
+    user_id: string;
+};
+
+/**
+ * ExternalMappingStatus
+ *
+ * 外部路由映射是否允许参与新入站事件解析。
+ */
+export type ExternalMappingStatus = 'enabled' | 'disabled';
+
+/**
+ * ExternalMappingStatusCommand
+ */
+export type ExternalMappingStatusCommand = {
+    /**
+     * Confirmed
+     */
+    confirmed?: boolean;
+    status: ExternalMappingStatus;
+};
+
+/**
  * HealthResponse
  *
  * 服务健康检查响应。
@@ -3061,6 +3250,184 @@ export type HealthResponse = {
      * Version
      */
     version: string;
+};
+
+/**
+ * InboundAcceptanceResponse
+ */
+export type InboundAcceptanceResponse = {
+    /**
+     * Created
+     */
+    created: boolean;
+    /**
+     * Inbox Id
+     */
+    inbox_id: string;
+    /**
+     * Job Id
+     */
+    job_id: string;
+    /**
+     * Schema Version
+     */
+    schema_version: string;
+    status: InboxEventStatus;
+};
+
+/**
+ * InboundSimulationCommand
+ *
+ * 仅供内部 Web 与管理联调；不是外部平台 Webhook。
+ */
+export type InboundSimulationCommand = {
+    /**
+     * Payload
+     */
+    payload: {
+        [key: string]: JsonValueInput;
+    };
+    /**
+     * Payload Size Bytes
+     */
+    payload_size_bytes: number;
+    /**
+     * Received At
+     */
+    received_at: string;
+    /**
+     * Signature Valid
+     */
+    signature_valid?: boolean;
+};
+
+/**
+ * InboxEventListResponse
+ */
+export type InboxEventListResponse = {
+    /**
+     * Items
+     */
+    items: Array<InboxEventResponse>;
+};
+
+/**
+ * InboxEventResponse
+ *
+ * 不展示 Envelope 正文、原始外部 ID、对象键或凭证的诊断摘要。
+ */
+export type InboxEventResponse = {
+    /**
+     * Agent Id
+     */
+    agent_id: string;
+    /**
+     * Channel Id
+     */
+    channel_id: string;
+    /**
+     * Content Block Count
+     */
+    content_block_count: number;
+    /**
+     * Content Kinds
+     */
+    content_kinds: Array<string>;
+    /**
+     * Conversation Id
+     */
+    conversation_id: string;
+    /**
+     * Event Type
+     */
+    event_type: string;
+    /**
+     * External Conversation Digest
+     */
+    external_conversation_digest: string;
+    /**
+     * External Event Digest
+     */
+    external_event_digest: string;
+    /**
+     * External Message Digest
+     */
+    external_message_digest: string;
+    /**
+     * External Subject Digest
+     */
+    external_subject_digest: string;
+    /**
+     * External Thread Digest
+     */
+    external_thread_digest: string | null;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Job Id
+     */
+    job_id: string;
+    job_status?: BackgroundJobStatus | null;
+    /**
+     * Last Error Code
+     */
+    last_error_code: string | null;
+    platform: ChannelPlatform;
+    /**
+     * Processed At
+     */
+    processed_at: string | null;
+    /**
+     * Received At
+     */
+    received_at: string;
+    /**
+     * Schema Version
+     */
+    schema_version: string;
+    status: InboxEventStatus;
+    /**
+     * User Id
+     */
+    user_id: string;
+};
+
+/**
+ * InboxEventStatus
+ *
+ * 入站事件的幂等消费状态。
+ */
+export type InboxEventStatus = 'pending' | 'processing' | 'completed' | 'dead_letter' | 'canceled';
+
+/**
+ * InboxReplayCommand
+ */
+export type InboxReplayCommand = {
+    /**
+     * Confirmed
+     */
+    confirmed?: boolean;
+    /**
+     * Reason
+     */
+    reason: string;
+};
+
+/**
+ * InboxReplayResponse
+ */
+export type InboxReplayResponse = {
+    /**
+     * Job Id
+     */
+    job_id: string;
+    /**
+     * Replayed From Id
+     */
+    replayed_from_id: string;
+    status: BackgroundJobStatus;
 };
 
 /**
@@ -10293,6 +10660,578 @@ export type PostApiV1EvaluationsSuitesBySuiteIdPublishResponses = {
 };
 
 export type PostApiV1EvaluationsSuitesBySuiteIdPublishResponse = PostApiV1EvaluationsSuitesBySuiteIdPublishResponses[keyof PostApiV1EvaluationsSuitesBySuiteIdPublishResponses];
+
+export type GetApiV1IntegrationsConversationMappingsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Channel Id
+         */
+        channel_id?: string | null;
+        /**
+         * Mapping Status
+         */
+        mapping_status?: ExternalMappingStatus | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/integrations/conversation-mappings';
+};
+
+export type GetApiV1IntegrationsConversationMappingsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1IntegrationsConversationMappingsError = GetApiV1IntegrationsConversationMappingsErrors[keyof GetApiV1IntegrationsConversationMappingsErrors];
+
+export type GetApiV1IntegrationsConversationMappingsResponses = {
+    /**
+     * Successful Response
+     */
+    200: ExternalConversationMappingListResponse;
+};
+
+export type GetApiV1IntegrationsConversationMappingsResponse = GetApiV1IntegrationsConversationMappingsResponses[keyof GetApiV1IntegrationsConversationMappingsResponses];
+
+export type PostApiV1IntegrationsConversationMappingsData = {
+    body: ExternalConversationMappingCreate;
+    path?: never;
+    query?: never;
+    url: '/api/v1/integrations/conversation-mappings';
+};
+
+export type PostApiV1IntegrationsConversationMappingsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1IntegrationsConversationMappingsError = PostApiV1IntegrationsConversationMappingsErrors[keyof PostApiV1IntegrationsConversationMappingsErrors];
+
+export type PostApiV1IntegrationsConversationMappingsResponses = {
+    /**
+     * Successful Response
+     */
+    201: ExternalConversationMappingResponse;
+};
+
+export type PostApiV1IntegrationsConversationMappingsResponse = PostApiV1IntegrationsConversationMappingsResponses[keyof PostApiV1IntegrationsConversationMappingsResponses];
+
+export type PatchApiV1IntegrationsConversationMappingsByMappingIdStatusData = {
+    body: ExternalMappingStatusCommand;
+    path: {
+        /**
+         * Mapping Id
+         */
+        mapping_id: string;
+    };
+    query?: never;
+    url: '/api/v1/integrations/conversation-mappings/{mapping_id}/status';
+};
+
+export type PatchApiV1IntegrationsConversationMappingsByMappingIdStatusErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PatchApiV1IntegrationsConversationMappingsByMappingIdStatusError = PatchApiV1IntegrationsConversationMappingsByMappingIdStatusErrors[keyof PatchApiV1IntegrationsConversationMappingsByMappingIdStatusErrors];
+
+export type PatchApiV1IntegrationsConversationMappingsByMappingIdStatusResponses = {
+    /**
+     * Successful Response
+     */
+    200: ExternalConversationMappingResponse;
+};
+
+export type PatchApiV1IntegrationsConversationMappingsByMappingIdStatusResponse = PatchApiV1IntegrationsConversationMappingsByMappingIdStatusResponses[keyof PatchApiV1IntegrationsConversationMappingsByMappingIdStatusResponses];
+
+export type GetApiV1IntegrationsIdentityMappingsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Channel Id
+         */
+        channel_id?: string | null;
+        /**
+         * Mapping Status
+         */
+        mapping_status?: ExternalMappingStatus | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/integrations/identity-mappings';
+};
+
+export type GetApiV1IntegrationsIdentityMappingsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1IntegrationsIdentityMappingsError = GetApiV1IntegrationsIdentityMappingsErrors[keyof GetApiV1IntegrationsIdentityMappingsErrors];
+
+export type GetApiV1IntegrationsIdentityMappingsResponses = {
+    /**
+     * Successful Response
+     */
+    200: ExternalIdentityMappingListResponse;
+};
+
+export type GetApiV1IntegrationsIdentityMappingsResponse = GetApiV1IntegrationsIdentityMappingsResponses[keyof GetApiV1IntegrationsIdentityMappingsResponses];
+
+export type PostApiV1IntegrationsIdentityMappingsData = {
+    body: ExternalIdentityMappingCreate;
+    path?: never;
+    query?: never;
+    url: '/api/v1/integrations/identity-mappings';
+};
+
+export type PostApiV1IntegrationsIdentityMappingsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1IntegrationsIdentityMappingsError = PostApiV1IntegrationsIdentityMappingsErrors[keyof PostApiV1IntegrationsIdentityMappingsErrors];
+
+export type PostApiV1IntegrationsIdentityMappingsResponses = {
+    /**
+     * Successful Response
+     */
+    201: ExternalIdentityMappingResponse;
+};
+
+export type PostApiV1IntegrationsIdentityMappingsResponse = PostApiV1IntegrationsIdentityMappingsResponses[keyof PostApiV1IntegrationsIdentityMappingsResponses];
+
+export type PatchApiV1IntegrationsIdentityMappingsByMappingIdStatusData = {
+    body: ExternalMappingStatusCommand;
+    path: {
+        /**
+         * Mapping Id
+         */
+        mapping_id: string;
+    };
+    query?: never;
+    url: '/api/v1/integrations/identity-mappings/{mapping_id}/status';
+};
+
+export type PatchApiV1IntegrationsIdentityMappingsByMappingIdStatusErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PatchApiV1IntegrationsIdentityMappingsByMappingIdStatusError = PatchApiV1IntegrationsIdentityMappingsByMappingIdStatusErrors[keyof PatchApiV1IntegrationsIdentityMappingsByMappingIdStatusErrors];
+
+export type PatchApiV1IntegrationsIdentityMappingsByMappingIdStatusResponses = {
+    /**
+     * Successful Response
+     */
+    200: ExternalIdentityMappingResponse;
+};
+
+export type PatchApiV1IntegrationsIdentityMappingsByMappingIdStatusResponse = PatchApiV1IntegrationsIdentityMappingsByMappingIdStatusResponses[keyof PatchApiV1IntegrationsIdentityMappingsByMappingIdStatusResponses];
+
+export type PostApiV1IntegrationsInboundByChannelIdSimulateData = {
+    body: InboundSimulationCommand;
+    path: {
+        /**
+         * Channel Id
+         */
+        channel_id: string;
+    };
+    query?: never;
+    url: '/api/v1/integrations/inbound/{channel_id}/simulate';
+};
+
+export type PostApiV1IntegrationsInboundByChannelIdSimulateErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1IntegrationsInboundByChannelIdSimulateError = PostApiV1IntegrationsInboundByChannelIdSimulateErrors[keyof PostApiV1IntegrationsInboundByChannelIdSimulateErrors];
+
+export type PostApiV1IntegrationsInboundByChannelIdSimulateResponses = {
+    /**
+     * Successful Response
+     */
+    200: InboundAcceptanceResponse;
+};
+
+export type PostApiV1IntegrationsInboundByChannelIdSimulateResponse = PostApiV1IntegrationsInboundByChannelIdSimulateResponses[keyof PostApiV1IntegrationsInboundByChannelIdSimulateResponses];
+
+export type GetApiV1IntegrationsInboxData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Inbox Status
+         */
+        inbox_status?: InboxEventStatus | null;
+        /**
+         * Channel Id
+         */
+        channel_id?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/integrations/inbox';
+};
+
+export type GetApiV1IntegrationsInboxErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1IntegrationsInboxError = GetApiV1IntegrationsInboxErrors[keyof GetApiV1IntegrationsInboxErrors];
+
+export type GetApiV1IntegrationsInboxResponses = {
+    /**
+     * Successful Response
+     */
+    200: InboxEventListResponse;
+};
+
+export type GetApiV1IntegrationsInboxResponse = GetApiV1IntegrationsInboxResponses[keyof GetApiV1IntegrationsInboxResponses];
+
+export type PostApiV1IntegrationsInboxByInboxIdReplayData = {
+    body: InboxReplayCommand;
+    path: {
+        /**
+         * Inbox Id
+         */
+        inbox_id: string;
+    };
+    query?: never;
+    url: '/api/v1/integrations/inbox/{inbox_id}/replay';
+};
+
+export type PostApiV1IntegrationsInboxByInboxIdReplayErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1IntegrationsInboxByInboxIdReplayError = PostApiV1IntegrationsInboxByInboxIdReplayErrors[keyof PostApiV1IntegrationsInboxByInboxIdReplayErrors];
+
+export type PostApiV1IntegrationsInboxByInboxIdReplayResponses = {
+    /**
+     * Successful Response
+     */
+    200: InboxReplayResponse;
+};
+
+export type PostApiV1IntegrationsInboxByInboxIdReplayResponse = PostApiV1IntegrationsInboxByInboxIdReplayResponses[keyof PostApiV1IntegrationsInboxByInboxIdReplayResponses];
 
 export type GetApiV1MemoryEpisodesData = {
     body?: never;

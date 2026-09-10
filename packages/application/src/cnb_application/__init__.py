@@ -96,6 +96,15 @@ from cnb_application.evaluation_service import (
     EvaluationService,
     EvaluationValidationError,
 )
+from cnb_application.inbound_service import (
+    InboundAcceptance,
+    InboundConflictError,
+    InboundGatewayRepository,
+    InboundGatewayService,
+    InboundMessageTaskHandler,
+    InboundNotFoundError,
+    InboundValidationError,
+)
 from cnb_application.memory_service import (
     MemoryConflictError,
     MemoryNotFoundError,
@@ -217,6 +226,13 @@ __all__ = [
     "EvaluationValidationError",
     "ExportSnapshot",
     "ForgetResult",
+    "InboundAcceptance",
+    "InboundConflictError",
+    "InboundGatewayRepository",
+    "InboundGatewayService",
+    "InboundMessageTaskHandler",
+    "InboundNotFoundError",
+    "InboundValidationError",
     "InvalidCursorError",
     "LoadedModelInput",
     "ManagementPage",

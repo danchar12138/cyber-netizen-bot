@@ -6,6 +6,9 @@ import type {
   AttachmentReservationResponse,
   ConfigDefinitionResponse,
   ConversationResponse,
+  ExternalConversationMappingResponse,
+  ExternalIdentityMappingResponse,
+  InboxEventResponse,
   MessageAcceptedResponse,
   MessagePartResponse,
   MessageResponse,
@@ -72,7 +75,7 @@ export interface TaskStatus {
   worker: ComponentHealth
 }
 
-export type BackgroundJobKind = 'reflection' | 'episode_consolidation' | 'memory_extraction' | 'embedding_rebuild' | 'relationship_update' | 'scheduled_action'
+export type BackgroundJobKind = 'reflection' | 'episode_consolidation' | 'memory_extraction' | 'embedding_rebuild' | 'relationship_update' | 'scheduled_action' | 'inbound_message'
 export type BackgroundJobStatus = 'pending' | 'running' | 'retrying' | 'succeeded' | 'failed' | 'dead_letter' | 'canceled'
 
 export interface BackgroundJob {
@@ -276,6 +279,9 @@ export type AdminPermission =
   | 'channel:write'
   | 'channel:send'
   | 'channel_credential:manage'
+  | 'integration:read'
+  | 'integration:manage'
+  | 'inbox:replay'
   | 'trace:read'
   | 'user:read'
   | 'user:write'
@@ -1239,6 +1245,58 @@ export const getChannelEvents = (channelId?: string) => {
     query: { limit: 100, channel_id: channelId },
   })
 }
+
+export type ExternalIdentityMapping = ExternalIdentityMappingResponse
+export type ExternalConversationMapping = ExternalConversationMappingResponse
+export type InboxEvent = InboxEventResponse
+export type ExternalMappingStatus = 'enabled' | 'disabled'
+export type ExternalConversationKind = 'direct' | 'group'
+
+export const getExternalIdentityMappings = () =>
+  apiSdk.getApiV1IntegrationsIdentityMappings({ query: { limit: 200 } })
+
+export const createExternalIdentityMapping = (command: {
+  channel_id: string
+  external_subject_id: string
+  user_id: string
+}) => apiSdk.postApiV1IntegrationsIdentityMappings({ body: command })
+
+export const updateExternalIdentityMappingStatus = (
+  mappingId: string,
+  status: ExternalMappingStatus,
+) => apiSdk.patchApiV1IntegrationsIdentityMappingsByMappingIdStatus({
+  path: { mapping_id: mappingId },
+  body: { status, confirmed: true },
+})
+
+export const getExternalConversationMappings = () =>
+  apiSdk.getApiV1IntegrationsConversationMappings({ query: { limit: 200 } })
+
+export const createExternalConversationMapping = (command: {
+  channel_id: string
+  user_id: string
+  kind: ExternalConversationKind
+  external_conversation_id: string
+  external_thread_id: string | null
+  conversation_id: string
+}) => apiSdk.postApiV1IntegrationsConversationMappings({ body: command })
+
+export const updateExternalConversationMappingStatus = (
+  mappingId: string,
+  status: ExternalMappingStatus,
+) => apiSdk.patchApiV1IntegrationsConversationMappingsByMappingIdStatus({
+  path: { mapping_id: mappingId },
+  body: { status, confirmed: true },
+})
+
+export const getInboundEvents = () =>
+  apiSdk.getApiV1IntegrationsInbox({ query: { limit: 200 } })
+
+export const replayInboundEvent = (inboxId: string, reason: string) =>
+  apiSdk.postApiV1IntegrationsInboxByInboxIdReplay({
+    path: { inbox_id: inboxId },
+    body: { confirmed: true, reason },
+  })
 
 export const getAdminSession = () =>
   apiSdk.getApiV1AdministrationSession()

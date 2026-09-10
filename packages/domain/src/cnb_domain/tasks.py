@@ -17,6 +17,7 @@ class BackgroundJobKind(StrEnum):
     EMBEDDING_REBUILD = "embedding_rebuild"
     RELATIONSHIP_UPDATE = "relationship_update"
     SCHEDULED_ACTION = "scheduled_action"
+    INBOUND_MESSAGE = "inbound_message"
 
 
 class BackgroundJobStatus(StrEnum):
@@ -96,6 +97,19 @@ class InboxEvent:
     received_at: datetime
     processed_at: datetime | None
     last_error_code: str | None
+    agent_id: UUID | None = None
+    channel_id: UUID | None = None
+    schema_version: str | None = None
+    platform: str | None = None
+    external_event_digest: str | None = None
+    external_subject_digest: str | None = None
+    external_conversation_digest: str | None = None
+    external_thread_digest: str | None = None
+    external_message_digest: str | None = None
+    user_id: UUID | None = None
+    conversation_id: UUID | None = None
+    content_kinds: tuple[str, ...] = ()
+    content_block_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)

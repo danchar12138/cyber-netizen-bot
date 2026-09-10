@@ -645,6 +645,23 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .chat-context-panel { display: none; }
 }
 
+.integration-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.integration-form-card h2 { display: flex; align-items: center; gap: 8px; }
+.integration-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.integration-form label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+.integration-form input, .integration-form select { width: 100%; }
+.integration-form .primary-button { align-self: end; min-height: 39px; }
+.digest-stack { display: grid; gap: 4px; }
+.digest-stack code { color: var(--muted); font-size: 11px; }
+
+@media (max-width: 980px) {
+  .integration-form-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 680px) {
+  .integration-form { grid-template-columns: 1fr; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }

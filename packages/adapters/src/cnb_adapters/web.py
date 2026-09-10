@@ -18,6 +18,7 @@ from cnb_domain import (
     ChannelHealthStatus,
     ChannelPlatform,
     ContentBlockKind,
+    ExternalConversationKind,
     JsonValue,
     MultimodalContentBlock,
 )
@@ -117,5 +118,15 @@ class WebChannelAdapter:
                 str(payload["thread_external_id"])
                 if isinstance(payload.get("thread_external_id"), str)
                 else None
+            ),
+            message_external_id=(
+                str(payload["message_external_id"])
+                if isinstance(payload.get("message_external_id"), str)
+                else str(payload["external_event_id"])
+            ),
+            conversation_kind=(
+                ExternalConversationKind.GROUP
+                if payload.get("conversation_kind") == ExternalConversationKind.GROUP.value
+                else ExternalConversationKind.DIRECT
             ),
         )

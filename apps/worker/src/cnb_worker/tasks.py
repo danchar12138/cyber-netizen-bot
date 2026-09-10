@@ -20,6 +20,7 @@ from cnb_application import (
     ConfigurationService,
     EmbeddingRebuildTaskHandler,
     EpisodeConsolidationTaskHandler,
+    InboundMessageTaskHandler,
     MemoryExtractionTaskHandler,
     MemoryService,
     ReflectionTaskHandler,
@@ -54,7 +55,7 @@ configuration_service = ConfigurationService(build_default_registry(), configura
 scheduled_action_service = ScheduledActionService(task_repository, task_service)
 worker_id = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}"
 worker_started_at = datetime.now(UTC)
-worker_queues = ("system", "memory", "reflection", "proactive")
+worker_queues = ("system", "memory", "reflection", "proactive", "inbound")
 
 
 class _ActorSender(Protocol):
@@ -102,6 +103,12 @@ async def process_proactive_job(job_id: str) -> None:
     await _execute_job(job_id)
 
 
+@dramatiq.actor(queue_name="inbound", max_retries=0)  # pyright: ignore[reportUnknownMemberType]
+async def process_inbound_job(job_id: str) -> None:
+    """消费已验签、净化并落库的版本化入站 Envelope。"""
+    await _execute_job(job_id)
+
+
 _handlers: dict[BackgroundJobKind, BackgroundJobHandler] = {
     BackgroundJobKind.REFLECTION: ReflectionTaskHandler(memory_service),
     BackgroundJobKind.EPISODE_CONSOLIDATION: EpisodeConsolidationTaskHandler(memory_service),
@@ -114,11 +121,13 @@ _handlers: dict[BackgroundJobKind, BackgroundJobHandler] = {
         configuration=configuration_service,
         memory=memory_service,
     ),
+    BackgroundJobKind.INBOUND_MESSAGE: InboundMessageTaskHandler(),
 }
 _actors_by_queue: dict[str, _ActorSender] = {
     "memory": cast(_ActorSender, process_memory_job),
     "reflection": cast(_ActorSender, process_reflection_job),
     "proactive": cast(_ActorSender, process_proactive_job),
+    "inbound": cast(_ActorSender, process_inbound_job),
 }
 dispatcher = DramatiqTaskDispatcher()
 

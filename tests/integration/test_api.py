@@ -1815,3 +1815,115 @@ def test_internal_chat_websocket_replays_from_sequence_and_responds_to_ping() ->
             heartbeat = resumed.receive_json()
             assert heartbeat["event_type"] == "system.heartbeat"
             assert heartbeat["last_sequence"] == 1
+
+
+async def test_external_mapping_and_replayable_inbox_api_are_agent_isolated() -> None:
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        identity = (await client.get("/api/v1/chat/identity")).json()
+        conversation = await client.post(
+            "/api/v1/chat/conversations",
+            json={"title": "IM 路由会话"},
+        )
+        channel = await client.post(
+            "/api/v1/channels",
+            json={
+                "name": "Inbox Web",
+                "platform": "web",
+                "status": "enabled",
+                "rate_limit_per_minute": 60,
+                "settings": {},
+            },
+        )
+        channel_id = channel.json()["id"]
+        identity_mapping = await client.post(
+            "/api/v1/integrations/identity-mappings",
+            json={
+                "channel_id": channel_id,
+                "external_subject_id": "web-user-1",
+                "user_id": identity["user_id"],
+            },
+        )
+        conversation_mapping = await client.post(
+            "/api/v1/integrations/conversation-mappings",
+            json={
+                "channel_id": channel_id,
+                "user_id": identity["user_id"],
+                "kind": "direct",
+                "external_conversation_id": "web-conversation-1",
+                "conversation_id": conversation.json()["id"],
+            },
+        )
+        now = datetime.now(UTC)
+        inbound_command: dict[str, object] = {
+            "payload": {
+                "external_event_id": "web-event-1",
+                "message_external_id": "web-message-1",
+                "sender_external_id": "web-user-1",
+                "conversation_external_id": "web-conversation-1",
+                "conversation_kind": "direct",
+                "text": "只存在于净化 Envelope 的消息",
+                "occurred_at": now.isoformat(),
+            },
+            "signature_valid": True,
+            "payload_size_bytes": 256,
+            "received_at": now.isoformat(),
+        }
+        accepted = await client.post(
+            f"/api/v1/integrations/inbound/{channel_id}/simulate",
+            json=inbound_command,
+        )
+        retry_payload = cast(dict[str, object], inbound_command["payload"]).copy()
+        retry_payload["external_event_id"] = "web-event-retry"
+        duplicate = await client.post(
+            f"/api/v1/integrations/inbound/{channel_id}/simulate",
+            json={**inbound_command, "payload": retry_payload},
+        )
+        inbox = await client.get("/api/v1/integrations/inbox")
+        viewer_identity_mappings = await client.get(
+            "/api/v1/integrations/identity-mappings",
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        viewer_create = await client.post(
+            "/api/v1/integrations/identity-mappings",
+            headers={"X-CNB-Development-Role": "viewer"},
+            json={
+                "channel_id": channel_id,
+                "external_subject_id": "forbidden",
+                "user_id": identity["user_id"],
+            },
+        )
+        other_agent = await client.post(
+            "/api/v1/administration/agents",
+            json={"name": "Inbox 隔离 Agent"},
+        )
+        isolated = await client.get(
+            "/api/v1/integrations/inbox",
+            headers={"X-CNB-Agent-ID": other_agent.json()["id"]},
+        )
+        cross_agent_mapping = await client.patch(
+            f"/api/v1/integrations/identity-mappings/{identity_mapping.json()['id']}/status",
+            headers={"X-CNB-Agent-ID": other_agent.json()["id"]},
+            json={"status": "disabled", "confirmed": True},
+        )
+
+    assert identity_mapping.status_code == 201
+    assert conversation_mapping.status_code == 201
+    assert accepted.status_code == duplicate.status_code == 200
+    assert accepted.json()["created"] is True
+    assert duplicate.json()["created"] is False
+    assert duplicate.json()["job_id"] == accepted.json()["job_id"]
+    assert len(inbox.json()["items"]) == 1
+    item = inbox.json()["items"][0]
+    assert item["schema_version"] == "1"
+    assert item["content_kinds"] == ["text"]
+    assert item["external_subject_digest"] != "web-user-1"
+    assert "只存在于净化" not in inbox.text
+    assert viewer_identity_mappings.status_code == 200
+    assert viewer_create.status_code == 403
+    assert isolated.json()["items"] == []
+    assert cross_agent_mapping.status_code == 404

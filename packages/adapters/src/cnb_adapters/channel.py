@@ -13,6 +13,7 @@ from cnb_domain import (
     ChannelHealthStatus,
     ChannelPlatform,
     ContentBlockKind,
+    ExternalConversationKind,
     JsonValue,
     MultimodalContentBlock,
 )
@@ -118,6 +119,8 @@ class ChannelInboundEvent:
     blocks: tuple[MultimodalContentBlock, ...]
     occurred_at: datetime
     thread_external_id: str | None = None
+    message_external_id: str | None = None
+    conversation_kind: ExternalConversationKind = ExternalConversationKind.DIRECT
 
 
 class ChannelAdapter(Protocol):

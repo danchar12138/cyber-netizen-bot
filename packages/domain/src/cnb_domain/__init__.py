@@ -93,6 +93,15 @@ from cnb_domain.evaluation import (
     EvaluationSuiteDefinition,
     EvaluationSuiteStatus,
 )
+from cnb_domain.inbound import (
+    INBOUND_ENVELOPE_SCHEMA_VERSION,
+    ExternalConversationKind,
+    ExternalConversationMapping,
+    ExternalIdentityMapping,
+    ExternalMappingStatus,
+    InboundEnvelope,
+    InboundVerification,
+)
 from cnb_domain.memory import (
     Episode,
     EpisodeStatus,
@@ -153,6 +162,7 @@ __all__ = [
     "BACKUP_RESTORE_CONFIRMATION",
     "CONFIGURATION_PACKAGE_FORMAT",
     "CONFIGURATION_PACKAGE_SCHEMA_VERSION",
+    "INBOUND_ENVELOPE_SCHEMA_VERSION",
     "USER_DATA_FORGET_CONFIRMATION_PREFIX",
     "ActionCandidateRecord",
     "ActiveAlert",
@@ -215,6 +225,12 @@ __all__ = [
     "EvaluationRunStatus",
     "EvaluationSuiteDefinition",
     "EvaluationSuiteStatus",
+    "ExternalConversationKind",
+    "ExternalConversationMapping",
+    "ExternalIdentityMapping",
+    "ExternalMappingStatus",
+    "InboundEnvelope",
+    "InboundVerification",
     "InboxEvent",
     "InboxEventStatus",
     "InvocationStatus",
