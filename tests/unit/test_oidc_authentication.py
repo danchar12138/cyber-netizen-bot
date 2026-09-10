@@ -14,6 +14,24 @@ from cnb_application import AuthenticationError
 from cnb_domain import AdminPermission, AdminRole
 from cnb_infrastructure import OidcAuthenticator, Settings
 
+
+def test_bootstrap_settings_ignore_empty_optional_environment_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CNB_OIDC_TENANT_ID", "")
+    monkeypatch.setenv("CNB_OIDC_AGENT_ID", "")
+    monkeypatch.setenv("CNB_OTEL_EXPORTER_OTLP_ENDPOINT", "")
+
+    settings = Settings(
+        environment="development",
+        _env_file=None,  # pyright: ignore[reportCallIssue] -- pydantic-settings 动态参数。
+    )
+
+    assert settings.oidc_tenant_id is None
+    assert settings.oidc_agent_id is None
+    assert settings.otel_exporter_otlp_endpoint is None
+
+
 ISSUER = "https://identity.example.test/realms/cnb"
 JWKS_URI = f"{ISSUER}/protocol/openid-connect/certs"
 AUDIENCE = "cyber-netizen-api"
