@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from typing import Protocol
 from uuid import UUID, uuid5
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -14,8 +15,12 @@ from cnb_application.task_service import (
 )
 from cnb_cognition import (
     DeterministicReflectionEngine,
+    MemoryWriteDecision,
+    MemoryWriteMode,
     ProactiveContext,
     ProactivePolicy,
+    ReflectionPolicy,
+    RelationshipContext,
 )
 from cnb_domain import (
     BackgroundJob,
@@ -25,8 +30,25 @@ from cnb_domain import (
     MemorySensitivity,
     MemorySourceKind,
     MemoryVisibility,
+    PendingAgentRun,
     ScheduledActionStatus,
 )
+
+
+class ReflectionSourceRepository(Protocol):
+    """按完整作用域重新读取反思来源，任务载荷中的正文一律不可信。"""
+
+    async def get_reflection_source(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        user_id: UUID,
+        conversation_id: UUID,
+        trigger_message_id: UUID,
+        response_message_id: UUID,
+        run_id: UUID | None,
+    ) -> PendingAgentRun | None: ...
 
 
 class ReflectionTaskHandler:
@@ -35,10 +57,14 @@ class ReflectionTaskHandler:
     def __init__(
         self,
         memory: MemoryService,
+        sources: ReflectionSourceRepository,
+        configuration: ConfigurationService,
         *,
         engine: DeterministicReflectionEngine | None = None,
     ) -> None:
         self._memory = memory
+        self._sources = sources
+        self._configuration = configuration
         self._engine = engine or DeterministicReflectionEngine()
 
     async def handle(self, job: BackgroundJob) -> dict[str, JsonValue]:
@@ -46,12 +72,63 @@ class ReflectionTaskHandler:
         user_id = _uuid(job, "user_id")
         conversation_id = _uuid(job, "conversation_id")
         trigger_message_id = _uuid(job, "trigger_message_id")
-        actor_id = _uuid(job, "actor_id")
-        occurred_at = _datetime(job, "occurred_at")
-        text = _string(job, "trigger_text")
-        minimum_importance = _number(job, "minimum_importance")
-        plan = self._engine.reflect(text)
-        episode_id = uuid5(job.id, "reflection:episode")
+        response_message_id = _uuid(job, "response_message_id")
+        source = await self._sources.get_reflection_source(
+            tenant_id=job.tenant_id,
+            agent_id=agent_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            trigger_message_id=trigger_message_id,
+            response_message_id=response_message_id,
+            run_id=_optional_uuid(job, "run_id"),
+        )
+        if source is None or source.trigger_message.sender_id is None:
+            raise PermanentTaskError("反思来源不存在、尚未完成或不属于当前作用域")
+
+        snapshot = await self._configuration.resolve_effective(
+            tenant_id=job.tenant_id,
+            agent_id=agent_id,
+            user_id=user_id,
+            version=source.run.configuration_version,
+        )
+        try:
+            policy = ReflectionPolicy(
+                memory_write_mode=MemoryWriteMode(
+                    _setting_string(snapshot.values, "cognition.reflection.memory_write_mode")
+                ),
+                positive_relationship_step=_setting_number(
+                    snapshot.values, "cognition.reflection.relationship_positive_step"
+                ),
+                negative_relationship_step=_setting_number(
+                    snapshot.values, "cognition.reflection.relationship_negative_step"
+                ),
+                familiarity_step=_setting_number(
+                    snapshot.values, "cognition.reflection.familiarity_step"
+                ),
+            )
+        except ValueError as error:
+            raise PermanentTaskError("反思策略配置无效") from error
+        minimum_importance = _setting_number(
+            snapshot.values, "cognition.reflection.minimum_importance"
+        )
+        current_detail = await self._memory.get_relationship(
+            tenant_id=job.tenant_id,
+            agent_id=agent_id,
+            user_id=user_id,
+        )
+        current = current_detail.relationship if current_detail else None
+        relationship_context = RelationshipContext(
+            affinity=current.affinity if current else 0.0,
+            trust=current.trust if current else 0.0,
+            familiarity=current.familiarity if current else 0.0,
+            interaction_count=current.interaction_count if current else 0,
+            boundaries=current.boundaries if current else (),
+        )
+        text = source.trigger_message.content
+        occurred_at = source.trigger_message.created_at
+        actor_id = source.trigger_message.sender_id
+        plan = self._engine.reflect(text, relationship=relationship_context, policy=policy)
+        episode_id = uuid5(source.run.id, "reflection:episode")
         episode = await self._memory.create_episode(
             tenant_id=job.tenant_id,
             agent_id=agent_id,
@@ -66,22 +143,28 @@ class ReflectionTaskHandler:
             entity_id=episode_id,
         )
         memory_id: UUID | None = None
-        if plan.importance >= minimum_importance:
-            memory_id = uuid5(job.id, "reflection:memory")
+        if (
+            plan.memory_decision is MemoryWriteDecision.WRITE
+            and plan.memory_kind is not None
+            and plan.memory_sensitivity is not None
+            and plan.memory_content is not None
+            and plan.importance >= minimum_importance
+        ):
+            memory_id = uuid5(source.run.id, "reflection:memory")
             await self._memory.create_memory(
                 tenant_id=job.tenant_id,
                 agent_id=agent_id,
                 user_id=user_id,
                 conversation_id=conversation_id,
                 episode_id=episode.id,
-                kind=MemoryKind.EPISODIC,
+                kind=plan.memory_kind,
                 visibility=MemoryVisibility.USER,
                 content=plan.memory_content,
                 event_at=occurred_at,
                 confidence=plan.confidence,
                 importance=plan.importance,
                 emotional_weight=plan.emotional_weight,
-                sensitivity=MemorySensitivity.PERSONAL,
+                sensitivity=plan.memory_sensitivity,
                 confirmation=MemoryConfirmation.UNCONFIRMED,
                 sources=(
                     MemorySourceDraft(
@@ -99,15 +182,19 @@ class ReflectionTaskHandler:
             tenant_id=job.tenant_id,
             agent_id=agent_id,
             user_id=user_id,
-            event_type="conversation.reflected",
+            event_type=f"conversation.reflected.{plan.relationship_signals[0].value}",
             affinity_delta=plan.affinity_delta,
             trust_delta=plan.trust_delta,
             familiarity_delta=plan.familiarity_delta,
-            summary="完成一次对话互动；关系仅按有界增量缓慢更新。",
-            boundaries=None,
+            summary=plan.relationship_summary,
+            boundaries=(
+                tuple(dict.fromkeys((*relationship_context.boundaries, *plan.boundaries)))
+                if plan.boundaries
+                else None
+            ),
             evidence_memory_id=memory_id,
             actor_id=actor_id,
-            event_id=uuid5(job.id, "reflection:relationship-event"),
+            event_id=uuid5(source.run.id, "reflection:relationship-event"),
         )
         await self._memory.close_episode(
             episode_id=episode.id,
@@ -120,6 +207,13 @@ class ReflectionTaskHandler:
             "episode_id": str(episode.id),
             "memory_id": str(memory_id) if memory_id else None,
             "memory_created": memory_id is not None,
+            "memory_decision": plan.memory_decision.value,
+            "memory_kind": plan.memory_kind.value if plan.memory_kind else None,
+            "memory_sensitivity": (
+                plan.memory_sensitivity.value if plan.memory_sensitivity else None
+            ),
+            "memory_reason_codes": list(plan.memory_reason_codes),
+            "relationship_signals": [item.value for item in plan.relationship_signals],
             "relationship_version": relationship.relationship.version,
         }
 

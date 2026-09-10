@@ -21,6 +21,7 @@ import { AdminDataTable, type AdminTableColumn } from '../components/AdminDataTa
 import {
   backgroundJobKindLabels,
   backgroundJobStatusLabels,
+  formatMetadataEntries,
   scheduledActionKindLabels,
   scheduledActionStatusLabels,
 } from '../displayLabels'
@@ -96,7 +97,7 @@ export function TaskStatusPage() {
   const jobColumns = useMemo<Array<AdminTableColumn<BackgroundJob>>>(() => [
     {
       key: 'job', label: '任务',
-      render: (row) => <div className="table-primary"><strong>{backgroundJobKindLabels[row.kind]}</strong><code>{row.id}</code></div>,
+      render: (row) => <div className="table-primary"><strong>{backgroundJobKindLabels[row.kind]}</strong><code>{row.id}</code>{Object.keys(row.result_summary).length > 0 && <span className="audit-detail">{formatMetadataEntries(row.result_summary)}</span>}</div>,
     },
     {
       key: 'status', label: '状态',

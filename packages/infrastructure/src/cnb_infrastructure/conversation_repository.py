@@ -338,6 +338,63 @@ class MemoryConversationRepository:
                 return None
             return conversation
 
+    async def get_reflection_source(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        user_id: UUID,
+        conversation_id: UUID,
+        trigger_message_id: UUID,
+        response_message_id: UUID,
+        run_id: UUID | None,
+    ) -> PendingAgentRun | None:
+        """只返回完整匹配且已完成的真实用户交互。"""
+
+        async with self._lock:
+            run = self._runs.get(run_id) if run_id is not None else None
+            if run is None and run_id is None:
+                run = next(
+                    (
+                        item
+                        for item in self._runs.values()
+                        if item.tenant_id == tenant_id
+                        and item.agent_id == agent_id
+                        and item.conversation_id == conversation_id
+                        and item.trigger_message_id == trigger_message_id
+                        and item.response_message_id == response_message_id
+                    ),
+                    None,
+                )
+            conversation = self._conversations.get(conversation_id)
+            trigger = self._messages.get(trigger_message_id)
+            response = self._messages.get(response_message_id)
+            if (
+                run is None
+                or conversation is None
+                or trigger is None
+                or response is None
+                or run.status is not AgentRunStatus.COMPLETED
+                or run.tenant_id != tenant_id
+                or run.agent_id != agent_id
+                or run.conversation_id != conversation_id
+                or run.trigger_message_id != trigger_message_id
+                or run.response_message_id != response_message_id
+                or conversation.tenant_id != tenant_id
+                or conversation.agent_id != agent_id
+                or conversation.deleted_at is not None
+                or (conversation_id, user_id) not in self._members
+                or trigger.tenant_id != tenant_id
+                or trigger.conversation_id != conversation_id
+                or trigger.sender_type is not MessageSenderType.USER
+                or trigger.sender_id != user_id
+                or response.tenant_id != tenant_id
+                or response.conversation_id != conversation_id
+                or response.sender_type is not MessageSenderType.AGENT
+            ):
+                return None
+            return PendingAgentRun(conversation, trigger, response, run, created=False)
+
     async def update_conversation(
         self,
         *,
@@ -1398,6 +1455,74 @@ class SqlAlchemyConversationRepository:
                 )
             )
             return None if row is None else self._conversation(row)
+
+    async def get_reflection_source(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        user_id: UUID,
+        conversation_id: UUID,
+        trigger_message_id: UUID,
+        response_message_id: UUID,
+        run_id: UUID | None,
+    ) -> PendingAgentRun | None:
+        """在数据库内复核反思 Run、消息、成员和隔离边界。"""
+
+        conditions = [
+            AgentRunModel.tenant_id == tenant_id,
+            AgentRunModel.agent_id == agent_id,
+            AgentRunModel.conversation_id == conversation_id,
+            AgentRunModel.trigger_message_id == trigger_message_id,
+            AgentRunModel.response_message_id == response_message_id,
+            AgentRunModel.status == AgentRunStatus.COMPLETED.value,
+            ConversationModel.id == conversation_id,
+            ConversationModel.tenant_id == tenant_id,
+            ConversationModel.agent_id == agent_id,
+            ConversationModel.deleted_at.is_(None),
+            ConversationMember.user_id == user_id,
+        ]
+        if run_id is not None:
+            conditions.append(AgentRunModel.id == run_id)
+        async with self._session_factory() as session:
+            run_row = await session.scalar(
+                select(AgentRunModel)
+                .join(
+                    ConversationModel,
+                    ConversationModel.id == AgentRunModel.conversation_id,
+                )
+                .join(
+                    ConversationMember,
+                    ConversationMember.conversation_id == ConversationModel.id,
+                )
+                .where(*conditions)
+            )
+            if run_row is None:
+                return None
+            trigger_row = await session.get(MessageModel, trigger_message_id)
+            response_row = await session.get(MessageModel, response_message_id)
+            if (
+                trigger_row is None
+                or response_row is None
+                or trigger_row.tenant_id != tenant_id
+                or trigger_row.conversation_id != conversation_id
+                or trigger_row.sender_type != MessageSenderType.USER.value
+                or trigger_row.sender_id != user_id
+                or response_row.tenant_id != tenant_id
+                or response_row.conversation_id != conversation_id
+                or response_row.sender_type != MessageSenderType.AGENT.value
+            ):
+                return None
+            conversation_row = await session.get(ConversationModel, conversation_id)
+            if conversation_row is None or conversation_row.deleted_at is not None:
+                return None
+            return PendingAgentRun(
+                conversation=self._conversation(conversation_row),
+                trigger_message=self._message(trigger_row),
+                response_message=self._message(response_row),
+                run=self._run(run_row),
+                created=False,
+            )
 
     async def update_conversation(
         self,

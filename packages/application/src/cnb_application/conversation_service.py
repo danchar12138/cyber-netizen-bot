@@ -129,6 +129,18 @@ class ConversationRepository(Protocol):
         self, run_id: UUID, user_id: UUID, agent_id: UUID
     ) -> Conversation | None: ...
 
+    async def get_reflection_source(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        user_id: UUID,
+        conversation_id: UUID,
+        trigger_message_id: UUID,
+        response_message_id: UUID,
+        run_id: UUID | None,
+    ) -> PendingAgentRun | None: ...
+
     async def update_conversation(
         self,
         *,
@@ -1047,9 +1059,6 @@ class ConversationService:
             return
         try:
             delay = self._integer_setting(configuration, "cognition.reflection.delay_seconds")
-            minimum_importance = self._number_setting(
-                configuration, "cognition.reflection.minimum_importance"
-            )
             max_attempts = self._integer_setting(configuration, "tasks.max_attempts")
             lease_seconds = self._integer_setting(configuration, "tasks.lease_seconds")
             retry_base_seconds = self._integer_setting(configuration, "tasks.retry_base_seconds")
@@ -1057,15 +1066,12 @@ class ConversationService:
                 tenant_id=pending.run.tenant_id,
                 kind=BackgroundJobKind.REFLECTION,
                 payload={
+                    "run_id": str(pending.run.id),
                     "agent_id": str(pending.run.agent_id),
                     "user_id": str(self._identity.user_id),
                     "conversation_id": str(pending.run.conversation_id),
                     "trigger_message_id": str(pending.trigger_message.id),
                     "response_message_id": str(pending.response_message.id),
-                    "trigger_text": pending.trigger_message.content,
-                    "occurred_at": pending.trigger_message.created_at.isoformat(),
-                    "actor_id": str(self._identity.user_id),
-                    "minimum_importance": minimum_importance,
                 },
                 deduplication_key=f"reflection:run:{pending.run.id}",
                 created_by=self._identity.user_id,

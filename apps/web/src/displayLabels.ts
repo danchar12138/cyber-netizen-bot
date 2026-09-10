@@ -102,6 +102,22 @@ export const configValueKindLabels = {
   secret: '密钥',
 } satisfies Labels<ConfigDefinition['value_kind']>
 
+export const configurationOptionLabels: Readonly<Record<string, string>> = {
+  high_precision: '高精度（只保留明确信息）',
+  balanced: '均衡（包含完整自我披露）',
+  'local-hash-v1': '本地确定性向量 v1',
+  normal: '普通',
+  personal: '个人',
+  sensitive: '敏感',
+  restricted: '严格受限',
+  development: '内置开发模型',
+  openai: 'OpenAI',
+}
+
+export function configurationOptionLabel(value: string): string {
+  return configurationOptionLabels[value] ?? value
+}
+
 export const secretIntegrityLabels = {
   untested: '未测试',
   valid: '完整性正常',
@@ -305,6 +321,12 @@ export const relationshipEventTypeLabels: Readonly<Record<string, string>> = {
   interaction: '日常互动',
   user_confirmed_memory: '用户确认记忆',
   conversation_reflected: '对话反思',
+  'conversation.reflected.neutral': '普通对话反思',
+  'conversation.reflected.warmth': '友好互动反思',
+  'conversation.reflected.self_disclosure': '自我披露反思',
+  'conversation.reflected.correction': '用户纠错反思',
+  'conversation.reflected.boundary': '互动边界反思',
+  'conversation.reflected.hostility': '拒绝或敌意反思',
 }
 
 export const episodeStatusLabels = {
@@ -425,6 +447,15 @@ export const metadataKeyLabels: Readonly<Record<string, string>> = {
   embedding_removed: '向量已清除',
   target_memory_id: '目标记忆 ID',
   target_embedding_version: '目标向量版本',
+  episode_id: '情景记录 ID',
+  memory_id: '记忆 ID',
+  memory_created: '已创建记忆',
+  memory_decision: '记忆写入决策',
+  memory_kind: '记忆类型',
+  memory_sensitivity: '记忆敏感级别',
+  memory_reason_codes: '记忆判别依据',
+  relationship_signals: '关系信号',
+  relationship_version: '关系版本',
   database_redaction_completed: '数据库脱敏完成',
   objects_deleted: '对象清理完成',
   database_integrity_verified: '数据库完整性通过',
@@ -480,6 +511,29 @@ const commonValueLabels: Readonly<Record<string, string>> = {
   degraded: '降级',
   not_checked: '待探测',
   not_configured: '未配置',
+  write: '写入长期记忆',
+  skip_credential: '跳过凭据内容',
+  skip_small_talk: '跳过寒暄',
+  skip_question: '跳过普通提问',
+  skip_low_signal: '跳过低信息内容',
+  explicit_memory_request: '用户明确要求记住',
+  interaction_boundary: '互动边界',
+  stable_preference: '稳定偏好',
+  personal_fact: '个人事实',
+  future_plan: '未来计划',
+  important_event: '重要经历',
+  self_disclosure: '自我披露',
+  small_talk: '寒暄',
+  question_only: '仅包含提问',
+  low_signal: '信息量不足',
+  credential_content: '疑似凭据内容',
+  neutral: '普通互动',
+  warmth: '友好或感谢',
+  correction: '用户纠错',
+  boundary: '互动边界',
+  hostility: '拒绝或敌意',
+  ...memoryKindLabels,
+  ...memorySensitivityLabels,
   ...relationshipStageLabels,
 }
 

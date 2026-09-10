@@ -41,6 +41,25 @@ def test_data_lifecycle_settings_are_runtime_managed_and_bounded() -> None:
         assert definition.minimum <= definition.default <= definition.maximum
 
 
+def test_reflection_policy_is_runtime_managed_with_safe_defaults() -> None:
+    definitions = {item.key: item for item in build_default_registry().all()}
+    mode = definitions["cognition.reflection.memory_write_mode"]
+    assert mode.label == "反思记忆写入策略"
+    assert mode.default == "high_precision"
+    assert mode.options == ("high_precision", "balanced")
+
+    for key in (
+        "cognition.reflection.relationship_positive_step",
+        "cognition.reflection.relationship_negative_step",
+        "cognition.reflection.familiarity_step",
+    ):
+        definition = definitions[key]
+        assert definition.section == "cognition"
+        assert definition.value_kind is ConfigValueKind.NUMBER
+        assert definition.minimum == 0
+        assert definition.maximum == 0.2
+
+
 def test_registry_rejects_duplicate_keys() -> None:
     definition = ConfigDefinition(
         key="test.enabled",

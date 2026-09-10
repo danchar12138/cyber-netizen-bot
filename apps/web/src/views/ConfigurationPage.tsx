@@ -41,6 +41,7 @@ import {
 } from '../api'
 import { useSelectedAgentId } from '../agentSelection'
 import {
+  configurationOptionLabel,
   configScopeLabels,
   configValueKindLabels,
   secretIntegrityLabels,
@@ -48,6 +49,10 @@ import {
 import { invalidateAcrossTabs } from '../tabSync'
 
 const diffLabels = { added: '新增', changed: '修改', removed: '移除' } as const
+
+function formatManagedConfigValue(value: ConfigValue): string {
+  return typeof value === 'string' ? configurationOptionLabel(value) : formatConfigValue(value)
+}
 
 function scopeIdFor(
   scope: ConfigScope,
@@ -108,7 +113,7 @@ function ConfigInput({
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
       >
-        {definition.options.map((option) => <option key={option}>{option}</option>)}
+        {definition.options.map((option) => <option key={option} value={option}>{configurationOptionLabel(option)}</option>)}
       </select>
     )
   }
@@ -421,7 +426,7 @@ export function ConfigurationPage() {
               <strong>发布差异</strong>
               {diff.data.changes.map((item) => (
                 <span key={`${item.key}-${item.scope_type}-${item.scope_id}`}>
-                  <b>{diffLabels[item.kind]}</b> {item.key}<small>{configScopeLabels[item.scope_type]} · {formatConfigValue(item.before)} → {formatConfigValue(item.after)}</small>
+                  <b>{diffLabels[item.kind]}</b> {item.key}<small>{configScopeLabels[item.scope_type]} · {formatManagedConfigValue(item.before)} → {formatManagedConfigValue(item.after)}</small>
                 </span>
               ))}
               {diff.data.changes.length === 0 && <small>没有值变化</small>}
@@ -476,7 +481,7 @@ export function ConfigurationPage() {
                     ) : (
                       <>
                         <small>
-                          最终生效：{formatConfigValue(effectiveValue?.value ?? definition.default)} · 来源 {effectiveValue?.source.scope_type ? configScopeLabels[effectiveValue.source.scope_type] : '内置默认'} v{effectiveValue?.source.version ?? 0}
+                          最终生效：{formatManagedConfigValue(effectiveValue?.value ?? definition.default)} · 来源 {effectiveValue?.source.scope_type ? configScopeLabels[effectiveValue.source.scope_type] : '内置默认'} v{effectiveValue?.source.version ?? 0}
                         </small>
                         <ConfigInput disabled={!canWrite} definition={definition} value={values[definition.key] ?? definition.default} onChange={(value) => setValues((current) => ({ ...current, [definition.key]: value }))} />
                       </>

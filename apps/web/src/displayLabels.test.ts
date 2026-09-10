@@ -6,6 +6,7 @@ import {
   channelDegradationLabels,
   cognitiveActionLabels,
   cognitiveStageLabels,
+  configurationOptionLabel,
   displayLabel,
   formatEnvironment,
   formatLogLevel,
@@ -47,5 +48,13 @@ describe('管理后台中文显示文案', () => {
     expect(formatMetadataEntries({ status: 'disabled', objects_deleted: true })).toBe(
       '状态：已停用；对象清理完成：是',
     )
+    expect(formatMetadataEntries({ memory_decision: 'skip_small_talk', relationship_signals: ['warmth'] })).toBe(
+      '记忆写入决策：跳过寒暄；关系信号：友好或感谢',
+    )
+  })
+
+  it('将配置协议选项显示为自然中文并保留未知扩展值', () => {
+    expect(configurationOptionLabel('high_precision')).toBe('高精度（只保留明确信息）')
+    expect(configurationOptionLabel('provider-extension')).toBe('provider-extension')
   })
 })

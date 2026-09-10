@@ -6,22 +6,32 @@ from uuid import UUID, uuid4
 
 from cnb_application import (
     BackgroundTaskService,
+    ConfigurationService,
     MemoryService,
     ReflectionTaskHandler,
     ScheduledActionService,
+    build_default_registry,
 )
 from cnb_cognition import ProactiveContext, ProactivePolicy, ProactivePolicyEvaluator
 from cnb_domain import (
     BackgroundJob,
     BackgroundJobKind,
     BackgroundJobStatus,
+    ConfigEntry,
+    ConfigScope,
+    DevelopmentIdentity,
     JsonValue,
     OutboxEventStatus,
     ScheduledAction,
     ScheduledActionKind,
     ScheduledActionStatus,
 )
-from cnb_infrastructure import InMemoryMemoryRepository, InMemoryTaskRepository
+from cnb_infrastructure import (
+    InMemoryMemoryRepository,
+    InMemoryTaskRepository,
+    MemoryConfigurationRepository,
+    MemoryConversationRepository,
+)
 
 
 class RecordingDispatcher:
@@ -323,36 +333,232 @@ async def test_reflection_handler_is_idempotent_and_keeps_source_traceability() 
     task_service = BackgroundTaskService(task_repository)
     memory_repository = InMemoryMemoryRepository()
     memory_service = MemoryService(memory_repository)
-    tenant_id, agent_id, user_id, conversation_id, actor_id, message_id = (
-        uuid4() for _ in range(6)
+    configuration = ConfigurationService(build_default_registry(), MemoryConfigurationRepository())
+    conversation_repository = MemoryConversationRepository()
+    identity = DevelopmentIdentity(
+        tenant_id=uuid4(),
+        agent_id=uuid4(),
+        user_id=uuid4(),
+        user_name="反思测试用户",
+        agent_name="反思测试 Agent",
     )
-    occurred_at = datetime.now(UTC)
-    queued = await task_service.enqueue(
-        tenant_id=tenant_id,
+    await conversation_repository.ensure_development_identity(identity)
+    conversation = await conversation_repository.create_conversation(
+        identity=identity,
+        title="反思幂等测试",
+    )
+    pending = await conversation_repository.begin_agent_run(
+        identity=identity,
+        conversation_id=conversation.id,
+        client_message_id=uuid4(),
+        content="请记住我喜欢在周末徒步，谢谢。",
+        attachments=(),
+        configuration_version=0,
+        persona_version=0,
+        prompt_version=0,
+        policy_version=0,
+        model_route_version=0,
+        model_profile="测试模型",
+    )
+    await conversation_repository.mark_run_started(pending.run.id)
+    await conversation_repository.complete_run(pending.run.id, None)
+    stable_payload = {
+        "run_id": str(pending.run.id),
+        "agent_id": str(identity.agent_id),
+        "user_id": str(identity.user_id),
+        "conversation_id": str(conversation.id),
+        "trigger_message_id": str(pending.trigger_message.id),
+        "response_message_id": str(pending.response_message.id),
+    }
+    legacy = await task_service.enqueue(
+        tenant_id=identity.tenant_id,
         kind=BackgroundJobKind.REFLECTION,
-        payload={
-            "agent_id": str(agent_id),
-            "user_id": str(user_id),
-            "conversation_id": str(conversation_id),
-            "trigger_message_id": str(message_id),
-            "response_message_id": str(uuid4()),
-            "trigger_text": "请记住我喜欢在周末徒步，谢谢。",
-            "occurred_at": occurred_at.isoformat(),
-            "actor_id": str(actor_id),
-            "minimum_importance": 0.2,
+        payload={key: value for key, value in stable_payload.items() if key != "run_id"}
+        | {
+            "trigger_text": "不可信旧正文不应被采用",
+            "occurred_at": (datetime.now(UTC) - timedelta(days=30)).isoformat(),
+            "actor_id": str(uuid4()),
+            "minimum_importance": 1.0,
         },
-        deduplication_key="reflection:idempotent",
-        created_by=actor_id,
+        deduplication_key="reflection:legacy",
+        created_by=identity.user_id,
     )
-    handler = ReflectionTaskHandler(memory_service)
-    first = await handler.handle(queued.job)
-    second = await handler.handle(queued.job)
+    replay = await task_service.enqueue(
+        tenant_id=identity.tenant_id,
+        kind=BackgroundJobKind.REFLECTION,
+        payload=stable_payload,
+        deduplication_key="reflection:manual-replay",
+        created_by=identity.user_id,
+    )
+    handler = ReflectionTaskHandler(
+        memory_service,
+        conversation_repository,
+        configuration,
+    )
+    first = await handler.handle(legacy.job)
+    second = await handler.handle(replay.job)
     assert first["episode_id"] == second["episode_id"]
     assert first["memory_id"] == second["memory_id"]
+    assert first["memory_decision"] == "write"
+    assert first["memory_kind"] == "semantic"
     assert len(memory_repository.episodes) == 1
     assert len(memory_repository.memories) == 1
     memory = next(iter(memory_repository.memories.values()))
+    assert memory.content is not None and "周末徒步" in memory.content
+    assert "不可信旧正文" not in memory.content
     assert memory.confirmation.value == "unconfirmed"
-    assert memory_repository.sources[memory.id][0].source_id == str(message_id)
+    assert memory_repository.sources[memory.id][0].source_id == str(pending.trigger_message.id)
     relationship = next(iter(memory_repository.relationships.values()))
     assert relationship.version == 1
+    assert len(memory_repository.relationship_events[relationship.id]) == 1
+
+
+async def test_reflection_replay_uses_the_agent_run_configuration_version() -> None:
+    configuration_repository = MemoryConfigurationRepository()
+    configuration = ConfigurationService(build_default_registry(), configuration_repository)
+    frozen = await configuration.create_draft(
+        note="反思运行冻结配置",
+        values=(
+            ConfigEntry(
+                key="cognition.reflection.minimum_importance",
+                scope_type=ConfigScope.SYSTEM,
+                value=0.95,
+            ),
+            ConfigEntry(
+                key="cognition.reflection.relationship_positive_step",
+                scope_type=ConfigScope.SYSTEM,
+                value=0.0,
+            ),
+        ),
+    )
+    frozen = await configuration.publish(frozen.id)
+
+    conversation_repository = MemoryConversationRepository()
+    identity = DevelopmentIdentity(
+        tenant_id=uuid4(),
+        agent_id=uuid4(),
+        user_id=uuid4(),
+        user_name="配置冻结测试用户",
+        agent_name="配置冻结测试 Agent",
+    )
+    await conversation_repository.ensure_development_identity(identity)
+    conversation = await conversation_repository.create_conversation(
+        identity=identity,
+        title="反思配置冻结测试",
+    )
+    pending = await conversation_repository.begin_agent_run(
+        identity=identity,
+        conversation_id=conversation.id,
+        client_message_id=uuid4(),
+        content="请记住我喜欢周末徒步，谢谢。",
+        attachments=(),
+        configuration_version=frozen.version,
+        persona_version=0,
+        prompt_version=0,
+        policy_version=0,
+        model_route_version=0,
+        model_profile="测试模型",
+    )
+    await conversation_repository.mark_run_started(pending.run.id)
+    await conversation_repository.complete_run(pending.run.id, None)
+
+    latest = await configuration.create_draft(
+        note="反思运行后发布的新配置",
+        values=(
+            ConfigEntry(
+                key="cognition.reflection.minimum_importance",
+                scope_type=ConfigScope.SYSTEM,
+                value=0.1,
+            ),
+            ConfigEntry(
+                key="cognition.reflection.relationship_positive_step",
+                scope_type=ConfigScope.SYSTEM,
+                value=0.2,
+            ),
+        ),
+    )
+    await configuration.publish(latest.id)
+    task_service = BackgroundTaskService(InMemoryTaskRepository())
+    queued = await task_service.enqueue(
+        tenant_id=identity.tenant_id,
+        kind=BackgroundJobKind.REFLECTION,
+        payload={
+            "run_id": str(pending.run.id),
+            "agent_id": str(identity.agent_id),
+            "user_id": str(identity.user_id),
+            "conversation_id": str(conversation.id),
+            "trigger_message_id": str(pending.trigger_message.id),
+            "response_message_id": str(pending.response_message.id),
+        },
+        deduplication_key="reflection:frozen-config",
+        created_by=identity.user_id,
+    )
+    memory_repository = InMemoryMemoryRepository()
+    result = await ReflectionTaskHandler(
+        MemoryService(memory_repository),
+        conversation_repository,
+        configuration,
+    ).handle(queued.job)
+
+    assert result["memory_created"] is False
+    assert memory_repository.memories == {}
+    relationship = next(iter(memory_repository.relationships.values()))
+    assert relationship.affinity == 0
+
+
+async def test_reflection_source_rejects_cross_scope_and_unfinished_run() -> None:
+    repository = MemoryConversationRepository()
+    identity = DevelopmentIdentity(
+        tenant_id=uuid4(),
+        agent_id=uuid4(),
+        user_id=uuid4(),
+        user_name="隔离测试用户",
+        agent_name="隔离测试 Agent",
+    )
+    await repository.ensure_development_identity(identity)
+    conversation = await repository.create_conversation(identity=identity, title="反思隔离测试")
+    pending = await repository.begin_agent_run(
+        identity=identity,
+        conversation_id=conversation.id,
+        client_message_id=uuid4(),
+        content="我喜欢清晨散步。",
+        attachments=(),
+        configuration_version=0,
+        persona_version=0,
+        prompt_version=0,
+        policy_version=0,
+        model_route_version=0,
+        model_profile="测试模型",
+    )
+
+    query = {
+        "tenant_id": identity.tenant_id,
+        "agent_id": identity.agent_id,
+        "user_id": identity.user_id,
+        "conversation_id": conversation.id,
+        "trigger_message_id": pending.trigger_message.id,
+        "response_message_id": pending.response_message.id,
+        "run_id": pending.run.id,
+    }
+    assert await repository.get_reflection_source(**query) is None
+    await repository.mark_run_started(pending.run.id)
+    await repository.complete_run(pending.run.id, None)
+    assert await repository.get_reflection_source(**query) is not None
+    for key in (
+        "tenant_id",
+        "agent_id",
+        "user_id",
+        "conversation_id",
+        "trigger_message_id",
+        "response_message_id",
+        "run_id",
+    ):
+        mismatched = dict(query)
+        mismatched[key] = uuid4()
+        assert await repository.get_reflection_source(**mismatched) is None
+
+    await repository.soft_delete_conversation(
+        conversation_id=conversation.id,
+        user_id=identity.user_id,
+    )
+    assert await repository.get_reflection_source(**query) is None

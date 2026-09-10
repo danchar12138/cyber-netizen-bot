@@ -58,7 +58,15 @@ from cnb_cognition.prompt_security import (
     read_untrusted_content,
     serialize_untrusted_content,
 )
-from cnb_cognition.reflection import DeterministicReflectionEngine, ReflectionPlan
+from cnb_cognition.reflection import (
+    DeterministicReflectionEngine,
+    MemoryWriteDecision,
+    MemoryWriteMode,
+    ReflectionPlan,
+    ReflectionPolicy,
+    RelationshipContext,
+    RelationshipSignal,
+)
 from cnb_cognition.runtime import (
     AgentDecision,
     AgentEvent,
@@ -97,6 +105,8 @@ __all__ = [
     "HybridMemoryRanker",
     "HybridRecallWeights",
     "MemoryRecallTraceItem",
+    "MemoryWriteDecision",
+    "MemoryWriteMode",
     "MinimalCognitiveRuntime",
     "ModelCapabilities",
     "ModelDocumentInput",
@@ -121,6 +131,9 @@ __all__ = [
     "ProactivePolicy",
     "ProactivePolicyEvaluator",
     "ReflectionPlan",
+    "ReflectionPolicy",
+    "RelationshipContext",
+    "RelationshipSignal",
     "SocialMindState",
     "Tool",
     "ToolPolicyContext",

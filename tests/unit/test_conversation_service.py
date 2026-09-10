@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from uuid import NAMESPACE_DNS, UUID, uuid4, uuid5
 
 from cnb_application import (
+    BackgroundTaskService,
     CognitionService,
     ConfigurationService,
     ConversationService,
@@ -25,6 +26,7 @@ from cnb_cognition import (
 )
 from cnb_domain import (
     AgentRunStatus,
+    BackgroundJobKind,
     CognitionResourceKind,
     ConfigEntry,
     ConfigScope,
@@ -36,6 +38,7 @@ from cnb_domain import (
     MessageStatus,
 )
 from cnb_infrastructure import (
+    InMemoryTaskRepository,
     MemoryCognitionRepository,
     MemoryConfigurationRepository,
     MemoryConversationRepository,
@@ -166,6 +169,7 @@ def _service(
     configuration_service: ConfigurationService | None = None,
     reliability_guard: ModelReliabilityGuard | None = None,
     channel_id: UUID | None = None,
+    task_service: BackgroundTaskService | None = None,
 ) -> ConversationService:
     identity = _identity()
     return ConversationService(
@@ -181,6 +185,7 @@ def _service(
         ),
         identity=identity,
         channel_id=channel_id,
+        task_service=task_service,
         reliability_guard=reliability_guard,
     )
 
@@ -305,6 +310,38 @@ async def test_channel_scope_reaches_run_snapshot_runtime_and_provider_resolutio
     assert pending.run.model_profile == "openai/channel-model-v1"
     assert completed.status is AgentRunStatus.COMPLETED
     assert resolver.calls == [("openai", "channel-model-v1", channel_id)]
+
+
+async def test_reflection_job_only_contains_stable_resource_ids() -> None:
+    repository = MemoryConversationRepository()
+    task_repository = InMemoryTaskRepository()
+    task_service = BackgroundTaskService(task_repository)
+    service = _service(repository, task_service=task_service)
+    conversation = await service.create_conversation(title="反思任务数据最小化")
+    pending = await service.send_message(
+        conversation.id,
+        client_message_id=uuid4(),
+        content="你好，请记住我喜欢清晨散步。",
+    )
+
+    await service.execute_run(pending)
+
+    jobs = await task_service.list_jobs(
+        tenant_id=_identity().tenant_id,
+        status=None,
+        kind=BackgroundJobKind.REFLECTION,
+        limit=20,
+    )
+    assert len(jobs) == 1
+    assert jobs[0].payload == {
+        "run_id": str(pending.run.id),
+        "agent_id": str(_identity().agent_id),
+        "user_id": str(_identity().user_id),
+        "conversation_id": str(conversation.id),
+        "trigger_message_id": str(pending.trigger_message.id),
+        "response_message_id": str(pending.response_message.id),
+    }
+    assert pending.trigger_message.content not in str(jobs[0].payload)
 
 
 async def test_streamed_run_persists_message_usage_and_ordered_events() -> None:

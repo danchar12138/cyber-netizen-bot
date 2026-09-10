@@ -173,7 +173,11 @@ async def process_inbound_job(job_id: str) -> None:
 
 
 _handlers: dict[BackgroundJobKind, BackgroundJobHandler] = {
-    BackgroundJobKind.REFLECTION: ReflectionTaskHandler(memory_service),
+    BackgroundJobKind.REFLECTION: ReflectionTaskHandler(
+        memory_service,
+        conversation_repository,
+        configuration_service,
+    ),
     BackgroundJobKind.EPISODE_CONSOLIDATION: EpisodeConsolidationTaskHandler(memory_service),
     BackgroundJobKind.MEMORY_EXTRACTION: MemoryExtractionTaskHandler(memory_service),
     BackgroundJobKind.EMBEDDING_REBUILD: EmbeddingRebuildTaskHandler(memory_service),
