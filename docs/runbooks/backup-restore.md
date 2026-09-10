@@ -2,6 +2,14 @@
 
 本手册用于在隔离环境验证 PostgreSQL 业务真相源和 MinIO 私有对象能够从同一批备份恢复。恢复验证不得连接生产数据库、生产 MinIO 或生产 OIDC；Redis 不是业务真相源，不进入备份集。
 
+仓库的 `scripts/verify-infrastructure.ps1` 会使用随机临时凭证和独立 Compose project，在 Docker 环境自动执行生产式镜像启动、迁移、合成数据备份、隔离恢复、摘要比对和恢复后 API 冒烟。CI 会保存 14 天脱敏 JSON 证据；它用于持续验证恢复机制，不代替生产数据的定期人工演练。可在仓库根目录手动执行：
+
+```powershell
+./scripts/verify-infrastructure.ps1 -EvidencePath ./infrastructure-acceptance.json
+```
+
+证据文件不含连接凭证、对象键或业务正文；确认完成后应按组织流程归档或删除，不要提交到 Git。
+
 ## 目标与完成标准
 
 - PostgreSQL 备份可由 `pg_restore` 完整恢复，Alembic 版本与备份时一致。
@@ -96,6 +104,8 @@ docker exec cnb-restore-postgres pg_restore `
   --username=cyber_netizen_restore `
   --dbname=cyber_netizen_restore `
   --exit-on-error `
+  --no-owner `
+  --no-privileges `
   /tmp/database.dump
 
 docker run --rm `

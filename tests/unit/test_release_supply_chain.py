@@ -74,3 +74,17 @@ def test_release_workflow_produces_signed_attested_sboms() -> None:
     assert "cosign sign --yes" in workflow
     assert "sbom-${{ matrix.target }}.spdx.json" in workflow
     assert "value=latest" not in workflow
+
+
+def test_ci_runs_compose_and_isolated_restore_acceptance() -> None:
+    workflow = (REPOSITORY_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    script = (REPOSITORY_ROOT / "scripts/verify-infrastructure.ps1").read_text(encoding="utf-8")
+
+    assert "infrastructure-acceptance:" in workflow
+    assert "./scripts/verify-infrastructure.ps1" in workflow
+    assert "infrastructure-acceptance-evidence" in workflow
+    assert '"build", "api", "worker", "web"' in script
+    assert '"--no-owner", "--no-privileges"' in script
+    assert "/health/ready" in script
+    assert "/api/v1/chat/conversations?limit=10" in script
+    assert "Remove-AcceptanceDirectory" in script

@@ -37,4 +37,5 @@ Thumbs.db
 tmp/
 uploads/
 backups/
+infrastructure-acceptance.json
 tests/performance/results/
