@@ -96,7 +96,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}
           provenance: false
       - name: 扫描高危与严重镜像漏洞
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: cyber-netizen-${{ matrix.target }}:ci
           format: table
