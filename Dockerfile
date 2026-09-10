@@ -91,7 +91,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD ["python", "-c", "from cnb_infrastructure import get_settings; from redis import Redis; client = Redis.from_url(get_settings().redis_url.get_secret_value(), socket_timeout=3); assert client.ping()"]
 CMD ["python", "-m", "dramatiq", "cnb_worker.tasks", "--processes", "1", "--threads", "8"]
 
-FROM node:24.16.0-alpine AS web-builder
+FROM node:26.8-alpine AS web-builder
 
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:${PATH}
