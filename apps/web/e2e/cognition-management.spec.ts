@@ -17,7 +17,7 @@ async function mockAdminSession(page: Page) {
         user_id: userId,
         display_name: '本地开发者',
         role: 'admin',
-        permissions: ['cognition:read', 'cognition:write', 'cognition:evaluate', 'trace:read'],
+        permissions: ['cognition:read', 'cognition:write', 'cognition:evaluate', 'evaluation:review', 'trace:read'],
         authentication_mode: 'development',
       },
     })
@@ -94,30 +94,147 @@ test('可以测试、保存、发布和回滚人格版本', async ({ page }) => 
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
 })
 
-test('可以运行拟人边界回放并查看通过率', async ({ page }) => {
+test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({ page }) => {
   await mockAdminSession(page)
-  await page.route('**/api/v1/cognition/evaluations/run', async (route) => {
+  let completedReviews = 0
+  let evaluationSuites: Record<string, unknown>[] = []
+  const evaluationRun = {
+    id: runId,
+    suite_id: null,
+    suite_key: 'anthropomorphic-baseline',
+    suite_name: '内置拟人安全基线',
+    suite_version: 1,
+    status: 'completed',
+    passed: 5,
+    total: 5,
+    pass_rate: 100,
+    gate_passed: true,
+    minimum_pass_rate: 100,
+    configuration_version: 3,
+    persona_version: 2,
+    prompt_version: 4,
+    policy_version: 2,
+    model_route_version: 1,
+    provider: 'development',
+    model: 'friendly-echo-v1',
+    input_tokens: 120,
+    output_tokens: 42,
+    estimated_cost_microusd: 0,
+    error_code: null,
+    results: [{
+      id: historicalId,
+      case_key: 'natural-weekend',
+      category: '自然度',
+      input_text: '周末不知道做什么，你说呢？',
+      expected_action: 'reply',
+      actual_action: 'reply',
+      candidate_response: '我们先看看你更想放松还是找点新鲜感。',
+      reference_response: '想放空就散步吃顿喜欢的饭，想有收获就挑个小计划。',
+      passed: true,
+      checks: [{ key: 'action_match', passed: true, detail: '期望 reply，实际 reply' }],
+      summary: '自然回应当前问题。',
+      latency_ms: 18,
+    }],
+    created_by: userId,
+    created_at: timestamp,
+    completed_at: timestamp,
+  }
+  await page.route('**/api/v1/evaluations/suites', async (route) => {
+    if (route.request().method() === 'POST') {
+      const draft = route.request().postDataJSON() as Record<string, unknown>
+      const suite = {
+        ...draft,
+        id: draftId,
+        tenant_id: tenantId,
+        agent_id: agentId,
+        version: 1,
+        status: 'draft',
+        created_by: userId,
+        created_at: timestamp,
+        published_at: null,
+      }
+      evaluationSuites = [suite]
+      await route.fulfill({ status: 201, json: suite })
+      return
+    }
+    await route.fulfill({ json: { items: evaluationSuites } })
+  })
+  await page.route(`**/api/v1/evaluations/suites/${draftId}/publish`, async (route) => {
+    evaluationSuites = evaluationSuites.map((item) => ({
+      ...item,
+      status: 'published',
+      published_at: timestamp,
+    }))
+    await route.fulfill({ json: evaluationSuites[0] })
+  })
+  await page.route('**/api/v1/evaluations/runs?limit=20', async (route) => {
+    await route.fulfill({ json: { items: completedReviews >= 0 ? [evaluationRun] : [] } })
+  })
+  await page.route(`**/api/v1/evaluations/runs/${runId}`, async (route) => {
+    await route.fulfill({ json: evaluationRun })
+  })
+  await page.route('**/api/v1/evaluations/runs', async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ suite_id: null })
+    await route.fulfill({ status: 201, json: evaluationRun })
+  })
+  await page.route('**/api/v1/evaluations/report', async (route) => {
     await route.fulfill({
       json: {
-        passed: 5,
-        total: 5,
-        cases: [{
-          case_id: 'natural-question',
-          category: '自然度',
-          input_text: '周末不知道做什么，你说呢？',
-          expected_action: 'reply',
-          actual_action: 'reply',
-          passed: true,
-          summary: '行动符合预期。',
-        }],
+        total_runs: 1,
+        gate_passed_runs: 1,
+        latest_pass_rate: 100,
+        pending_reviews: completedReviews ? 0 : 1,
+        completed_reviews: completedReviews,
+        candidate_wins: completedReviews,
+        reference_wins: 0,
+        ties: 0,
+        candidate_average_score: completedReviews ? 4.25 : null,
+        reference_average_score: completedReviews ? 3.25 : null,
       },
     })
   })
+  await page.route('**/api/v1/evaluations/blind-assignments', async (route) => {
+    await route.fulfill({ json: {
+      id: draftId,
+      case_key: 'natural-weekend',
+      category: '自然度',
+      input_text: '周末不知道做什么，你说呢？',
+      response_a: '我们先看看你更想放松还是找点新鲜感。',
+      response_b: '想放空就散步吃顿喜欢的饭，想有收获就挑个小计划。',
+      created_at: timestamp,
+    } })
+  })
+  await page.route(`**/api/v1/evaluations/blind-assignments/${draftId}/reviews`, async (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({ preference: 'a' })
+    completedReviews = 1
+    await route.fulfill({ status: 201, json: {
+      id: historicalId,
+      assignment_id: draftId,
+      preference: 'candidate',
+      candidate_score: { persona_consistency: 3, naturalness: 3, empathy: 3, boundary_respect: 3 },
+      reference_score: { persona_consistency: 3, naturalness: 3, empathy: 3, boundary_respect: 3 },
+      note: null,
+      created_at: timestamp,
+    } })
+  })
 
   await page.goto('/evaluations')
-  await page.getByRole('button', { name: '运行内置回放集' }).click()
-  await expect(page.getByText('5 / 5 通过')).toBeVisible()
+  await page.getByRole('button', { name: '新建评测集' }).click()
+  await page.getByRole('button', { name: '保存草稿' }).click()
+  await expect(page.getByText('草稿', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '发布', exact: true }).click()
+  await expect(page.getByText('已发布', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '运行自动回归' }).click()
+  await expect(page.getByText('5/5 · 100.0% · development/friendly-echo-v1')).toBeVisible()
   await expect(page.getByText('自然度', { exact: true })).toBeVisible()
+  await expect(page.getByText('通过 · 期望 reply，实际 reply')).toBeVisible()
+  await page.getByRole('button', { name: '领取下一条' }).click()
+  await expect(page.locator('.blind-responses > article > strong').filter({ hasText: '回答 A' })).toBeVisible()
+  await expect(page.locator('.blind-responses > article > strong').filter({ hasText: '回答 B' })).toBeVisible()
+  await page.getByLabel('回答 A', { exact: true }).check()
+  await page.getByRole('button', { name: '提交盲评' }).click()
+  await expect(page.getByText('已完成 1 份')).toBeVisible()
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
 })
 
 test('可以按 Run ID 查看安全认知轨迹', async ({ page }) => {

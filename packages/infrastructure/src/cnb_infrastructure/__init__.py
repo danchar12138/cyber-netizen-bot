@@ -28,6 +28,10 @@ from cnb_infrastructure.data_lifecycle_repository import (
     MemoryDataLifecycleRepository,
     SqlAlchemyDataLifecycleRepository,
 )
+from cnb_infrastructure.evaluation_repository import (
+    MemoryEvaluationRepository,
+    SqlAlchemyEvaluationRepository,
+)
 from cnb_infrastructure.health import DependencyProbe, probe_dependencies
 from cnb_infrastructure.memory_repository import (
     InMemoryMemoryRepository,
@@ -69,6 +73,7 @@ __all__ = [
     "MemoryConfigurationRepository",
     "MemoryConversationRepository",
     "MemoryDataLifecycleRepository",
+    "MemoryEvaluationRepository",
     "MemoryObjectStorage",
     "MemoryObservabilityRepository",
     "MemorySecretStore",
@@ -83,6 +88,7 @@ __all__ = [
     "SqlAlchemyConfigurationRepository",
     "SqlAlchemyConversationRepository",
     "SqlAlchemyDataLifecycleRepository",
+    "SqlAlchemyEvaluationRepository",
     "SqlAlchemyMemoryRepository",
     "SqlAlchemyObservabilityRepository",
     "SqlAlchemySecretStore",

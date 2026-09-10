@@ -28,6 +28,8 @@ from cnb_application import (
     ConversationService,
     DataLifecycleRepository,
     DataLifecycleService,
+    EvaluationRepository,
+    EvaluationService,
     MemoryRepository,
     MemoryService,
     ModelProviderResolver,
@@ -94,6 +96,12 @@ def get_configuration_service(
 def get_cognition_repository(request: HTTPConnection) -> CognitionRepository:
     """返回组合根选择的认知资源与运行回放仓储。"""
     repository: CognitionRepository = request.app.state.cognition_repository
+    return repository
+
+
+def get_evaluation_repository(request: HTTPConnection) -> EvaluationRepository:
+    """返回组合根选择的拟人评测与盲评仓储。"""
+    repository: EvaluationRepository = request.app.state.evaluation_repository
     return repository
 
 
@@ -243,6 +251,26 @@ async def get_cognition_service(
 ) -> CognitionService:
     """构建绑定当前认证主体所选 Agent 的请求级认知服务。"""
     return CognitionService(repository, agent_id=identity.agent_id)
+
+
+def get_evaluation_service(
+    request: HTTPConnection,
+    repository: Annotated[EvaluationRepository, Depends(get_evaluation_repository)],
+    cognition_service: Annotated[CognitionService, Depends(get_cognition_service)],
+    configuration_service: Annotated[ConfigurationService, Depends(get_configuration_service)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+) -> EvaluationService:
+    """构建绑定当前租户、Agent 与模型解析器的请求级评测服务。"""
+    runtime: CognitiveRuntime = request.app.state.cognitive_runtime
+    resolver: ModelProviderResolver = request.app.state.model_provider_resolver
+    return EvaluationService(
+        repository,
+        runtime=runtime,
+        cognition_service=cognition_service,
+        configuration_service=configuration_service,
+        model_provider_resolver=resolver,
+        agent_id=identity.agent_id,
+    )
 
 
 def get_current_actor_id(

@@ -20,6 +20,7 @@ from cnb_api.routes import (
     configuration,
     conversation,
     data_lifecycle,
+    evaluations,
     health,
     memory,
     observability,
@@ -36,6 +37,7 @@ from cnb_application import (
     ConfigurationRepository,
     ConversationRepository,
     DataLifecycleRepository,
+    EvaluationRepository,
     MemoryRepository,
     ModelProviderResolver,
     ModelReliabilityGuard,
@@ -58,6 +60,7 @@ from cnb_infrastructure import (
     MemoryChannelRepository,
     MemoryCognitionRepository,
     MemoryDataLifecycleRepository,
+    MemoryEvaluationRepository,
     MemoryObjectStorage,
     MemoryObservabilityRepository,
     MemorySecretStore,
@@ -71,6 +74,7 @@ from cnb_infrastructure import (
     SqlAlchemyConfigurationRepository,
     SqlAlchemyConversationRepository,
     SqlAlchemyDataLifecycleRepository,
+    SqlAlchemyEvaluationRepository,
     SqlAlchemyMemoryRepository,
     SqlAlchemyObservabilityRepository,
     SqlAlchemySecretStore,
@@ -90,6 +94,7 @@ def create_app(
     channel_adapter_registry: ChannelAdapterRegistry | None = None,
     conversation_repository: ConversationRepository | None = None,
     data_lifecycle_repository: DataLifecycleRepository | None = None,
+    evaluation_repository: EvaluationRepository | None = None,
     memory_repository: MemoryRepository | None = None,
     task_repository: TaskRepository | None = None,
     administration_repository: AdministrationRepository | None = None,
@@ -182,6 +187,12 @@ def create_app(
         application.state.cognition_repository = MemoryCognitionRepository()
     else:
         application.state.cognition_repository = SqlAlchemyCognitionRepository(session_factory)
+    if evaluation_repository is not None:
+        application.state.evaluation_repository = evaluation_repository
+    elif configuration_repository is not None or conversation_repository is not None:
+        application.state.evaluation_repository = MemoryEvaluationRepository()
+    else:
+        application.state.evaluation_repository = SqlAlchemyEvaluationRepository(session_factory)
     if task_repository is not None:
         application.state.task_repository = task_repository
     elif configuration_repository is not None or conversation_repository is not None:
@@ -268,6 +279,7 @@ def create_app(
     application.include_router(administration.router, prefix="/api/v1")
     application.include_router(configuration.router, prefix="/api/v1")
     application.include_router(cognition.router, prefix="/api/v1")
+    application.include_router(evaluations.router, prefix="/api/v1")
     application.include_router(channels.router, prefix="/api/v1")
     application.include_router(memory.router, prefix="/api/v1")
     application.include_router(observability.router, prefix="/api/v1")

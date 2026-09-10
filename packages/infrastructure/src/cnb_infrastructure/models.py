@@ -784,6 +784,267 @@ class ModelInvocationModel(Base):
     )
 
 
+class EvaluationSuiteModel(Base):
+    """当前 Agent 可发布的不可变拟人评测集版本。"""
+
+    __tablename__ = "evaluation_suites"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    key: Mapped[str] = mapped_column(String(120), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    minimum_pass_rate: Mapped[float] = mapped_column(nullable=False)
+    max_output_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('draft', 'published', 'superseded')",
+            name="ck_evaluation_suites_status",
+        ),
+        CheckConstraint(
+            "minimum_pass_rate BETWEEN 0 AND 100",
+            name="ck_evaluation_suites_pass_rate",
+        ),
+        CheckConstraint(
+            "max_output_tokens BETWEEN 64 AND 32768",
+            name="ck_evaluation_suites_output_tokens",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "agent_id",
+            "key",
+            "version",
+            name="uq_evaluation_suites_version",
+        ),
+        Index(
+            "ix_evaluation_suites_lookup",
+            "tenant_id",
+            "agent_id",
+            "key",
+            "status",
+        ),
+        Index(
+            "uq_evaluation_suites_published",
+            "tenant_id",
+            "agent_id",
+            "key",
+            unique=True,
+            postgresql_where=text("status = 'published'"),
+        ),
+    )
+
+
+class EvaluationCaseModel(Base):
+    """评测集版本中按顺序冻结的对话样例。"""
+
+    __tablename__ = "evaluation_cases"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    suite_id: Mapped[UUID] = mapped_column(
+        ForeignKey("evaluation_suites.id", ondelete="CASCADE"), nullable=False
+    )
+    case_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    category: Mapped[str] = mapped_column(String(80), nullable=False)
+    input_text: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_action: Mapped[str] = mapped_column(String(32), nullable=False)
+    reference_response: Mapped[str | None] = mapped_column(Text)
+    required_phrases: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    forbidden_phrases: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("sort_order > 0", name="ck_evaluation_cases_sort_order"),
+        CheckConstraint(
+            "expected_action IN ('reply', 'ask', 'wait', 'no_reply', 'tool')",
+            name="ck_evaluation_cases_action",
+        ),
+        UniqueConstraint("suite_id", "case_key", name="uq_evaluation_cases_key"),
+        UniqueConstraint("suite_id", "sort_order", name="uq_evaluation_cases_order"),
+    )
+
+
+class EvaluationRunModel(Base):
+    """一次自动回放的版本、模型、成本与质量门快照。"""
+
+    __tablename__ = "evaluation_runs"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    suite_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("evaluation_suites.id", ondelete="SET NULL")
+    )
+    suite_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    suite_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    suite_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    passed: Mapped[int] = mapped_column(Integer, nullable=False)
+    total: Mapped[int] = mapped_column(Integer, nullable=False)
+    pass_rate: Mapped[float] = mapped_column(nullable=False)
+    gate_passed: Mapped[bool] = mapped_column(nullable=False)
+    minimum_pass_rate: Mapped[float] = mapped_column(nullable=False)
+    configuration_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    persona_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    prompt_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    policy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    model_route_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    provider: Mapped[str] = mapped_column(String(80), nullable=False)
+    model: Mapped[str] = mapped_column(String(160), nullable=False)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    estimated_cost_microusd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(120))
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('completed', 'failed')", name="ck_evaluation_runs_status"),
+        CheckConstraint(
+            "passed >= 0 AND total > 0 AND passed <= total",
+            name="ck_evaluation_runs_counts",
+        ),
+        CheckConstraint(
+            "pass_rate BETWEEN 0 AND 100 AND minimum_pass_rate BETWEEN 0 AND 100",
+            name="ck_evaluation_runs_rates",
+        ),
+        CheckConstraint(
+            "input_tokens >= 0 AND output_tokens >= 0 AND estimated_cost_microusd >= 0",
+            name="ck_evaluation_runs_usage",
+        ),
+        Index("ix_evaluation_runs_tenant_created", "tenant_id", "agent_id", "created_at"),
+    )
+
+
+class EvaluationCaseResultModel(Base):
+    """一次运行中冻结的单条回答与确定性检查。"""
+
+    __tablename__ = "evaluation_case_results"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("evaluation_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    case_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    category: Mapped[str] = mapped_column(String(80), nullable=False)
+    input_text: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_action: Mapped[str] = mapped_column(String(32), nullable=False)
+    actual_action: Mapped[str] = mapped_column(String(32), nullable=False)
+    candidate_response: Mapped[str | None] = mapped_column(Text)
+    reference_response: Mapped[str | None] = mapped_column(Text)
+    passed: Mapped[bool] = mapped_column(nullable=False)
+    checks: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("latency_ms >= 0", name="ck_evaluation_results_latency"),
+        UniqueConstraint("run_id", "case_key", name="uq_evaluation_results_case"),
+        Index("ix_evaluation_results_run", "run_id"),
+    )
+
+
+class BlindReviewAssignmentModel(Base):
+    """只在服务端保存候选回答左右位置的匿名评审任务。"""
+
+    __tablename__ = "blind_review_assignments"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("evaluation_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    result_id: Mapped[UUID] = mapped_column(
+        ForeignKey("evaluation_case_results.id", ondelete="CASCADE"), nullable=False
+    )
+    reviewer_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    candidate_is_a: Mapped[bool] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("result_id", "reviewer_id", name="uq_blind_assignments_result_reviewer"),
+        Index(
+            "ix_blind_assignments_reviewer",
+            "tenant_id",
+            "agent_id",
+            "reviewer_id",
+        ),
+    )
+
+
+class BlindReviewModel(Base):
+    """去盲后保存的偏好与候选/参考双侧评分。"""
+
+    __tablename__ = "blind_reviews"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    assignment_id: Mapped[UUID] = mapped_column(
+        ForeignKey("blind_review_assignments.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("evaluation_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    result_id: Mapped[UUID] = mapped_column(
+        ForeignKey("evaluation_case_results.id", ondelete="CASCADE"), nullable=False
+    )
+    reviewer_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    preference: Mapped[str] = mapped_column(String(24), nullable=False)
+    candidate_score: Mapped[dict[str, int]] = mapped_column(JSONB, nullable=False)
+    reference_score: Mapped[dict[str, int]] = mapped_column(JSONB, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "preference IN ('candidate', 'reference', 'tie')",
+            name="ck_blind_reviews_preference",
+        ),
+        Index("ix_blind_reviews_tenant_created", "tenant_id", "agent_id", "created_at"),
+    )
+
+
 class ConversationEventModel(Base):
     """供 WebSocket 重放的不可变会话事件。"""
 

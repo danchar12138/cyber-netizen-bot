@@ -92,6 +92,14 @@ from cnb_application.data_lifecycle_service import (
     ForgetResult,
     RetentionCandidate,
 )
+from cnb_application.evaluation_service import (
+    EvaluationCaseDraft,
+    EvaluationConflictError,
+    EvaluationNotFoundError,
+    EvaluationRepository,
+    EvaluationService,
+    EvaluationValidationError,
+)
 from cnb_application.memory_service import (
     MemoryConflictError,
     MemoryNotFoundError,
@@ -187,6 +195,12 @@ __all__ = [
     "EnqueueResult",
     "EntityCursor",
     "EpisodeConsolidationTaskHandler",
+    "EvaluationCaseDraft",
+    "EvaluationConflictError",
+    "EvaluationNotFoundError",
+    "EvaluationRepository",
+    "EvaluationService",
+    "EvaluationValidationError",
     "ExportSnapshot",
     "ForgetResult",
     "InvalidCursorError",

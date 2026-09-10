@@ -367,9 +367,51 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .evaluation-list svg.passed { color: #62da94; }
 .evaluation-list svg.failed { color: #db8c77; }
 .evaluation-list strong, .evaluation-list code { margin-right: 9px; color: #b9d0c7; font-size: 10px; }
-.evaluation-list code { color: #51766a; font-size: 8px; }
+.evaluation-list code { color: #82a99a; font-size: 8px; }
 .evaluation-list p { margin: 7px 0; color: #a6bdb4; font-size: 10px; }
 .evaluation-list small { color: #66877b; font-size: 9px; }
+.evaluation-list ul { display: grid; gap: 3px; padding: 0; margin: 8px 0 0; list-style: none; }
+.evaluation-list li { color: #6c8d81; font-size: 8px; }
+.evaluation-list li.passed { color: #62b982; }
+.evaluation-list li.failed { color: #d88974; }
+.evaluation-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 13px; }
+.evaluation-metrics article { min-height: 92px; display: grid; align-content: center; gap: 5px; padding: 14px; border: 1px solid #1d3b31; background: #0a1814; border-radius: 9px; }
+.evaluation-metrics span, .evaluation-metrics small { color: #66877b; font-size: 8px; }
+.evaluation-metrics strong { color: #b8d2c7; font-size: 17px; }
+.evaluation-editor, .evaluation-suite-panel, .blind-review-panel { margin-bottom: 13px; }
+.evaluation-form-grid { display: grid; grid-template-columns: 1.2fr 1.5fr .7fr .8fr; gap: 10px; }
+.evaluation-form-grid label, .evaluation-suite-select, .blind-submit > label { display: grid; gap: 6px; color: #73978a; font-size: 9px; }
+.evaluation-form-grid input, .evaluation-editor .payload-editor input, .evaluation-suite-select select, .blind-submit > label input { width: 100%; padding: 9px 10px; color: #bdd2ca; border: 1px solid #285043; outline: 0; background: #091713; border-radius: 7px; }
+.evaluation-suite-select { max-width: 520px; margin-bottom: 10px; }
+.evaluation-suite-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid #183029; }
+.evaluation-suite-row > div { display: grid; gap: 4px; }
+.evaluation-suite-row strong { color: #b9d0c7; font-size: 10px; }
+.evaluation-suite-row div span { color: #608175; font-size: 8px; }
+.evaluation-suite-row button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 8px; color: #8bc4a8; border: 1px solid #29513f; background: #10271d; border-radius: 6px; font-size: 8px; }
+.evaluation-workspace { display: grid; grid-template-columns: minmax(240px, .65fr) minmax(0, 1.35fr); gap: 13px; margin-bottom: 13px; }
+.evaluation-history > button { width: 100%; display: grid; grid-template-columns: 20px 1fr; align-items: center; gap: 8px; padding: 10px; color: inherit; text-align: left; border: 1px solid transparent; border-top-color: #183029; background: transparent; }
+.evaluation-history > button.selected { border-color: #2c634a; background: #10261d; border-radius: 7px; }
+.evaluation-history svg.passed { color: #62da94; }
+.evaluation-history svg.failed { color: #db8c77; }
+.evaluation-history button span { display: grid; gap: 4px; }
+.evaluation-history button strong { color: #a9c7bb; font-size: 9px; }
+.evaluation-history button small { color: #88a99d; font-size: 8px; overflow-wrap: anywhere; }
+.blind-prompt { padding: 12px; margin-bottom: 10px; border-left: 2px solid #64d491; background: #0a1b15; }
+.blind-prompt span { color: #638779; font-size: 8px; }
+.blind-prompt p { margin: 6px 0 0; color: #b0cac0; font-size: 11px; }
+.blind-responses { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.blind-responses > article { padding: 14px; border: 1px solid #23473a; background: #091713; border-radius: 9px; }
+.blind-responses > article > strong { color: #76d89c; font-size: 10px; }
+.blind-responses > article > p { min-height: 70px; color: #b4c9c1; font-size: 11px; line-height: 1.7; }
+.blind-score-editor { display: grid; gap: 8px; padding: 10px; margin: 12px 0 0; border: 1px solid #1b392f; border-radius: 7px; }
+.blind-score-editor legend { padding: 0 6px; color: #64897b; font-size: 8px; }
+.blind-score-editor label { display: grid; grid-template-columns: 54px minmax(80px, 1fr) 65px; align-items: center; gap: 8px; color: #789a8d; font-size: 8px; }
+.blind-score-editor input { accent-color: #69d895; }
+.blind-score-editor output { color: #8bb5a5; }
+.blind-submit { display: grid; grid-template-columns: auto minmax(200px, 1fr) auto; align-items: end; gap: 14px; margin-top: 13px; }
+.blind-submit fieldset { display: flex; gap: 12px; padding: 7px 10px; border: 1px solid #26483c; border-radius: 7px; }
+.blind-submit legend, .blind-submit fieldset label { color: #78998d; font-size: 8px; }
+.blind-submit fieldset input { margin-right: 4px; accent-color: #69d895; }
 .trace-search { display: flex; gap: 10px; margin-bottom: 13px; }
 .trace-search label { flex: 1; display: flex; align-items: center; gap: 9px; color: #5a806f; }
 .trace-search input { min-width: 0; }
@@ -505,6 +547,8 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .recall-results { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lifecycle-policy-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lifecycle-grid, .lifecycle-drill-form { grid-template-columns: 1fr; }
+  .evaluation-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .evaluation-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lifecycle-manifest, .lifecycle-confirmation, .lifecycle-verifications { grid-column: auto; }
   .config-sections { display: none; }
 }
@@ -524,6 +568,7 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .metric-grid, .dashboard-grid { grid-template-columns: 1fr; }
   .settings-grid { grid-template-columns: 1fr; }
   .cognition-form-row, .cognition-version, .trace-grid, .observability-grid { grid-template-columns: 1fr; }
+  .evaluation-metrics, .evaluation-form-grid, .evaluation-workspace, .blind-responses, .blind-submit { grid-template-columns: 1fr; }
   .trace-grid .model-invocations { grid-column: auto; }
   .trace-search { align-items: stretch; flex-direction: column; }
   .model-cost-list article { grid-template-columns: 1fr; }

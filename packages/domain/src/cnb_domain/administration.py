@@ -32,6 +32,7 @@ class AdminPermission(StrEnum):
     COGNITION_READ = "cognition:read"
     COGNITION_WRITE = "cognition:write"
     COGNITION_EVALUATE = "cognition:evaluate"
+    EVALUATION_REVIEW = "evaluation:review"
     MEMORY_READ = "memory:read"
     MEMORY_WRITE = "memory:write"
     MEMORY_REBUILD = "memory:rebuild"

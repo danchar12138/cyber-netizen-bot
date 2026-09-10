@@ -245,6 +245,7 @@ export type AdminPermission =
   | 'cognition:read'
   | 'cognition:write'
   | 'cognition:evaluate'
+  | 'evaluation:review'
   | 'memory:read'
   | 'memory:write'
   | 'memory:rebuild'
@@ -666,6 +667,139 @@ export interface EvaluationSuite {
     passed: boolean
     summary: string
   }>
+}
+
+export type EvaluationSuiteStatus = 'draft' | 'published' | 'superseded'
+
+export interface EvaluationCaseDefinition {
+  id: string
+  case_key: string
+  category: string
+  input_text: string
+  expected_action: 'reply' | 'ask' | 'wait' | 'no_reply' | 'tool'
+  reference_response: string | null
+  required_phrases: string[]
+  forbidden_phrases: string[]
+  sort_order: number
+}
+
+export interface EvaluationSuiteDefinition {
+  id: string
+  tenant_id: string
+  agent_id: string
+  key: string
+  name: string
+  version: number
+  status: EvaluationSuiteStatus
+  description: string | null
+  minimum_pass_rate: number
+  max_output_tokens: number
+  cases: EvaluationCaseDefinition[]
+  created_by: string
+  created_at: string
+  published_at: string | null
+}
+
+export interface EvaluationSuiteDraft {
+  key: string
+  name: string
+  description: string | null
+  minimum_pass_rate: number
+  max_output_tokens: number
+  cases: Array<Omit<EvaluationCaseDefinition, 'id' | 'sort_order'>>
+}
+
+export interface EvaluationCheck {
+  key: string
+  passed: boolean
+  detail: string
+}
+
+export interface EvaluationCaseRun {
+  id: string
+  case_key: string
+  category: string
+  input_text: string
+  expected_action: string
+  actual_action: string
+  candidate_response: string | null
+  reference_response: string | null
+  passed: boolean
+  checks: EvaluationCheck[]
+  summary: string
+  latency_ms: number
+}
+
+export interface EvaluationRunSummary {
+  id: string
+  suite_name: string
+  suite_version: number
+  status: 'completed' | 'failed'
+  passed: number
+  total: number
+  pass_rate: number
+  gate_passed: boolean
+  provider: string
+  model: string
+  created_at: string
+}
+
+export interface EvaluationRun extends EvaluationRunSummary {
+  suite_id: string | null
+  suite_key: string
+  minimum_pass_rate: number
+  configuration_version: number
+  persona_version: number
+  prompt_version: number
+  policy_version: number
+  model_route_version: number
+  input_tokens: number
+  output_tokens: number
+  estimated_cost_microusd: number
+  error_code: string | null
+  results: EvaluationCaseRun[]
+  created_by: string
+  completed_at: string
+}
+
+export interface BlindReviewScore {
+  persona_consistency: number
+  naturalness: number
+  empathy: number
+  boundary_respect: number
+}
+
+export interface BlindReviewAssignment {
+  id: string
+  case_key: string
+  category: string
+  input_text: string
+  response_a: string
+  response_b: string
+  created_at: string
+}
+
+export interface BlindReview {
+  id: string
+  assignment_id: string
+  preference: 'candidate' | 'reference' | 'tie'
+  candidate_score: BlindReviewScore
+  reference_score: BlindReviewScore
+  note: string | null
+  created_at: string
+}
+
+export interface EvaluationReport {
+  total_runs: number
+  gate_passed_runs: number
+  latest_pass_rate: number | null
+  pending_reviews: number
+  completed_reviews: number
+  candidate_wins: number
+  reference_wins: number
+  ties: number
+  candidate_average_score: number | null
+  reference_average_score: number | null
 }
 
 export type MemoryKind =
@@ -1237,6 +1371,45 @@ export const getObservabilityDashboard = () =>
 
 export const runCognitionEvaluationSuite = () =>
   postJson<EvaluationSuite>('/api/v1/cognition/evaluations/run')
+
+export const getEvaluationSuites = () =>
+  getJson<{ items: EvaluationSuiteDefinition[] }>('/api/v1/evaluations/suites')
+
+export const createEvaluationSuite = (draft: EvaluationSuiteDraft) =>
+  postJson<EvaluationSuiteDefinition>('/api/v1/evaluations/suites', draft)
+
+export const publishEvaluationSuite = (suiteId: string) =>
+  postJson<EvaluationSuiteDefinition>(`/api/v1/evaluations/suites/${suiteId}/publish`)
+
+export const runEvaluation = (suiteId: string | null = null) =>
+  postJson<EvaluationRun>('/api/v1/evaluations/runs', { suite_id: suiteId })
+
+export const getEvaluationRuns = () =>
+  getJson<{ items: EvaluationRunSummary[] }>('/api/v1/evaluations/runs?limit=20')
+
+export const getEvaluationRun = (runId: string) =>
+  getJson<EvaluationRun>(`/api/v1/evaluations/runs/${runId}`)
+
+export const getEvaluationReport = () =>
+  getJson<EvaluationReport>('/api/v1/evaluations/report')
+
+export const claimBlindReviewAssignment = (runId: string | null = null) =>
+  postJson<BlindReviewAssignment | null>('/api/v1/evaluations/blind-assignments', {
+    run_id: runId,
+  })
+
+export const submitBlindReview = (
+  assignmentId: string,
+  input: {
+    preference: 'a' | 'b' | 'tie'
+    response_a_score: BlindReviewScore
+    response_b_score: BlindReviewScore
+    note: string | null
+  },
+) => postJson<BlindReview>(
+  `/api/v1/evaluations/blind-assignments/${assignmentId}/reviews`,
+  input,
+)
 
 export const getMemories = (filters: {
   userId?: string

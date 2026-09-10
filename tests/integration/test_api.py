@@ -27,6 +27,8 @@ from cnb_contracts import (
     ConversationListResponse,
     ConversationResponse,
     DataLifecycleOverviewResponse,
+    EvaluationReportResponse,
+    EvaluationRunResponse,
     EvaluationSuiteResponse,
     HealthResponse,
     MessageAcceptedResponse,
@@ -350,6 +352,103 @@ async def test_cognition_resource_publish_rollback_and_evaluation_api() -> None:
     assert len(listed.items) == 2
     assert evaluation.passed == evaluation.total == 5
     assert viewer_write.status_code == 403
+
+
+async def test_persisted_evaluation_replay_and_blind_review_api() -> None:
+    """完整覆盖回放留痕、来源盲化、评分去盲和权限边界。"""
+    async with AsyncClient(transport=_transport(), base_url="http://test") as client:
+        run_response = await client.post("/api/v1/evaluations/runs", json={})
+        run = EvaluationRunResponse.model_validate(run_response.json())
+        history = await client.get("/api/v1/evaluations/runs")
+        detail = await client.get(f"/api/v1/evaluations/runs/{run.id}")
+        assignment_response = await client.post(
+            "/api/v1/evaluations/blind-assignments",
+            json={"run_id": str(run.id)},
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        assignment = assignment_response.json()
+        review_response = await client.post(
+            f"/api/v1/evaluations/blind-assignments/{assignment['id']}/reviews",
+            headers={"X-CNB-Development-Role": "viewer"},
+            json={
+                "preference": "a",
+                "response_a_score": {
+                    "persona_consistency": 4,
+                    "naturalness": 4,
+                    "empathy": 3,
+                    "boundary_respect": 5,
+                },
+                "response_b_score": {
+                    "persona_consistency": 3,
+                    "naturalness": 3,
+                    "empathy": 4,
+                    "boundary_respect": 5,
+                },
+                "note": "API 盲评",
+            },
+        )
+        duplicate = await client.post(
+            f"/api/v1/evaluations/blind-assignments/{assignment['id']}/reviews",
+            headers={"X-CNB-Development-Role": "viewer"},
+            json={
+                "preference": "tie",
+                "response_a_score": {
+                    "persona_consistency": 3,
+                    "naturalness": 3,
+                    "empathy": 3,
+                    "boundary_respect": 3,
+                },
+                "response_b_score": {
+                    "persona_consistency": 3,
+                    "naturalness": 3,
+                    "empathy": 3,
+                    "boundary_respect": 3,
+                },
+            },
+        )
+        report_response = await client.get("/api/v1/evaluations/report")
+        viewer_suite_create = await client.post(
+            "/api/v1/evaluations/suites",
+            headers={"X-CNB-Development-Role": "viewer"},
+            json={
+                "key": "denied",
+                "name": "无权评测集",
+                "cases": [
+                    {
+                        "case_key": "denied",
+                        "category": "自然度",
+                        "input_text": "你好",
+                        "expected_action": "reply",
+                        "reference_response": "你好呀。",
+                    }
+                ],
+            },
+        )
+
+    report = EvaluationReportResponse.model_validate(report_response.json())
+    assert run_response.status_code == 201
+    assert run.passed == run.total == 5
+    assert run.gate_passed is True
+    assert run.input_tokens > 0
+    assert history.json()["items"][0]["id"] == str(run.id)
+    assert len(detail.json()["results"]) == 5
+    assert assignment_response.status_code == 200
+    assert set(assignment) == {
+        "id",
+        "case_key",
+        "category",
+        "input_text",
+        "response_a",
+        "response_b",
+        "created_at",
+    }
+    assert review_response.status_code == 201
+    assert review_response.json()["preference"] in {"candidate", "reference"}
+    assert duplicate.status_code == 409
+    assert report.total_runs == 1
+    assert report.completed_reviews == 1
+    assert report.pending_reviews == 3
+    assert viewer_suite_create.status_code == 403
 
 
 async def test_rbac_rejects_viewer_changes_and_operator_secret_access() -> None:
