@@ -21,6 +21,7 @@ from PIL import Image, UnidentifiedImageError
 from cnb_application import (
     ObjectInspectionError,
     ObjectNotFoundError,
+    StoredObjectContent,
     StoredObjectEntry,
     StoredObjectInfo,
     UploadGrant,
@@ -86,6 +87,19 @@ class MemoryObjectStorage:
         if object_key not in self._objects:
             raise ObjectNotFoundError(object_key)
         return f"memory://download/{quote(object_key)}?name={quote(download_name)}"
+
+    async def read_object(self, object_key: str, *, max_bytes: int) -> StoredObjectContent:
+        try:
+            content, content_type, _, _ = self._objects[object_key]
+        except KeyError as error:
+            raise ObjectNotFoundError(object_key) from error
+        if len(content) > max_bytes:
+            raise ObjectInspectionError("对象超过模型输入大小上限")
+        return StoredObjectContent(
+            data=content,
+            content_type=content_type,
+            sha256=calculate_sha256(content).hexdigest(),
+        )
 
     async def delete_object(self, object_key: str) -> None:
         self._objects.pop(object_key, None)
@@ -243,6 +257,35 @@ class MinioObjectStorage:
             response_headers={
                 "response-content-disposition": self._content_disposition(download_name),
             },
+        )
+
+    async def read_object(self, object_key: str, *, max_bytes: int) -> StoredObjectContent:
+        """在显式上限内流式读取私有对象，不签发可外传的对象地址。"""
+        return await asyncio.to_thread(self._read_object_sync, object_key, max_bytes)
+
+    def _read_object_sync(self, object_key: str, max_bytes: int) -> StoredObjectContent:
+        try:
+            raw: MinioObject = self._client.stat_object(self._bucket, object_key)
+            response = cast(_ObjectResponse, self._client.get_object(self._bucket, object_key))
+        except MinioProtocolError as error:
+            if error.code in {"404", "NoSuchKey", "NotFound"}:
+                raise ObjectNotFoundError(object_key) from error
+            raise
+        content = bytearray()
+        digest = calculate_sha256()
+        try:
+            for chunk in response.stream(64 * 1024):
+                if len(content) + len(chunk) > max_bytes:
+                    raise ObjectInspectionError("对象超过模型输入大小上限")
+                content.extend(chunk)
+                digest.update(chunk)
+        finally:
+            response.close()
+            response.release_conn()
+        return StoredObjectContent(
+            data=bytes(content),
+            content_type=raw.content_type or "application/octet-stream",
+            sha256=digest.hexdigest(),
         )
 
     async def delete_object(self, object_key: str) -> None:

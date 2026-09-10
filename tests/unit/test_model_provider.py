@@ -7,7 +7,14 @@ from uuid import uuid4
 from openai import AsyncOpenAI
 from openai.types.responses import ResponseStreamEvent, ResponseTextDeltaEvent
 
-from cnb_cognition import ModelMessage, ModelRequest, ModelRole
+from cnb_cognition import (
+    ModelDocumentInput,
+    ModelImageInput,
+    ModelMessage,
+    ModelRequest,
+    ModelRole,
+    ModelTextInput,
+)
 from cnb_domain import ConfigScope
 from cnb_infrastructure import (
     ConfiguredModelProviderResolver,
@@ -20,7 +27,12 @@ from cnb_infrastructure import (
 async def test_development_provider_streams_without_external_credentials() -> None:
     provider = DevelopmentModelProvider()
     request = ModelRequest(
-        messages=(ModelMessage(role=ModelRole.USER, content="今天过得怎么样？"),),
+        messages=(
+            ModelMessage(
+                role=ModelRole.USER,
+                content=(ModelTextInput(text="今天过得怎么样？"),),
+            ),
+        ),
         instructions="自然回复。",
         max_output_tokens=128,
     )
@@ -85,7 +97,26 @@ async def test_openai_provider_uses_responses_stream_without_remote_storage() ->
         client=client,
     )
     request = ModelRequest(
-        messages=(ModelMessage(role=ModelRole.USER, content="你好"),),
+        messages=(
+            ModelMessage(
+                role=ModelRole.USER,
+                content=(
+                    ModelTextInput(text="你好"),
+                    ModelImageInput(
+                        content_type="image/png",
+                        data=b"image-bytes",
+                        file_name="风景.png",
+                        alt_text="风景",
+                    ),
+                    ModelDocumentInput(
+                        content_type="text/plain",
+                        data=b"document-body",
+                        file_name="说明.txt",
+                        extracted_text="document-body",
+                    ),
+                ),
+            ),
+        ),
         instructions="自然回复。",
         max_output_tokens=128,
     )
@@ -96,6 +127,18 @@ async def test_openai_provider_uses_responses_stream_without_remote_storage() ->
     assert responses.arguments["model"] == "gpt-5-mini"
     assert responses.arguments["stream"] is True
     assert responses.arguments["store"] is False
+    input_items = cast(list[dict[str, object]], responses.arguments["input"])
+    message_content = cast(list[dict[str, object]], input_items[0]["content"])
+    assert [part["type"] for part in message_content] == [
+        "input_text",
+        "input_text",
+        "input_image",
+        "input_text",
+        "input_file",
+    ]
+    assert str(message_content[2]["image_url"]).startswith("data:image/png;base64,")
+    assert str(message_content[4]["file_data"]).startswith("data:text/plain;base64,")
+    assert "image-bytes" not in str(responses.arguments)
     assert stream.closed is True
 
 

@@ -123,6 +123,7 @@ async def test_minio_adapter_presigns_verifies_previews_and_deletes() -> None:
     )
     observed = await storage.stat_object(object_key)
     inspected = await storage.inspect_object(object_key, max_bytes=7)
+    content = await storage.read_object(object_key, max_bytes=7)
     preview = await storage.presign_download(
         object_key=object_key,
         download_name="资料.txt",
@@ -142,6 +143,9 @@ async def test_minio_adapter_presigns_verifies_previews_and_deletes() -> None:
     assert inspected.sha256 == sha256(b"payload").hexdigest()
     assert inspected.metadata_sha256 == "a" * 64
     assert inspected.detected_content_type == "text/plain"
+    assert content.data == b"payload"
+    assert content.content_type == "text/plain"
+    assert content.sha256 == sha256(b"payload").hexdigest()
     assert preview == "http://minio.local/download-token"
     assert len(listed) == 1
     assert listed[0].object_key == "tenants/tenant/attachments/0.txt"
@@ -200,3 +204,15 @@ async def test_docx_inspection_rejects_external_relationships() -> None:
 
     with pytest.raises(ObjectInspectionError, match="外部关系"):
         await storage.inspect_object("unsafe.docx", max_bytes=len(content))
+
+
+async def test_private_object_read_enforces_explicit_byte_limit() -> None:
+    storage = MemoryObjectStorage()
+    storage.put_for_test(
+        object_key="bounded.txt",
+        content=b"bounded content",
+        content_type="text/plain",
+    )
+
+    with pytest.raises(ObjectInspectionError, match="模型输入大小上限"):
+        await storage.read_object("bounded.txt", max_bytes=4)

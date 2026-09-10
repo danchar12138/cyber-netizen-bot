@@ -17,12 +17,6 @@ from cnb_application.attachment_service import (
     AttachmentReservation,
     AttachmentService,
     AttachmentValidationError,
-    ObjectInspectionError,
-    ObjectNotFoundError,
-    ObjectStorage,
-    StoredObjectEntry,
-    StoredObjectInfo,
-    UploadGrant,
 )
 from cnb_application.authorization import (
     AdminAuthenticator,
@@ -107,6 +101,22 @@ from cnb_application.memory_service import (
     MemoryService,
     MemorySourceDraft,
     MemoryValidationError,
+)
+from cnb_application.multimodal_service import (
+    LoadedModelInput,
+    ModelAttachmentRepository,
+    MultimodalInputError,
+    MultimodalInputLimits,
+    MultimodalInputService,
+)
+from cnb_application.object_storage import (
+    ObjectInspectionError,
+    ObjectNotFoundError,
+    ObjectStorage,
+    StoredObjectContent,
+    StoredObjectEntry,
+    StoredObjectInfo,
+    UploadGrant,
 )
 from cnb_application.observability_service import (
     ApiRequestObservation,
@@ -204,6 +214,7 @@ __all__ = [
     "ExportSnapshot",
     "ForgetResult",
     "InvalidCursorError",
+    "LoadedModelInput",
     "ManagementPage",
     "MemoryConflictError",
     "MemoryExtractionTaskHandler",
@@ -212,11 +223,15 @@ __all__ = [
     "MemoryService",
     "MemorySourceDraft",
     "MemoryValidationError",
+    "ModelAttachmentRepository",
     "ModelProviderConfigurationError",
     "ModelProviderResolver",
     "ModelReliabilityGuard",
     "ModelRoutePlan",
     "ModelRouteProfile",
+    "MultimodalInputError",
+    "MultimodalInputLimits",
+    "MultimodalInputService",
     "ObjectInspectionError",
     "ObjectNotFoundError",
     "ObjectStorage",
@@ -235,6 +250,7 @@ __all__ = [
     "SecretOperationError",
     "SecretStore",
     "StaticModelProviderResolver",
+    "StoredObjectContent",
     "StoredObjectEntry",
     "StoredObjectInfo",
     "TaskConflictError",

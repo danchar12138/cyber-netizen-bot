@@ -11,6 +11,11 @@ from uuid import UUID
 from cnb_application.cognition_service import CognitionService, ModelRouteProfile
 from cnb_application.configuration_service import ConfigurationService
 from cnb_application.memory_service import MemoryService
+from cnb_application.multimodal_service import (
+    LoadedModelInput,
+    MultimodalInputLimits,
+    MultimodalInputService,
+)
 from cnb_application.pagination import EntityCursor, decode_cursor, encode_cursor
 from cnb_application.task_service import BackgroundTaskService
 from cnb_cognition import (
@@ -25,12 +30,17 @@ from cnb_cognition import (
     ContextRole,
     HybridRecallWeights,
     MemoryRecallTraceItem,
+    ModelCapabilities,
+    ModelDocumentInput,
+    ModelImageInput,
     ModelMessage,
     ModelProvider,
     ModelRequest,
     ModelRole,
+    ModelTextInput,
     ModelUsage,
     UntrustedContentSource,
+    estimate_tokens,
     serialize_untrusted_content,
 )
 from cnb_domain import (
@@ -312,6 +322,7 @@ class ConversationService:
         cognition_service: CognitionService,
         memory_service: MemoryService | None = None,
         task_service: BackgroundTaskService | None = None,
+        multimodal_input_service: MultimodalInputService | None = None,
         identity: DevelopmentIdentity,
         reliability_guard: ModelReliabilityGuard | None = None,
     ) -> None:
@@ -322,6 +333,7 @@ class ConversationService:
         self._cognition_service = cognition_service
         self._memory_service = memory_service
         self._task_service = task_service
+        self._multimodal_input_service = multimodal_input_service
         self._identity = identity
         self._reliability_guard = reliability_guard or ModelReliabilityGuard()
 
@@ -601,16 +613,22 @@ class ConversationService:
             total_token_budget = self._integer_setting(
                 configuration.values, "model.chat.total_token_budget"
             )
+            model_messages = await self._decision_messages(
+                decision,
+                fallback_messages=context_messages,
+                response_message_id=pending.response_message.id,
+                limits=self._multimodal_limits(configuration.values),
+            )
             estimated_input = decision.context.estimated_tokens if decision.context else 0
-            available_output = total_token_budget - estimated_input
+            available_output = (
+                total_token_budget
+                - estimated_input
+                - self._multimodal_token_estimate(model_messages)
+            )
             if available_output < 64:
                 raise ConversationConflictError("上下文已耗尽单次模型 Token 预算")
             request = ModelRequest(
-                messages=self._decision_messages(
-                    decision,
-                    fallback_messages=context_messages,
-                    response_message_id=pending.response_message.id,
-                ),
+                messages=model_messages,
                 instructions="\n".join(
                     part
                     for part in (
@@ -718,8 +736,9 @@ class ConversationService:
                     user_id=self._identity.user_id,
                     run_id=pending.run.id,
                 )
+                provider_request = self._request_for_capabilities(request, provider.capabilities)
                 async with asyncio.timeout(timeout_seconds):
-                    async for event in provider.stream(request):
+                    async for event in provider.stream(provider_request):
                         if event.delta:
                             emitted = True
                             await self._repository.append_run_delta(pending.run.id, event.delta)
@@ -1010,11 +1029,21 @@ class ConversationService:
         )
         return CursorPage(items=visible, next_cursor=next_cursor)
 
-    @staticmethod
-    def _model_messages(
-        messages: Sequence[Message], response_message_id: UUID
+    async def _model_messages(
+        self,
+        messages: Sequence[Message],
+        response_message_id: UUID,
+        limits: MultimodalInputLimits,
     ) -> tuple[ModelMessage, ...]:
         mapped: list[ModelMessage] = []
+        source_messages = tuple(
+            message
+            for message in messages
+            if message.id != response_message_id
+            and message.sender_type is MessageSenderType.USER
+            and any(part.attachment_id is not None for part in message.parts)
+        )
+        attachments_by_message = await self._load_multimodal(source_messages, limits)
         for message in messages:
             if message.id == response_message_id or not message.content.strip():
                 continue
@@ -1038,7 +1067,13 @@ class ConversationService:
                 if role is ModelRole.USER
                 else message.content
             )
-            mapped.append(ModelMessage(role=role, content=content))
+            parts = self._model_parts(
+                message=message,
+                text=content,
+                role=role,
+                loaded=attachments_by_message.get(message.id),
+            )
+            mapped.append(ModelMessage(role=role, content=parts))
         return tuple(mapped)
 
     @staticmethod
@@ -1075,17 +1110,29 @@ class ConversationService:
             )
         return tuple(fragments)
 
-    @staticmethod
-    def _decision_messages(
+    async def _decision_messages(
+        self,
         decision: AgentDecision,
         *,
         fallback_messages: Sequence[Message],
         response_message_id: UUID,
+        limits: MultimodalInputLimits,
     ) -> tuple[ModelMessage, ...]:
         context = decision.context
         if context is None:
-            return ConversationService._model_messages(fallback_messages, response_message_id)
+            return await self._model_messages(fallback_messages, response_message_id, limits)
         mapped: list[ModelMessage] = []
+        messages_by_id = {str(message.id): message for message in fallback_messages}
+        source_messages = tuple(
+            message
+            for fragment in context.fragments
+            if fragment.kind is ContextFragmentKind.RECENT_MESSAGE
+            and fragment.source_id is not None
+            and (message := messages_by_id.get(fragment.source_id)) is not None
+            and message.sender_type is MessageSenderType.USER
+            and any(part.attachment_id is not None for part in message.parts)
+        )
+        attachments_by_message = await self._load_multimodal(source_messages, limits)
         for fragment in context.fragments:
             if fragment.role is ContextRole.SYSTEM:
                 continue
@@ -1100,8 +1147,120 @@ class ConversationService:
                 if role is ModelRole.USER
                 else fragment.content
             )
-            mapped.append(ModelMessage(role=role, content=content))
+            source_message = (
+                messages_by_id.get(fragment.source_id)
+                if fragment.kind is ContextFragmentKind.RECENT_MESSAGE
+                and fragment.source_id is not None
+                else None
+            )
+            parts = self._model_parts(
+                message=source_message,
+                text=content,
+                role=role,
+                loaded=(
+                    attachments_by_message.get(source_message.id)
+                    if source_message is not None
+                    else None
+                ),
+            )
+            mapped.append(ModelMessage(role=role, content=parts))
         return tuple(mapped)
+
+    def _model_parts(
+        self,
+        *,
+        message: Message | None,
+        text: str,
+        role: ModelRole,
+        loaded: LoadedModelInput | None,
+    ) -> tuple[ModelTextInput | ModelImageInput | ModelDocumentInput, ...]:
+        parts: list[ModelTextInput | ModelImageInput | ModelDocumentInput] = [
+            ModelTextInput(text=text)
+        ]
+        if (
+            message is None
+            or role is not ModelRole.USER
+            or not any(part.attachment_id is not None for part in message.parts)
+        ):
+            return tuple(parts)
+        if loaded is None:
+            raise ConversationConflictError("多模态模型输入服务尚未配置")
+        parts.extend(loaded.parts)
+        return tuple(parts)
+
+    async def _load_multimodal(
+        self,
+        messages: Sequence[Message],
+        limits: MultimodalInputLimits,
+    ) -> dict[UUID, LoadedModelInput]:
+        if not messages:
+            return {}
+        if self._multimodal_input_service is None:
+            raise ConversationConflictError("多模态模型输入服务尚未配置")
+        return await self._multimodal_input_service.load_messages(messages, limits=limits)
+
+    @classmethod
+    def _multimodal_limits(cls, values: Mapping[str, object]) -> MultimodalInputLimits:
+        return MultimodalInputLimits(
+            max_image_bytes=cls._integer_setting(values, "model.multimodal.max_image_bytes"),
+            max_document_bytes=cls._integer_setting(values, "model.multimodal.max_document_bytes"),
+            max_total_bytes=cls._integer_setting(values, "model.multimodal.max_total_bytes"),
+            max_document_characters=cls._integer_setting(
+                values, "model.multimodal.max_document_characters"
+            ),
+            max_pdf_pages=cls._integer_setting(values, "model.multimodal.max_pdf_pages"),
+        )
+
+    @staticmethod
+    def _multimodal_token_estimate(messages: Sequence[ModelMessage]) -> int:
+        """为上下文预算补入文档正文和图片的保守估算，文本正文已由组装器计算。"""
+        total = 0
+        for message in messages:
+            for part in message.content:
+                if isinstance(part, ModelDocumentInput):
+                    total += estimate_tokens(part.extracted_text)
+                    if part.content_type == "application/pdf":
+                        total += min(part.page_count or 1, 100) * 800
+                elif isinstance(part, ModelImageInput):
+                    total += 1_024
+        return total
+
+    @staticmethod
+    def _request_for_capabilities(
+        request: ModelRequest, capabilities: ModelCapabilities
+    ) -> ModelRequest:
+        """依据当前路由 Provider 的能力保留输入块或执行可见、安全的文本降级。"""
+        messages: list[ModelMessage] = []
+        for message in request.messages:
+            parts: list[ModelTextInput | ModelImageInput | ModelDocumentInput] = []
+            for part in message.content:
+                if isinstance(part, ModelImageInput) and not capabilities.image_input:
+                    parts.append(
+                        ModelTextInput(
+                            text=serialize_untrusted_content(
+                                f"图片附件“{part.file_name}”未载入：当前模型不支持图片输入。",
+                                UntrustedContentSource.ATTACHMENT,
+                            )
+                        )
+                    )
+                elif isinstance(part, ModelDocumentInput) and not capabilities.document_input:
+                    body = part.extracted_text or "[未提取到可读正文]"
+                    parts.append(
+                        ModelTextInput(
+                            text=serialize_untrusted_content(
+                                f"文档附件“{part.file_name}”正文：\n{body}",
+                                UntrustedContentSource.ATTACHMENT,
+                            )
+                        )
+                    )
+                else:
+                    parts.append(part)
+            messages.append(ModelMessage(role=message.role, content=tuple(parts)))
+        return ModelRequest(
+            messages=tuple(messages),
+            instructions=request.instructions,
+            max_output_tokens=request.max_output_tokens,
+        )
 
     @staticmethod
     def _context_instructions(decision: AgentDecision) -> str:

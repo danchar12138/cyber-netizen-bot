@@ -9,8 +9,8 @@ from hashlib import sha256
 from typing import Protocol
 from uuid import UUID
 
-from cnb_application.attachment_service import ObjectStorage
 from cnb_application.configuration_service import ConfigurationService
+from cnb_application.object_storage import ObjectStorage
 from cnb_domain import (
     BACKUP_RESTORE_CONFIRMATION,
     USER_DATA_FORGET_CONFIRMATION_PREFIX,

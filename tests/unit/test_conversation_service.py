@@ -19,6 +19,7 @@ from cnb_cognition import (
     ModelProvider,
     ModelRequest,
     ModelStreamEvent,
+    ModelTextInput,
     ModelUsage,
     read_untrusted_content,
 )
@@ -57,8 +58,10 @@ class StubModelProvider:
         return ModelCapabilities(True, False, False, False)
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
-        assert request.messages[-1].content.startswith("<untrusted_context>")
-        assert read_untrusted_content(request.messages[-1].content).startswith("你好")
+        text = request.messages[-1].content[0]
+        assert isinstance(text, ModelTextInput)
+        assert text.text.startswith("<untrusted_context>")
+        assert read_untrusted_content(text.text).startswith("你好")
         assert request.instructions.startswith(UNTRUSTED_CONTEXT_POLICY)
         yield ModelStreamEvent(delta="你")
         yield ModelStreamEvent(delta="好呀")

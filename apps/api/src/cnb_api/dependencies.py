@@ -33,6 +33,7 @@ from cnb_application import (
     MemoryRepository,
     MemoryService,
     ModelProviderResolver,
+    MultimodalInputService,
     ObjectStorage,
     ObservabilityRepository,
     ObservabilityService,
@@ -385,6 +386,8 @@ def get_attachment_service(
 def get_conversation_service(
     request: HTTPConnection,
     repository: Annotated[ConversationRepository, Depends(get_conversation_repository)],
+    attachment_repository: Annotated[AttachmentRepository, Depends(get_attachment_repository)],
+    object_storage: Annotated[ObjectStorage, Depends(get_object_storage)],
     configuration_service: Annotated[ConfigurationService, Depends(get_configuration_service)],
     cognition_service: Annotated[CognitionService, Depends(get_cognition_service)],
     memory_service: Annotated[MemoryService, Depends(get_memory_service)],
@@ -402,6 +405,12 @@ def get_conversation_service(
         cognition_service=cognition_service,
         memory_service=memory_service,
         task_service=task_service,
+        multimodal_input_service=MultimodalInputService(
+            repository=attachment_repository,
+            object_storage=object_storage,
+            user_id=identity.user_id,
+            tenant_id=identity.tenant_id,
+        ),
         identity=identity,
         reliability_guard=request.app.state.model_reliability_guard,
     )

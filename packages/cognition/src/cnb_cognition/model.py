@@ -14,11 +14,42 @@ class ModelRole(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class ModelTextInput:
+    """进入模型消息的文本块；不可信来源应在应用层先完成安全封装。"""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class ModelImageInput:
+    """经过权限、摘要和大小复核的图片字节。"""
+
+    content_type: str
+    data: bytes
+    file_name: str
+    alt_text: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ModelDocumentInput:
+    """经过安全检查的文档原文，以及供能力降级和预算估算使用的正文。"""
+
+    content_type: str
+    data: bytes
+    file_name: str
+    extracted_text: str
+    page_count: int | None = None
+
+
+type ModelInputPart = ModelTextInput | ModelImageInput | ModelDocumentInput
+
+
+@dataclass(frozen=True, slots=True)
 class ModelMessage:
-    """发送给模型的一条标准化文本消息。"""
+    """发送给模型的一条标准化、有序多模态消息。"""
 
     role: ModelRole
-    content: str
+    content: tuple[ModelInputPart, ...]
 
 
 @dataclass(frozen=True, slots=True)

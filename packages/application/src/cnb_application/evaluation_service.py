@@ -20,6 +20,7 @@ from cnb_cognition import (
     ModelMessage,
     ModelRequest,
     ModelRole,
+    ModelTextInput,
     ModelUsage,
     PersonaProfile,
     PolicyRuleSet,
@@ -466,9 +467,13 @@ class EvaluationService:
                 messages=(
                     ModelMessage(
                         role=ModelRole.USER,
-                        content=serialize_untrusted_content(
-                            case.input_text,
-                            UntrustedContentSource.USER_MESSAGE,
+                        content=(
+                            ModelTextInput(
+                                text=serialize_untrusted_content(
+                                    case.input_text,
+                                    UntrustedContentSource.USER_MESSAGE,
+                                )
+                            ),
                         ),
                     ),
                 ),

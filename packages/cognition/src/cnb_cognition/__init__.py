@@ -16,11 +16,15 @@ from cnb_cognition.memory import (
 )
 from cnb_cognition.model import (
     ModelCapabilities,
+    ModelDocumentInput,
+    ModelImageInput,
+    ModelInputPart,
     ModelMessage,
     ModelProvider,
     ModelRequest,
     ModelRole,
     ModelStreamEvent,
+    ModelTextInput,
     ModelUsage,
 )
 from cnb_cognition.persona import (
@@ -95,11 +99,15 @@ __all__ = [
     "MemoryRecallTraceItem",
     "MinimalCognitiveRuntime",
     "ModelCapabilities",
+    "ModelDocumentInput",
+    "ModelImageInput",
+    "ModelInputPart",
     "ModelMessage",
     "ModelProvider",
     "ModelRequest",
     "ModelRole",
     "ModelStreamEvent",
+    "ModelTextInput",
     "ModelUsage",
     "Perception",
     "PersonaConstitution",

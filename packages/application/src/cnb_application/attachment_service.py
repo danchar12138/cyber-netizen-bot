@@ -11,6 +11,12 @@ from uuid import UUID, uuid4
 
 from cnb_application.configuration_service import ConfigurationService
 from cnb_application.conversation_service import ConversationRepository
+from cnb_application.object_storage import (
+    ObjectInspectionError,
+    ObjectNotFoundError,
+    ObjectStorage,
+    UploadGrant,
+)
 from cnb_domain import Attachment, AttachmentStatus, DevelopmentIdentity, Message
 
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -26,44 +32,6 @@ class AttachmentValidationError(ValueError):
 
 class AttachmentConflictError(RuntimeError):
     """附件状态或消息绑定关系发生冲突时抛出。"""
-
-
-class ObjectNotFoundError(LookupError):
-    """预留对象尚未上传到对象存储时抛出。"""
-
-
-class ObjectInspectionError(ValueError):
-    """对象内容无法在安全限制内完成类型、摘要或结构检查。"""
-
-
-@dataclass(frozen=True, slots=True)
-class StoredObjectInfo:
-    """完成上传校验所需的可信对象元数据。"""
-
-    size_bytes: int
-    content_type: str
-    sha256: str | None
-    metadata_sha256: str | None = None
-    detected_content_type: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class StoredObjectEntry:
-    """对象清单中的最小安全元数据；不包含内容或下载凭证。"""
-
-    object_key: str
-    size_bytes: int
-    last_modified: datetime
-
-
-@dataclass(frozen=True, slots=True)
-class UploadGrant:
-    """短期、单对象、约束请求头的直传授权。"""
-
-    url: str
-    method: str
-    headers: dict[str, str]
-    expires_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,36 +70,6 @@ class AttachmentRepository(Protocol):
     async def list_expired_attachments(
         self, *, before: datetime, limit: int
     ) -> tuple[Attachment, ...]: ...
-
-
-class ObjectStorage(Protocol):
-    """MinIO 对象存储所需的最小能力。"""
-
-    async def presign_upload(
-        self,
-        *,
-        object_key: str,
-        content_type: str,
-        sha256: str,
-        expires_seconds: int,
-    ) -> UploadGrant: ...
-
-    async def stat_object(self, object_key: str) -> StoredObjectInfo: ...
-
-    async def inspect_object(
-        self,
-        object_key: str,
-        *,
-        max_bytes: int,
-    ) -> StoredObjectInfo: ...
-
-    async def presign_download(
-        self, *, object_key: str, download_name: str, expires_seconds: int
-    ) -> str: ...
-
-    async def delete_object(self, object_key: str) -> None: ...
-
-    async def list_objects(self, *, prefix: str, limit: int) -> tuple[StoredObjectEntry, ...]: ...
 
 
 class AttachmentService:

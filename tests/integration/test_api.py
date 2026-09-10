@@ -1145,6 +1145,15 @@ async def test_attachment_api_upload_complete_send_and_preview_flow() -> None:
             f"/api/v1/chat/conversations/{conversation.id}/attachments"
         )
         preview_response = await client.get(f"/api/v1/chat/attachments/{attachment_id}/preview")
+        messages: MessageListResponse | None = None
+        for _ in range(50):
+            messages_response = await client.get(
+                f"/api/v1/chat/conversations/{conversation.id}/messages"
+            )
+            messages = MessageListResponse.model_validate(messages_response.json())
+            if messages.items[-1].status == "completed":
+                break
+            await asyncio.sleep(0.01)
 
     accepted = MessageAcceptedResponse.model_validate(send_response.json())
     attached = await attachment_repository.get_attachment_for_user(
@@ -1165,6 +1174,9 @@ async def test_attachment_api_upload_complete_send_and_preview_flow() -> None:
     assert listed_response.json()["items"][0]["id"] == str(attachment_id)
     assert preview_response.status_code == 200
     assert preview_response.json()["url"].startswith("memory://download/")
+    assert messages is not None
+    assert messages.items[-1].status == "completed"
+    assert "api attachment content" in messages.items[-1].content
 
 
 async def test_api_validation_errors_use_versioned_envelope_and_request_id() -> None:

@@ -8,6 +8,7 @@ dependencies = [
   "cnb-cognition",
   "cnb-contracts",
   "cnb-domain",
+  "pypdf>=6,<7",
 ]
 
 [tool.uv.sources]
