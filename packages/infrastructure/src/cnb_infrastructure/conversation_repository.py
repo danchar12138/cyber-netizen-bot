@@ -1050,6 +1050,7 @@ class SqlAlchemyConversationRepository:
                 {"conversation_id": str(row.id), "title": row.title},
             )
             await session.flush()
+            await session.refresh(row)
             return self._conversation(row)
 
     async def get_conversation_for_user(
@@ -1094,6 +1095,7 @@ class SqlAlchemyConversationRepository:
                 self.conversation_payload(self._conversation(row)),
             )
             await session.flush()
+            await session.refresh(row)
             return self._conversation(row)
 
     async def soft_delete_conversation(
@@ -1124,6 +1126,7 @@ class SqlAlchemyConversationRepository:
                 self.conversation_payload(self._conversation(row)),
             )
             await session.flush()
+            await session.refresh(row)
             return self._conversation(row)
 
     async def list_messages(
@@ -1275,6 +1278,7 @@ class SqlAlchemyConversationRepository:
                 message_id=response.id,
             )
             await session.flush()
+            await session.refresh(conversation)
             return PendingAgentRun(
                 conversation=self._conversation(conversation),
                 trigger_message=self._message(trigger),
@@ -1401,6 +1405,7 @@ class SqlAlchemyConversationRepository:
                 message_id=response.id,
             )
             await session.flush()
+            await session.refresh(conversation)
             return PendingAgentRun(
                 conversation=self._conversation(conversation),
                 trigger_message=self._message(trigger),
@@ -1613,6 +1618,7 @@ class SqlAlchemyConversationRepository:
                 message_id=response.id,
             )
             await session.flush()
+            await session.refresh(branch)
             return PendingAgentRun(
                 conversation=self._conversation(branch),
                 trigger_message=self._message(trigger),
