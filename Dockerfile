@@ -130,4 +130,4 @@ COPY --from=web-builder --chown=101:101 /app/apps/web/dist /usr/share/nginx/html
 USER 101:101
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD ["wget", "--quiet", "--spider", "http://127.0.0.1:8080/health/web"]
+    CMD ["wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:8080/health/web"]
