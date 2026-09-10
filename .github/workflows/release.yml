@@ -125,7 +125,7 @@ jobs:
           output-file: sbom-${{ matrix.target }}.spdx.json
           upload-artifact: false
       - name: 证明构建来源
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ matrix.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
