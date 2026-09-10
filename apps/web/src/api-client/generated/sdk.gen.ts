@@ -1434,7 +1434,7 @@ export const getApiV1ObservabilityDashboard = <ThrowOnError extends boolean = tr
 /**
  * Overview
  *
- * 返回首版管理总览所需的安全聚合数据。
+ * 返回管理总览所需的安全聚合数据和可选真实依赖状态。
  */
 export const getApiV1SystemOverview = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1SystemOverviewData, ThrowOnError>): RequestResult<GetApiV1SystemOverviewResponses, GetApiV1SystemOverviewErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1SystemOverviewResponses, GetApiV1SystemOverviewErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',

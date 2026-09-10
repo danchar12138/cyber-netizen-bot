@@ -24095,7 +24095,7 @@
     },
     "/api/v1/system/overview": {
       "get": {
-        "description": "返回首版管理总览所需的安全聚合数据。",
+        "description": "返回管理总览所需的安全聚合数据和可选真实依赖状态。",
         "operationId": "get_api_v1_system_overview",
         "responses": {
           "200": {
