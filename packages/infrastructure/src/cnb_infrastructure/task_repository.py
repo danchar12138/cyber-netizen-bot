@@ -539,6 +539,7 @@ class InMemoryTaskRepository:
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         status: ScheduledActionStatus | None,
         limit: int,
     ) -> tuple[ScheduledAction, ...]:
@@ -546,7 +547,9 @@ class InMemoryTaskRepository:
             rows = [
                 item
                 for item in self.scheduled_actions.values()
-                if item.tenant_id == tenant_id and (status is None or item.status is status)
+                if item.tenant_id == tenant_id
+                and item.agent_id == agent_id
+                and (status is None or item.status is status)
             ]
             rows.sort(key=lambda item: (item.scheduled_for, str(item.id)), reverse=True)
             return tuple(rows[:limit])
@@ -1279,10 +1282,14 @@ class SqlAlchemyTaskRepository:
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         status: ScheduledActionStatus | None,
         limit: int,
     ) -> tuple[ScheduledAction, ...]:
-        statement = select(ScheduledActionModel).where(ScheduledActionModel.tenant_id == tenant_id)
+        statement = select(ScheduledActionModel).where(
+            ScheduledActionModel.tenant_id == tenant_id,
+            ScheduledActionModel.agent_id == agent_id,
+        )
         if status is not None:
             statement = statement.where(ScheduledActionModel.status == status.value)
         async with self._session_factory() as session:

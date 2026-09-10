@@ -51,6 +51,18 @@ class ManagedAgentListResponse(BaseModel):
     next_cursor: str | None
 
 
+class ManagedAgentCreateCommand(BaseModel):
+    """创建独立 Agent 的名称命令。"""
+
+    name: str = Field(min_length=1, max_length=120)
+
+
+class ManagedAgentCopyCommand(BaseModel):
+    """从已有 Agent 复制已发布认知资源的命令。"""
+
+    name: str = Field(min_length=1, max_length=120)
+
+
 class ManagedUserResponse(BaseModel):
     """用户管理列表中的安全摘要。"""
 

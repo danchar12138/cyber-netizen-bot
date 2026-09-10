@@ -10,6 +10,7 @@ from cnb_api.dependencies import (
     get_admin_principal,
     get_configuration_service,
     get_memory_service,
+    get_request_identity,
     get_task_service,
     require_permission,
 )
@@ -64,7 +65,10 @@ from cnb_domain import (
 router = APIRouter(
     prefix="/memory",
     tags=["memory"],
-    dependencies=[Depends(require_permission(AdminPermission.MEMORY_READ))],
+    dependencies=[
+        Depends(require_permission(AdminPermission.MEMORY_READ)),
+        Depends(get_request_identity),
+    ],
 )
 
 
@@ -559,7 +563,7 @@ def _relationship_detail(detail: RelationshipDetail) -> RelationshipDetailRespon
 
 
 def _agent_id(request: Request) -> UUID:
-    return request.app.state.development_identity.agent_id
+    return request.state.request_identity.agent_id
 
 
 def _integer(values: Mapping[str, JsonValue], key: str) -> int:

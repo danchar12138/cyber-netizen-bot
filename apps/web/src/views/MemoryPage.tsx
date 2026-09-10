@@ -12,7 +12,7 @@ import {
   Trash2,
   UsersRound,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import {
   closeEpisode,
@@ -38,6 +38,7 @@ import {
   type MemoryStatus,
   type MemoryVisibility,
 } from '../api'
+import { useSelectedAgentId } from '../agentSelection'
 import {
   displayLabel,
   episodeStatusLabels,
@@ -62,6 +63,7 @@ function nowIso() {
 
 export function MemoryPage() {
   const queryClient = useQueryClient()
+  const selectedAgentId = useSelectedAgentId()
   const [tab, setTab] = useState<MemoryTab>('memories')
   const [searchText, setSearchText] = useState('')
   const [kind, setKind] = useState<MemoryKind | ''>('')
@@ -84,12 +86,12 @@ export function MemoryPage() {
   const [episodeConversationId, setEpisodeConversationId] = useState('')
   const [episodeMessageIds, setEpisodeMessageIds] = useState('')
 
-  const identity = useQuery({ queryKey: ['chat-identity'], queryFn: getDevelopmentIdentity })
+  const identity = useQuery({ queryKey: ['chat-identity', selectedAgentId], queryFn: getDevelopmentIdentity })
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const canWrite = session.data?.permissions.includes('memory:write') ?? false
   const canRebuild = session.data?.permissions.includes('memory:rebuild') ?? false
   const memories = useQuery({
-    queryKey: ['memories', searchText, kind, memoryStatus],
+    queryKey: ['memories', selectedAgentId, searchText, kind, memoryStatus],
     queryFn: () => getMemories({
       query: searchText,
       kind: kind || undefined,
@@ -97,21 +99,26 @@ export function MemoryPage() {
     }),
   })
   const detail = useQuery({
-    queryKey: ['memory-detail', selectedId],
+    queryKey: ['memory-detail', selectedAgentId, selectedId],
     queryFn: () => getMemoryDetail(selectedId!),
     enabled: selectedId !== null,
   })
   const relationship = useQuery({
-    queryKey: ['relationship', identity.data?.user_id],
+    queryKey: ['relationship', selectedAgentId, identity.data?.user_id],
     queryFn: () => getRelationship(identity.data!.user_id),
     enabled: Boolean(identity.data?.user_id),
   })
   const episodes = useQuery({
-    queryKey: ['episodes', identity.data?.user_id],
+    queryKey: ['episodes', selectedAgentId, identity.data?.user_id],
     queryFn: () => getEpisodes(identity.data!.user_id),
     enabled: Boolean(identity.data?.user_id),
   })
-  const indexJobs = useQuery({ queryKey: ['memory-index-jobs'], queryFn: getMemoryIndexJobs })
+  const indexJobs = useQuery({ queryKey: ['memory-index-jobs', selectedAgentId], queryFn: getMemoryIndexJobs })
+
+  useEffect(() => {
+    setSelectedId(null)
+    setRecallQuery('')
+  }, [selectedAgentId])
 
   const refreshMemories = () => invalidateAcrossTabs(queryClient, ['memories'])
   const createMutation = useMutation({
@@ -148,7 +155,9 @@ export function MemoryPage() {
       setMemoryConfirmation(memoryId, value),
     onSuccess: async () => {
       await refreshMemories()
-      await queryClient.invalidateQueries({ queryKey: ['memory-detail', selectedId] })
+      await queryClient.invalidateQueries({
+        queryKey: ['memory-detail', selectedAgentId, selectedId],
+      })
     },
   })
   const correctionMutation = useMutation({
@@ -162,13 +171,17 @@ export function MemoryPage() {
   const conflictMutation = useMutation({
     mutationFn: ({ memoryId, targetId }: { memoryId: string; targetId: string }) =>
       linkMemoryConflict(memoryId, targetId, '管理后台标记冲突'),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['memory-detail', selectedId] }),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: ['memory-detail', selectedAgentId, selectedId],
+    }),
   })
   const forgetMutation = useMutation({
     mutationFn: forgetMemory,
     onSuccess: async () => {
       await refreshMemories()
-      await queryClient.invalidateQueries({ queryKey: ['memory-detail', selectedId] })
+      await queryClient.invalidateQueries({
+        queryKey: ['memory-detail', selectedAgentId, selectedId],
+      })
     },
   })
   const recallMutation = useMutation({

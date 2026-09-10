@@ -1,15 +1,22 @@
 """Agent、用户与审计资源的内存及 PostgreSQL 管理仓储。"""
 
 import asyncio
+from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import cast
-from uuid import UUID
+from typing import Protocol, cast
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from cnb_application import AdministrationNotFoundError, AuditCursor, EntityCursor
+from cnb_application import (
+    AdministrationConflictError,
+    AdministrationNotFoundError,
+    AuditCursor,
+    EntityCursor,
+)
 from cnb_domain import (
     AuditRecord,
     DevelopmentIdentity,
@@ -19,13 +26,36 @@ from cnb_domain import (
     ManagedUser,
     ManagementOverview,
 )
-from cnb_infrastructure.models import Agent, AuditLog, ConversationModel, User
+from cnb_infrastructure.models import (
+    Agent,
+    AuditLog,
+    CognitionResourceVersionModel,
+    ConversationModel,
+    User,
+)
+
+
+class CognitionResourceCloner(Protocol):
+    """内存开发模式复制已发布认知资源所需的最小边界。"""
+
+    async def copy_published_resources(
+        self,
+        *,
+        tenant_id: UUID,
+        source_agent_id: UUID,
+        target_agent_id: UUID,
+        actor_id: UUID,
+    ) -> int: ...
 
 
 class MemoryAdministrationRepository:
     """供无数据库测试和前端联调使用的并发安全管理仓储。"""
 
-    def __init__(self, identity: DevelopmentIdentity) -> None:
+    def __init__(
+        self,
+        identity: DevelopmentIdentity,
+        cognition_cloner: CognitionResourceCloner | None = None,
+    ) -> None:
         now = datetime.now(UTC)
         self._agents = {
             identity.agent_id: ManagedAgent(
@@ -47,6 +77,7 @@ class MemoryAdministrationRepository:
         }
         self._audit_records: list[AuditRecord] = []
         self._next_audit_id = 1
+        self._cognition_cloner = cognition_cloner
         self._lock = asyncio.Lock()
 
     async def get_overview(self, *, tenant_id: UUID) -> ManagementOverview:
@@ -84,6 +115,88 @@ class MemoryAdministrationRepository:
             return tuple(
                 sorted(rows, key=lambda item: (item.created_at, item.id), reverse=True)[:limit]
             )
+
+    async def get_agent(self, *, tenant_id: UUID, agent_id: UUID) -> ManagedAgent | None:
+        async with self._lock:
+            agent = self._agents.get(agent_id)
+            return agent if agent is not None and agent.tenant_id == tenant_id else None
+
+    async def create_agent(
+        self,
+        *,
+        tenant_id: UUID,
+        name: str,
+        actor_id: UUID,
+    ) -> ManagedAgent:
+        async with self._lock:
+            self._ensure_unique_agent_name(tenant_id, name)
+            agent = ManagedAgent(
+                id=uuid4(),
+                tenant_id=tenant_id,
+                name=name,
+                status=EntityStatus.ACTIVE,
+                created_at=datetime.now(UTC),
+            )
+            self._agents[agent.id] = agent
+            self._append_audit(
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                action="agent.created",
+                resource_type="agent",
+                resource_id=str(agent.id),
+                detail={"name": name},
+            )
+            return agent
+
+    async def copy_agent(
+        self,
+        *,
+        tenant_id: UUID,
+        source_agent_id: UUID,
+        name: str,
+        actor_id: UUID,
+    ) -> ManagedAgent:
+        async with self._lock:
+            source = self._agents.get(source_agent_id)
+            if source is None or source.tenant_id != tenant_id:
+                raise AdministrationNotFoundError("要复制的 Agent 不存在")
+            self._ensure_unique_agent_name(tenant_id, name)
+            agent = ManagedAgent(
+                id=uuid4(),
+                tenant_id=tenant_id,
+                name=name,
+                status=EntityStatus.ACTIVE,
+                created_at=datetime.now(UTC),
+            )
+            self._agents[agent.id] = agent
+
+        copied_resources = 0
+        try:
+            if self._cognition_cloner is not None:
+                copied_resources = await self._cognition_cloner.copy_published_resources(
+                    tenant_id=tenant_id,
+                    source_agent_id=source_agent_id,
+                    target_agent_id=agent.id,
+                    actor_id=actor_id,
+                )
+        except Exception:
+            async with self._lock:
+                self._agents.pop(agent.id, None)
+            raise
+
+        async with self._lock:
+            self._append_audit(
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                action="agent.copied",
+                resource_type="agent",
+                resource_id=str(agent.id),
+                detail={
+                    "source_agent_id": str(source_agent_id),
+                    "copied_resource_count": copied_resources,
+                },
+            )
+        return agent
 
     async def update_agent_status(
         self,
@@ -219,6 +332,13 @@ class MemoryAdministrationRepository:
         )
         self._next_audit_id += 1
 
+    def _ensure_unique_agent_name(self, tenant_id: UUID, name: str) -> None:
+        if any(
+            item.tenant_id == tenant_id and item.name.casefold() == name.casefold()
+            for item in self._agents.values()
+        ):
+            raise AdministrationConflictError("当前租户已存在同名 Agent")
+
 
 class SqlAlchemyAdministrationRepository:
     """使用 PostgreSQL 提供租户隔离查询、批量状态更新和审计。"""
@@ -278,6 +398,116 @@ class SqlAlchemyAdministrationRepository:
                 )
             ).all()
             return tuple(self._agent(row) for row in rows)
+
+    async def get_agent(self, *, tenant_id: UUID, agent_id: UUID) -> ManagedAgent | None:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(Agent).where(Agent.tenant_id == tenant_id, Agent.id == agent_id)
+            )
+            return None if row is None else self._agent(row)
+
+    async def create_agent(
+        self,
+        *,
+        tenant_id: UUID,
+        name: str,
+        actor_id: UUID,
+    ) -> ManagedAgent:
+        try:
+            async with self._session_factory() as session, session.begin():
+                await self._ensure_unique_agent_name(session, tenant_id, name)
+                row = Agent(
+                    id=uuid4(),
+                    tenant_id=tenant_id,
+                    name=name,
+                    status=EntityStatus.ACTIVE.value,
+                )
+                session.add(row)
+                self._add_agent_audit(
+                    session,
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                    action="agent.created",
+                    resource_id=row.id,
+                    detail={"name": name},
+                )
+                await session.flush()
+                return self._agent(row)
+        except IntegrityError as error:
+            raise AdministrationConflictError("当前租户已存在同名 Agent") from error
+
+    async def copy_agent(
+        self,
+        *,
+        tenant_id: UUID,
+        source_agent_id: UUID,
+        name: str,
+        actor_id: UUID,
+    ) -> ManagedAgent:
+        try:
+            async with self._session_factory() as session, session.begin():
+                source = await session.scalar(
+                    select(Agent).where(
+                        Agent.tenant_id == tenant_id,
+                        Agent.id == source_agent_id,
+                    )
+                )
+                if source is None:
+                    raise AdministrationNotFoundError("要复制的 Agent 不存在")
+                await self._ensure_unique_agent_name(session, tenant_id, name)
+                row = Agent(
+                    id=uuid4(),
+                    tenant_id=tenant_id,
+                    name=name,
+                    status=EntityStatus.ACTIVE.value,
+                )
+                session.add(row)
+                await session.flush()
+                published = (
+                    await session.scalars(
+                        select(CognitionResourceVersionModel).where(
+                            CognitionResourceVersionModel.tenant_id == tenant_id,
+                            CognitionResourceVersionModel.agent_id == source_agent_id,
+                            CognitionResourceVersionModel.status == "published",
+                        )
+                    )
+                ).all()
+                published_at = datetime.now(UTC)
+                for resource in published:
+                    session.add(
+                        CognitionResourceVersionModel(
+                            id=uuid4(),
+                            tenant_id=tenant_id,
+                            agent_id=row.id,
+                            kind=resource.kind,
+                            key=resource.key,
+                            name=resource.name,
+                            version=1,
+                            status="published",
+                            payload=deepcopy(resource.payload),
+                            note=(
+                                f"复制自 Agent {source_agent_id} 的 "
+                                f"{resource.kind}/{resource.key} v{resource.version}"
+                            ),
+                            created_by=actor_id,
+                            published_at=published_at,
+                        )
+                    )
+                self._add_agent_audit(
+                    session,
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                    action="agent.copied",
+                    resource_id=row.id,
+                    detail={
+                        "source_agent_id": str(source_agent_id),
+                        "copied_resource_count": len(published),
+                    },
+                )
+                await session.flush()
+                return self._agent(row)
+        except IntegrityError as error:
+            raise AdministrationConflictError("当前租户已存在同名 Agent") from error
 
     async def update_agent_status(
         self,
@@ -464,5 +694,37 @@ class SqlAlchemyAdministrationRepository:
                 resource_type=resource_type,
                 resource_id=None,
                 detail={"ids": [str(item) for item in ids], "status": status.value},
+            )
+        )
+
+    @staticmethod
+    async def _ensure_unique_agent_name(session: AsyncSession, tenant_id: UUID, name: str) -> None:
+        existing = await session.scalar(
+            select(Agent.id).where(
+                Agent.tenant_id == tenant_id,
+                func.lower(Agent.name) == name.lower(),
+            )
+        )
+        if existing is not None:
+            raise AdministrationConflictError("当前租户已存在同名 Agent")
+
+    @staticmethod
+    def _add_agent_audit(
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        actor_id: UUID,
+        action: str,
+        resource_id: UUID,
+        detail: dict[str, JsonValue],
+    ) -> None:
+        session.add(
+            AuditLog(
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                action=action,
+                resource_type="agent",
+                resource_id=str(resource_id),
+                detail=detail,
             )
         )

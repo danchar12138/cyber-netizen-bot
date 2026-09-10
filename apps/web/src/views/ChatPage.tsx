@@ -16,6 +16,7 @@ import {
   searchChatMessages, sendChatMessage, setMessageFeedback, updateConversation,
   uploadReservedAttachment,
 } from '../api'
+import { useSelectedAgentId } from '../agentSelection'
 import { applyConversationEvent } from '../chatEvents'
 import { memoryKindLabels, relationshipStageLabels } from '../displayLabels'
 import { invalidateAcrossTabs } from '../tabSync'
@@ -37,8 +38,9 @@ interface DraftAttachment {
 }
 
 function MessagePartContent({ part }: { part: MessagePart }) {
+  const selectedAgentId = useSelectedAgentId()
   const imagePreview = useQuery({
-    queryKey: ['attachment-preview', part.attachment_id],
+    queryKey: ['attachment-preview', selectedAgentId, part.attachment_id],
     queryFn: () => getAttachmentPreview(part.attachment_id!),
     enabled: part.kind === 'image' && part.attachment_id !== null,
     staleTime: 4 * 60 * 1000,
@@ -98,6 +100,7 @@ function writeDraft(conversationId: string, value: string): void {
 
 export function ChatPage() {
   const queryClient = useQueryClient()
+  const selectedAgentId = useSelectedAgentId()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [draftMessageId, setDraftMessageId] = useState(() => crypto.randomUUID())
@@ -111,31 +114,34 @@ export function ChatPage() {
   const fileInput = useRef<HTMLInputElement>(null)
   const imageInput = useRef<HTMLInputElement>(null)
 
-  const identity = useQuery({ queryKey: ['chat-identity'], queryFn: getDevelopmentIdentity })
+  const identity = useQuery({
+    queryKey: ['chat-identity', selectedAgentId],
+    queryFn: getDevelopmentIdentity,
+  })
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const canUseConversation = session.data?.permissions.includes('conversation:use') ?? false
   const canReadMemory = session.data?.permissions.includes('memory:read') ?? false
   const conversations = useQuery({
-    queryKey: ['conversations', 'chat', searchText],
+    queryKey: ['conversations', selectedAgentId, 'chat', searchText],
     queryFn: () => getConversations(searchText),
   })
   const messageSearch = useQuery({
-    queryKey: ['message-search', searchText],
+    queryKey: ['message-search', selectedAgentId, searchText],
     queryFn: () => searchChatMessages(searchText),
     enabled: searchText.trim().length >= 2,
   })
   const messageHistory = useQuery({
-    queryKey: ['messages', selectedId],
+    queryKey: ['messages', selectedAgentId, selectedId],
     queryFn: () => getMessages(selectedId!),
     enabled: selectedId !== null,
   })
   const feedback = useQuery({
-    queryKey: ['message-feedback', selectedId],
+    queryKey: ['message-feedback', selectedAgentId, selectedId],
     queryFn: () => getMessageFeedback(selectedId!),
     enabled: selectedId !== null,
   })
   const attachments = useQuery({
-    queryKey: ['attachments', selectedId],
+    queryKey: ['attachments', selectedAgentId, selectedId],
     queryFn: () => getAttachments(selectedId!),
     enabled: selectedId !== null,
   })
@@ -144,15 +150,27 @@ export function ChatPage() {
     [messages],
   )
   const relationship = useQuery({
-    queryKey: ['relationship', identity.data?.user_id],
+    queryKey: ['relationship', selectedAgentId, identity.data?.user_id],
     queryFn: () => getRelationship(identity.data!.user_id),
     enabled: Boolean(identity.data?.user_id && canReadMemory),
   })
   const recalledMemories = useQuery({
-    queryKey: ['chat-memory-recall', identity.data?.user_id, lastUserText],
+    queryKey: ['chat-memory-recall', selectedAgentId, identity.data?.user_id, lastUserText],
     queryFn: () => recallMemories(identity.data!.user_id, lastUserText, 5),
     enabled: Boolean(identity.data?.user_id && lastUserText.trim() && canReadMemory),
   })
+
+  useEffect(() => {
+    setSelectedId(null)
+    setSearchText('')
+    setMessages([])
+    setActiveRunId(null)
+    setDraft('')
+    setDraftAttachments([])
+    setDraftMessageId(crypto.randomUUID())
+    setConnection('连接中')
+    lastSequence.current = 0
+  }, [selectedAgentId])
 
   useEffect(() => {
     if (!selectedId && conversations.data?.items[0]) {
@@ -177,7 +195,7 @@ export function ChatPage() {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const accessToken = getApiAccessToken()
       socket = new WebSocket(
-        `${protocol}//${window.location.host}/api/v1/chat/conversations/${selectedId}/events?after=${lastSequence.current}`,
+        `${protocol}//${window.location.host}/api/v1/chat/conversations/${selectedId}/events?after=${lastSequence.current}${selectedAgentId ? `&agent_id=${encodeURIComponent(selectedAgentId)}` : ''}`,
         accessToken ? ['cnb.bearer', accessToken] : undefined,
       )
       setConnection(lastSequence.current === 0 ? '连接中' : '正在重连')
@@ -196,7 +214,9 @@ export function ChatPage() {
           setActiveRunId(null)
         }
         if (event.event_type.startsWith('message.feedback.')) {
-          void queryClient.invalidateQueries({ queryKey: ['message-feedback', selectedId] })
+          void queryClient.invalidateQueries({
+            queryKey: ['message-feedback', selectedAgentId, selectedId],
+          })
         }
       }
       socket.onclose = () => {
@@ -212,7 +232,7 @@ export function ChatPage() {
       if (reconnectTimer) window.clearTimeout(reconnectTimer)
       socket?.close()
     }
-  }, [queryClient, selectedId])
+  }, [queryClient, selectedAgentId, selectedId])
 
   const acceptRun = (accepted: MessageAccepted) => {
     setMessages((current) => {
@@ -271,7 +291,7 @@ export function ChatPage() {
       setDraft('')
       setDraftAttachments([])
       setDraftMessageId(crypto.randomUUID())
-      void invalidateAcrossTabs(queryClient, ['attachments', selectedId])
+      void invalidateAcrossTabs(queryClient, ['attachments', selectedAgentId, selectedId])
     },
   })
   const regenerateMessage = useMutation({ mutationFn: regenerateChatMessage, onSuccess: acceptRun })
@@ -289,11 +309,17 @@ export function ChatPage() {
   const feedbackMutation = useMutation({
     mutationFn: ({ messageId, rating }: { messageId: string; rating: 'positive' | 'negative' }) =>
       setMessageFeedback(messageId, rating),
-    onSuccess: () => invalidateAcrossTabs(queryClient, ['message-feedback', selectedId]),
+    onSuccess: () => invalidateAcrossTabs(
+      queryClient,
+      ['message-feedback', selectedAgentId, selectedId],
+    ),
   })
   const clearFeedbackMutation = useMutation({
     mutationFn: clearMessageFeedback,
-    onSuccess: () => invalidateAcrossTabs(queryClient, ['message-feedback', selectedId]),
+    onSuccess: () => invalidateAcrossTabs(
+      queryClient,
+      ['message-feedback', selectedAgentId, selectedId],
+    ),
   })
   const cancelRun = useMutation({
     mutationFn: (runId: string) => cancelAgentRun(runId),

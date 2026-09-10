@@ -176,6 +176,7 @@ class TaskRepository(Protocol):
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         status: ScheduledActionStatus | None,
         limit: int,
     ) -> tuple[ScheduledAction, ...]: ...
@@ -786,11 +787,13 @@ class ScheduledActionService:
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         status: ScheduledActionStatus | None,
         limit: int,
     ) -> tuple[ScheduledAction, ...]:
         return await self._repository.list_scheduled_actions(
             tenant_id=tenant_id,
+            agent_id=agent_id,
             status=status,
             limit=BackgroundTaskService.validate_limit(limit),
         )
@@ -799,12 +802,19 @@ class ScheduledActionService:
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID,
         action_id: UUID,
         actor_id: UUID,
         confirmed: bool,
     ) -> ScheduledAction:
         if not confirmed:
             raise TaskValidationError("取消定时行为必须明确确认")
+        current = await self._repository.get_scheduled_action(
+            tenant_id=tenant_id,
+            action_id=action_id,
+        )
+        if current is None or current.agent_id != agent_id:
+            raise TaskNotFoundError(f"定时行为不存在：{action_id}")
         item = await self._repository.cancel_scheduled_action(
             tenant_id=tenant_id,
             action_id=action_id,

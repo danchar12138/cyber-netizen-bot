@@ -65,6 +65,46 @@ class MemoryCognitionRepository:
                 )
             )
 
+    async def copy_published_resources(
+        self,
+        *,
+        tenant_id: UUID,
+        source_agent_id: UUID,
+        target_agent_id: UUID,
+        actor_id: UUID,
+    ) -> int:
+        """原子复制源 Agent 的已发布认知资源，并让目标版本从 1 开始。"""
+        async with self._lock:
+            sources = tuple(
+                item
+                for item in self._resources.values()
+                if item.tenant_id == tenant_id
+                and item.agent_id == source_agent_id
+                and item.status is CognitionVersionStatus.PUBLISHED
+            )
+            now = datetime.now(UTC)
+            for source in sources:
+                resource = CognitionResourceVersion(
+                    id=uuid4(),
+                    tenant_id=tenant_id,
+                    agent_id=target_agent_id,
+                    kind=source.kind,
+                    key=source.key,
+                    name=source.name,
+                    version=1,
+                    status=CognitionVersionStatus.PUBLISHED,
+                    payload=source.payload.copy(),
+                    note=(
+                        f"复制自 Agent {source_agent_id} 的 "
+                        f"{source.kind.value}/{source.key} v{source.version}"
+                    ),
+                    created_by=actor_id,
+                    created_at=now,
+                    published_at=now,
+                )
+                self._resources[resource.id] = resource
+            return len(sources)
+
     async def create_resource_draft(
         self,
         *,

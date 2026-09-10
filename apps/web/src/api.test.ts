@@ -8,9 +8,11 @@ import {
   importConfigPackage,
   setApiAccessToken,
 } from './api'
+import { setSelectedAgentId } from './agentSelection'
 
 afterEach(() => {
   setApiAccessToken(null)
+  setSelectedAgentId(null)
   vi.unstubAllGlobals()
 })
 
@@ -96,11 +98,15 @@ describe('配置包客户端', () => {
     }))
     vi.stubGlobal('fetch', fetchMock)
     setApiAccessToken('signed-access-token')
+    setSelectedAgentId('33333333-3333-4333-8333-333333333333')
 
     await expect(exportConfigPackage('version-id')).rejects.toThrow('没有查看配置包的权限')
 
     const request = fetchMock.mock.calls[0]?.[0] as Request
     expect(request.headers.get('Authorization')).toBe('Bearer signed-access-token')
+    expect(request.headers.get('X-CNB-Agent-ID')).toBe(
+      '33333333-3333-4333-8333-333333333333',
+    )
   })
 
   it('将网络故障转换为自然中文提示', async () => {

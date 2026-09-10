@@ -1,4 +1,5 @@
 import { client } from './generated/client.gen'
+import { getSelectedAgentId } from '../agentSelection'
 
 export const apiClient = client
 
@@ -24,6 +25,9 @@ client.interceptors.request.use((request) => {
   headers.set('Accept', 'application/json')
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
   else headers.delete('Authorization')
+  const agentId = getSelectedAgentId()
+  if (agentId) headers.set('X-CNB-Agent-ID', agentId)
+  else headers.delete('X-CNB-Agent-ID')
   return new Request(request, { headers })
 })
 

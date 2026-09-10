@@ -3140,6 +3140,30 @@ export type LifecycleRunResponse = {
 export type LifecycleRunStatus = 'running' | 'succeeded' | 'failed';
 
 /**
+ * ManagedAgentCopyCommand
+ *
+ * 从已有 Agent 复制已发布认知资源的命令。
+ */
+export type ManagedAgentCopyCommand = {
+    /**
+     * Name
+     */
+    name: string;
+};
+
+/**
+ * ManagedAgentCreateCommand
+ *
+ * 创建独立 Agent 的名称命令。
+ */
+export type ManagedAgentCreateCommand = {
+    /**
+     * Name
+     */
+    name: string;
+};
+
+/**
  * ManagedAgentListResponse
  *
  * Agent 键集分页列表。
@@ -5077,6 +5101,63 @@ export type GetApiV1AdministrationAgentsResponses = {
 
 export type GetApiV1AdministrationAgentsResponse = GetApiV1AdministrationAgentsResponses[keyof GetApiV1AdministrationAgentsResponses];
 
+export type PostApiV1AdministrationAgentsData = {
+    body: ManagedAgentCreateCommand;
+    path?: never;
+    query?: never;
+    url: '/api/v1/administration/agents';
+};
+
+export type PostApiV1AdministrationAgentsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1AdministrationAgentsError = PostApiV1AdministrationAgentsErrors[keyof PostApiV1AdministrationAgentsErrors];
+
+export type PostApiV1AdministrationAgentsResponses = {
+    /**
+     * Successful Response
+     */
+    201: ManagedAgentResponse;
+};
+
+export type PostApiV1AdministrationAgentsResponse = PostApiV1AdministrationAgentsResponses[keyof PostApiV1AdministrationAgentsResponses];
+
 export type PostApiV1AdministrationAgentsStatusData = {
     body: BulkStatusUpdateCommand;
     path?: never;
@@ -5133,6 +5214,68 @@ export type PostApiV1AdministrationAgentsStatusResponses = {
 };
 
 export type PostApiV1AdministrationAgentsStatusResponse = PostApiV1AdministrationAgentsStatusResponses[keyof PostApiV1AdministrationAgentsStatusResponses];
+
+export type PostApiV1AdministrationAgentsByAgentIdCopyData = {
+    body: ManagedAgentCopyCommand;
+    path: {
+        /**
+         * Agent Id
+         */
+        agent_id: string;
+    };
+    query?: never;
+    url: '/api/v1/administration/agents/{agent_id}/copy';
+};
+
+export type PostApiV1AdministrationAgentsByAgentIdCopyErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1AdministrationAgentsByAgentIdCopyError = PostApiV1AdministrationAgentsByAgentIdCopyErrors[keyof PostApiV1AdministrationAgentsByAgentIdCopyErrors];
+
+export type PostApiV1AdministrationAgentsByAgentIdCopyResponses = {
+    /**
+     * Successful Response
+     */
+    201: ManagedAgentResponse;
+};
+
+export type PostApiV1AdministrationAgentsByAgentIdCopyResponse = PostApiV1AdministrationAgentsByAgentIdCopyResponses[keyof PostApiV1AdministrationAgentsByAgentIdCopyResponses];
 
 export type GetApiV1AdministrationAuditData = {
     body?: never;

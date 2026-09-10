@@ -284,7 +284,9 @@ class AttachmentService:
 
     async def _require_conversation(self, conversation_id: UUID) -> None:
         conversation = await self._conversation_repository.get_conversation_for_user(
-            conversation_id, self._identity.user_id
+            conversation_id,
+            self._identity.user_id,
+            self._identity.agent_id,
         )
         if conversation is None:
             raise AttachmentNotFoundError(f"会话不存在：{conversation_id}")

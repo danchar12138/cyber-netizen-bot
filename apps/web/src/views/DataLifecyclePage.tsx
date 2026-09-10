@@ -23,6 +23,7 @@ import {
   type LifecycleRun,
   type LifecycleRunKind,
 } from '../api'
+import { useSelectedAgentId } from '../agentSelection'
 import { displayLabel, metadataKeyLabels } from '../displayLabels'
 
 const USER_FORGET_CONFIRMATION_PREFIX = '确认永久遗忘 '
@@ -95,8 +96,9 @@ function RunHistory({ runs }: { runs: LifecycleRun[] }) {
 
 export function DataLifecyclePage() {
   const queryClient = useQueryClient()
+  const selectedAgentId = useSelectedAgentId()
   const overview = useQuery({
-    queryKey: ['data-lifecycle-overview'],
+    queryKey: ['data-lifecycle-overview', selectedAgentId],
     queryFn: getDataLifecycleOverview,
   })
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })

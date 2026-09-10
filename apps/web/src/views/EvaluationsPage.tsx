@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, CircleX, Eye, FlaskConical, Plus, Rocket } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import {
   claimBlindReviewAssignment,
@@ -18,6 +18,7 @@ import {
   type EvaluationCaseDefinition,
   type EvaluationSuiteDraft,
 } from '../api'
+import { useSelectedAgentId } from '../agentSelection'
 import { cognitiveActionLabels, displayLabel } from '../displayLabels'
 import { invalidateAcrossTabs } from '../tabSync'
 
@@ -88,6 +89,7 @@ function ScoreEditor({
 
 export function EvaluationsPage() {
   const queryClient = useQueryClient()
+  const selectedAgentId = useSelectedAgentId()
   const [editing, setEditing] = useState(false)
   const [selectedSuite, setSelectedSuite] = useState('')
   const [selectedRun, setSelectedRun] = useState<string | null>(null)
@@ -104,14 +106,16 @@ export function EvaluationsPage() {
   const [casesText, setCasesText] = useState(JSON.stringify(defaultCases, null, 2))
 
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
-  const suites = useQuery({ queryKey: ['evaluation-suites'], queryFn: getEvaluationSuites })
-  const runs = useQuery({ queryKey: ['evaluation-runs'], queryFn: getEvaluationRuns })
-  const report = useQuery({ queryKey: ['evaluation-report'], queryFn: getEvaluationReport })
+  const suites = useQuery({ queryKey: ['evaluation-suites', selectedAgentId], queryFn: getEvaluationSuites })
+  const runs = useQuery({ queryKey: ['evaluation-runs', selectedAgentId], queryFn: getEvaluationRuns })
+  const report = useQuery({ queryKey: ['evaluation-report', selectedAgentId], queryFn: getEvaluationReport })
   const runDetail = useQuery({
-    queryKey: ['evaluation-run', selectedRun],
+    queryKey: ['evaluation-run', selectedAgentId, selectedRun],
     queryFn: () => getEvaluationRun(selectedRun ?? ''),
     enabled: Boolean(selectedRun),
   })
+
+  useEffect(() => setSelectedRun(null), [selectedAgentId])
   const canManage = session.data?.permissions.includes('cognition:write') ?? false
   const canRun = session.data?.permissions.includes('cognition:evaluate') ?? false
   const canReview = session.data?.permissions.includes('evaluation:review') ?? false

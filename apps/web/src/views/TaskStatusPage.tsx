@@ -16,6 +16,7 @@ import {
   type BackgroundJobStatus,
   type ScheduledAction,
 } from '../api'
+import { useSelectedAgentId } from '../agentSelection'
 import { AdminDataTable, type AdminTableColumn } from '../components/AdminDataTable'
 import {
   backgroundJobKindLabels,
@@ -32,11 +33,12 @@ function localInputValue(date: Date) {
 
 export function TaskStatusPage() {
   const queryClient = useQueryClient()
+  const selectedAgentId = useSelectedAgentId()
   const [statusFilter, setStatusFilter] = useState<BackgroundJobStatus | ''>('')
   const [reason, setReason] = useState('在合适时间自然跟进上次交流')
   const [scheduledFor, setScheduledFor] = useState(() => localInputValue(new Date(Date.now() + 60_000)))
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
-  const identity = useQuery({ queryKey: ['development-identity'], queryFn: getDevelopmentIdentity })
+  const identity = useQuery({ queryKey: ['development-identity', selectedAgentId], queryFn: getDevelopmentIdentity })
   const dashboard = useQuery({ queryKey: ['task-dashboard'], queryFn: getTaskDashboard, refetchInterval: 15_000 })
   const jobs = useQuery({
     queryKey: ['background-jobs', statusFilter],
@@ -44,7 +46,7 @@ export function TaskStatusPage() {
     refetchInterval: 15_000,
   })
   const scheduled = useQuery({
-    queryKey: ['scheduled-actions'],
+    queryKey: ['scheduled-actions', selectedAgentId],
     queryFn: () => getScheduledActions(),
     refetchInterval: 15_000,
   })

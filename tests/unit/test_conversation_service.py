@@ -1,7 +1,7 @@
 """最小对话应用服务的幂等、流式与恢复测试。"""
 
 from collections.abc import AsyncIterator
-from uuid import NAMESPACE_DNS, uuid5
+from uuid import NAMESPACE_DNS, uuid4, uuid5
 
 from cnb_application import (
     CognitionService,
@@ -618,3 +618,53 @@ async def test_open_circuit_skips_provider_until_cooldown() -> None:
     assert primary.stream_calls == 1
     assert resolver.calls == [("primary-provider", "primary-model")]
     assert second_trace.model_invocations[0].error_code == "CircuitOpen"
+
+
+async def test_conversation_repository_isolates_same_user_by_agent() -> None:
+    repository = MemoryConversationRepository()
+    first = _identity()
+    second = DevelopmentIdentity(
+        tenant_id=first.tenant_id,
+        user_id=first.user_id,
+        agent_id=uuid4(),
+        user_name=first.user_name,
+        agent_name="第二个 Agent",
+    )
+    await repository.ensure_development_identity(first)
+    await repository.ensure_development_identity(second)
+    first_conversation = await repository.create_conversation(
+        identity=first,
+        title="第一个 Agent 的会话",
+    )
+    second_conversation = await repository.create_conversation(
+        identity=second,
+        title="第二个 Agent 的会话",
+    )
+
+    first_rows = await repository.list_conversations(
+        user_id=first.user_id,
+        agent_id=first.agent_id,
+        limit=20,
+        cursor=None,
+        search=None,
+        status=None,
+    )
+    second_rows = await repository.list_conversations(
+        user_id=second.user_id,
+        agent_id=second.agent_id,
+        limit=20,
+        cursor=None,
+        search=None,
+        status=None,
+    )
+
+    assert first_rows == (first_conversation,)
+    assert second_rows == (second_conversation,)
+    assert (
+        await repository.get_conversation_for_user(
+            first_conversation.id,
+            first.user_id,
+            second.agent_id,
+        )
+        is None
+    )

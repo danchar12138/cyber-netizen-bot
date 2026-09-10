@@ -167,6 +167,7 @@ class MemoryConversationRepository:
         self,
         *,
         user_id: UUID,
+        agent_id: UUID,
         limit: int,
         cursor: EntityCursor | None,
         search: str | None,
@@ -177,6 +178,7 @@ class MemoryConversationRepository:
                 item
                 for item in self._conversations.values()
                 if (item.id, user_id) in self._members
+                and item.agent_id == agent_id
                 and item.deleted_at is None
                 and (search is None or search.casefold() in item.title.casefold())
                 and (status is None or item.status is status)
@@ -220,7 +222,7 @@ class MemoryConversationRepository:
             return self._conversations[conversation.id]
 
     async def get_conversation_for_user(
-        self, conversation_id: UUID, user_id: UUID
+        self, conversation_id: UUID, user_id: UUID, agent_id: UUID
     ) -> Conversation | None:
         async with self._lock:
             if (conversation_id, user_id) not in self._members:
@@ -228,9 +230,45 @@ class MemoryConversationRepository:
             conversation = self._conversations.get(conversation_id)
             return (
                 conversation
-                if conversation is not None and conversation.deleted_at is None
+                if conversation is not None
+                and conversation.agent_id == agent_id
+                and conversation.deleted_at is None
                 else None
             )
+
+    async def get_conversation_for_message(
+        self, message_id: UUID, user_id: UUID, agent_id: UUID
+    ) -> Conversation | None:
+        async with self._lock:
+            message = self._messages.get(message_id)
+            if message is None:
+                return None
+            conversation = self._conversations.get(message.conversation_id)
+            if (
+                conversation is None
+                or (conversation.id, user_id) not in self._members
+                or conversation.agent_id != agent_id
+                or conversation.deleted_at is not None
+            ):
+                return None
+            return conversation
+
+    async def get_conversation_for_run(
+        self, run_id: UUID, user_id: UUID, agent_id: UUID
+    ) -> Conversation | None:
+        async with self._lock:
+            run = self._runs.get(run_id)
+            if run is None:
+                return None
+            conversation = self._conversations.get(run.conversation_id)
+            if (
+                conversation is None
+                or (conversation.id, user_id) not in self._members
+                or conversation.agent_id != agent_id
+                or conversation.deleted_at is not None
+            ):
+                return None
+            return conversation
 
     async def update_conversation(
         self,
@@ -952,6 +990,7 @@ class MemoryConversationRepository:
         self,
         *,
         user_id: UUID,
+        agent_id: UUID,
         query: str,
         conversation_id: UUID | None,
         limit: int,
@@ -965,6 +1004,7 @@ class MemoryConversationRepository:
                 for item in self._messages.values()
                 if needle in item.content.casefold()
                 and (item.conversation_id, user_id) in self._members
+                and self._conversations[item.conversation_id].agent_id == agent_id
                 and self._conversations[item.conversation_id].deleted_at is None
                 and (conversation_id is None or item.conversation_id == conversation_id)
             )
@@ -1167,6 +1207,7 @@ class SqlAlchemyConversationRepository:
         self,
         *,
         user_id: UUID,
+        agent_id: UUID,
         limit: int,
         cursor: EntityCursor | None,
         search: str | None,
@@ -1177,6 +1218,7 @@ class SqlAlchemyConversationRepository:
             .join(ConversationMember)
             .where(
                 ConversationMember.user_id == user_id,
+                ConversationModel.agent_id == agent_id,
                 ConversationModel.deleted_at.is_(None),
             )
             .order_by(ConversationModel.updated_at.desc(), ConversationModel.id.desc())
@@ -1238,7 +1280,7 @@ class SqlAlchemyConversationRepository:
             return self._conversation(row)
 
     async def get_conversation_for_user(
-        self, conversation_id: UUID, user_id: UUID
+        self, conversation_id: UUID, user_id: UUID, agent_id: UUID
     ) -> Conversation | None:
         async with self._session_factory() as session:
             row = await session.scalar(
@@ -1247,6 +1289,41 @@ class SqlAlchemyConversationRepository:
                 .where(
                     ConversationModel.id == conversation_id,
                     ConversationMember.user_id == user_id,
+                    ConversationModel.agent_id == agent_id,
+                    ConversationModel.deleted_at.is_(None),
+                )
+            )
+            return None if row is None else self._conversation(row)
+
+    async def get_conversation_for_message(
+        self, message_id: UUID, user_id: UUID, agent_id: UUID
+    ) -> Conversation | None:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(ConversationModel)
+                .join(MessageModel, MessageModel.conversation_id == ConversationModel.id)
+                .join(ConversationMember)
+                .where(
+                    MessageModel.id == message_id,
+                    ConversationMember.user_id == user_id,
+                    ConversationModel.agent_id == agent_id,
+                    ConversationModel.deleted_at.is_(None),
+                )
+            )
+            return None if row is None else self._conversation(row)
+
+    async def get_conversation_for_run(
+        self, run_id: UUID, user_id: UUID, agent_id: UUID
+    ) -> Conversation | None:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(ConversationModel)
+                .join(AgentRunModel, AgentRunModel.conversation_id == ConversationModel.id)
+                .join(ConversationMember)
+                .where(
+                    AgentRunModel.id == run_id,
+                    ConversationMember.user_id == user_id,
+                    ConversationModel.agent_id == agent_id,
                     ConversationModel.deleted_at.is_(None),
                 )
             )
@@ -2166,6 +2243,7 @@ class SqlAlchemyConversationRepository:
         self,
         *,
         user_id: UUID,
+        agent_id: UUID,
         query: str,
         conversation_id: UUID | None,
         limit: int,
@@ -2182,6 +2260,7 @@ class SqlAlchemyConversationRepository:
             )
             .where(
                 ConversationMember.user_id == user_id,
+                ConversationModel.agent_id == agent_id,
                 ConversationModel.deleted_at.is_(None),
                 or_(full_text_match, MessageModel.content.ilike(f"%{query}%")),
             )

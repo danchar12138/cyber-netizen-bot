@@ -161,6 +161,19 @@ def create_app(
         agent_name="赛博网友",
     )
     application.state.development_identity = development_identity
+    administration_seed_identity = (
+        DevelopmentIdentity(
+            tenant_id=resolved_settings.oidc_tenant_id,
+            user_id=development_identity.user_id,
+            agent_id=resolved_settings.oidc_agent_id,
+            user_name=development_identity.user_name,
+            agent_name=resolved_settings.oidc_agent_name,
+        )
+        if resolved_settings.authentication_mode == "oidc"
+        and resolved_settings.oidc_tenant_id is not None
+        and resolved_settings.oidc_agent_id is not None
+        else development_identity
+    )
     session_factory = create_session_factory(resolved_settings)
     application.state.admin_authenticator = (
         admin_authenticator
@@ -242,7 +255,12 @@ def create_app(
         application.state.administration_repository = administration_repository
     elif configuration_repository is not None or conversation_repository is not None:
         application.state.administration_repository = MemoryAdministrationRepository(
-            development_identity
+            administration_seed_identity,
+            cognition_cloner=(
+                application.state.cognition_repository
+                if isinstance(application.state.cognition_repository, MemoryCognitionRepository)
+                else None
+            ),
         )
     else:
         application.state.administration_repository = SqlAlchemyAdministrationRepository(
@@ -288,6 +306,7 @@ def create_app(
             "Content-Type",
             "Idempotency-Key",
             "X-CNB-Development-Role",
+            "X-CNB-Agent-ID",
             "X-Request-ID",
         ],
         expose_headers=["X-Request-ID", "X-Content-SHA256", "X-Export-Run-ID"],

@@ -223,7 +223,10 @@ test('可以预览并发布配置差异以及安全写入密钥', async ({ page 
 
   await page.goto('/configuration')
   await expect(page.getByText('文本', { exact: true })).toBeVisible()
-  await page.getByRole('combobox').nth(1).selectOption('openai')
+  await page.locator('.definition-row')
+    .filter({ hasText: '对话模型 Provider' })
+    .locator('select')
+    .selectOption('openai')
   await page.getByPlaceholder('本次修改说明（可选）').fill('切换正式模型')
   await page.getByRole('button', { name: '保存新草稿' }).click()
   await expect(page.getByText(/草稿 v1 已保存/)).toBeVisible()

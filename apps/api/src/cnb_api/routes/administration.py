@@ -1,6 +1,7 @@
 """当前管理会话与内置 RBAC 能力矩阵。"""
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -10,6 +11,7 @@ from cnb_api.dependencies import (
     require_permission,
 )
 from cnb_application import (
+    AdministrationConflictError,
     AdministrationNotFoundError,
     AdministrationService,
     AdministrationValidationError,
@@ -23,6 +25,8 @@ from cnb_contracts import (
     AuditRecordListResponse,
     AuditRecordResponse,
     BulkStatusUpdateCommand,
+    ManagedAgentCopyCommand,
+    ManagedAgentCreateCommand,
     ManagedAgentListResponse,
     ManagedAgentResponse,
     ManagedUserListResponse,
@@ -107,6 +111,64 @@ async def list_agents(
         ),
         next_cursor=page.next_cursor,
     )
+
+
+@router.post(
+    "/agents",
+    response_model=ManagedAgentResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(AdminPermission.AGENT_WRITE))],
+)
+async def create_agent(
+    command: ManagedAgentCreateCommand,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[AdministrationService, Depends(get_administration_service)],
+) -> ManagedAgentResponse:
+    """创建一个启用状态且可独立配置认知资源的 Agent。"""
+    try:
+        item = await service.create_agent(
+            tenant_id=principal.tenant_id,
+            name=command.name,
+            actor_id=principal.user_id,
+        )
+    except AdministrationValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    except AdministrationConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return ManagedAgentResponse.model_validate(item, from_attributes=True)
+
+
+@router.post(
+    "/agents/{agent_id}/copy",
+    response_model=ManagedAgentResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(AdminPermission.AGENT_WRITE))],
+)
+async def copy_agent(
+    agent_id: UUID,
+    command: ManagedAgentCopyCommand,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[AdministrationService, Depends(get_administration_service)],
+) -> ManagedAgentResponse:
+    """复制 Agent 及其已发布认知资源，新版本从 1 独立演进。"""
+    try:
+        item = await service.copy_agent(
+            tenant_id=principal.tenant_id,
+            source_agent_id=agent_id,
+            name=command.name,
+            actor_id=principal.user_id,
+        )
+    except AdministrationValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    except AdministrationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except AdministrationConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return ManagedAgentResponse.model_validate(item, from_attributes=True)
 
 
 @router.post(

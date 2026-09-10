@@ -46,7 +46,13 @@ from cnb_application import (
     require_admin_permission,
 )
 from cnb_cognition import CognitiveRuntime
-from cnb_domain import AdminPermission, AdminPrincipal, AdminRole, DevelopmentIdentity
+from cnb_domain import (
+    AdminPermission,
+    AdminPrincipal,
+    AdminRole,
+    DevelopmentIdentity,
+    EntityStatus,
+)
 
 
 @lru_cache(maxsize=1)
@@ -167,6 +173,8 @@ async def get_admin_principal(request: HTTPConnection) -> AdminPrincipal:
             detail=f"未知开发角色：{role_value}",
         ) from error
     identity = request.app.state.development_identity
+    conversation_repository: ConversationRepository = request.app.state.conversation_repository
+    await conversation_repository.ensure_development_identity(identity)
     principal = AdminPrincipal(
         tenant_id=identity.tenant_id,
         user_id=identity.user_id,
@@ -225,25 +233,56 @@ def _bearer_token(request: HTTPConnection) -> str:
 async def get_request_identity(
     request: HTTPConnection,
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    repository: Annotated[AdministrationRepository, Depends(get_administration_repository)],
 ) -> DevelopmentIdentity:
-    """把开发或 OIDC 管理主体映射到当前固定 Agent 的请求身份。"""
+    """解析并校验当前租户显式选择的启用 Agent。"""
+    cached = getattr(request.state, "request_identity", None)
+    if isinstance(cached, DevelopmentIdentity):
+        return cached
     settings = request.app.state.settings
-    if principal.authentication_mode == "development":
-        identity: DevelopmentIdentity = request.app.state.development_identity
-        return identity
-    agent_id = settings.oidc_agent_id
-    if agent_id is None:
+    header_agent_id = request.headers.get("X-CNB-Agent-ID")
+    query_agent_id = (
+        request.query_params.get("agent_id") if request.scope.get("type") == "websocket" else None
+    )
+    if header_agent_id and query_agent_id and header_agent_id != query_agent_id:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OIDC Agent 映射尚未配置",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Agent 选择参数不一致",
         )
-    return DevelopmentIdentity(
+    selected_agent_id = header_agent_id or query_agent_id
+    if selected_agent_id:
+        try:
+            agent_id = UUID(selected_agent_id)
+        except ValueError as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Agent ID 格式无效",
+            ) from error
+    elif principal.authentication_mode == "development":
+        agent_id = request.app.state.development_identity.agent_id
+    else:
+        agent_id = settings.oidc_agent_id
+        if agent_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OIDC Agent 映射尚未配置",
+            )
+
+    agent = await repository.get_agent(tenant_id=principal.tenant_id, agent_id=agent_id)
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent 不存在")
+    if agent.status is not EntityStatus.ACTIVE:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="所选 Agent 已停用")
+
+    identity = DevelopmentIdentity(
         tenant_id=principal.tenant_id,
         user_id=principal.user_id,
-        agent_id=agent_id,
+        agent_id=agent.id,
         user_name=principal.display_name,
-        agent_name=settings.oidc_agent_name,
+        agent_name=agent.name,
     )
+    request.state.request_identity = identity
+    return identity
 
 
 async def get_cognition_service(
@@ -394,7 +433,7 @@ def get_conversation_service(
     task_service: Annotated[BackgroundTaskService, Depends(get_task_service)],
     identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
 ) -> ConversationService:
-    """使用进程级端口和开发身份构建请求级对话服务。"""
+    """使用进程级端口和当前请求身份构建对话服务。"""
     runtime: CognitiveRuntime = request.app.state.cognitive_runtime
     model_provider_resolver: ModelProviderResolver = request.app.state.model_provider_resolver
     return ConversationService(

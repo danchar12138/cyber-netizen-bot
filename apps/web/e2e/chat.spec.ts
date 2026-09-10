@@ -17,6 +17,7 @@ const timestamp = '2026-09-09T08:00:00Z'
 test('可以创建会话并发送一条持久化消息', async ({ page }) => {
   let created = false
   let sent = false
+  let websocketUsedSelectedAgent = false
   const attachment = {
     id: attachmentId,
     conversation_id: conversationId,
@@ -40,8 +41,22 @@ test('可以创建会话并发送一条持久化消息', async ({ page }) => {
         user_id: userId,
         display_name: '本地开发者',
         role: 'admin',
-        permissions: ['conversation:read', 'conversation:use'],
+        permissions: ['agent:read', 'conversation:read', 'conversation:use'],
         authentication_mode: 'development',
+      },
+    })
+  })
+  await page.route('**/api/v1/administration/agents?*', async (route) => {
+    await route.fulfill({
+      json: {
+        items: [{
+          id: agentId,
+          tenant_id: tenantId,
+          name: '赛博网友',
+          status: 'active',
+          created_at: timestamp,
+        }],
+        next_cursor: null,
       },
     })
   })
@@ -136,6 +151,7 @@ test('可以创建会话并发送一条持久化消息', async ({ page }) => {
     await route.fulfill({ json: attachment })
   })
   await page.route(`**/api/v1/chat/conversations/${conversationId}/messages`, async (route) => {
+    expect(await route.request().headerValue('X-CNB-Agent-ID')).toBe(agentId)
     const command = route.request().postDataJSON() as {
       client_message_id: string
       content: string
@@ -237,9 +253,12 @@ test('可以创建会话并发送一条持久化消息', async ({ page }) => {
       },
     })
   })
-  await page.routeWebSocket('**/api/v1/chat/conversations/*/events?after=*', () => {})
+  await page.routeWebSocket('**/api/v1/chat/conversations/*/events?after=*', (socket) => {
+    websocketUsedSelectedAgent = socket.url().includes(`agent_id=${agentId}`)
+  })
 
   await page.goto('/chat')
+  await expect(page.getByLabel('当前 Agent')).toHaveValue(agentId)
   await page.getByRole('button', { name: '新建会话' }).click()
   await expect(page.getByText('从一句真心话开始吧')).toBeVisible()
 
@@ -261,6 +280,7 @@ test('可以创建会话并发送一条持久化消息', async ({ page }) => {
   await expect(page.getByRole('button', { name: '说明.txt' })).toBeVisible()
   await expect(page.getByText('正在思考…')).toBeVisible()
   await expect(page.getByRole('button', { name: '停止生成' })).toBeVisible()
+  expect(websocketUsedSelectedAgent).toBe(true)
 
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations).toEqual([])

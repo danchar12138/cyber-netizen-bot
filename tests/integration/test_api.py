@@ -517,6 +517,84 @@ async def test_agent_user_management_bulk_confirmation_and_audit_flow() -> None:
     assert viewer_update.status_code == 403
 
 
+async def test_multi_agent_creation_copy_selection_and_conversation_isolation() -> None:
+    async with AsyncClient(transport=_transport(), base_url="http://test") as client:
+        source_identity = (await client.get("/api/v1/chat/identity")).json()
+        source_agent_id = source_identity["agent_id"]
+        draft_response = await client.post(
+            "/api/v1/cognition/resources",
+            json={
+                "kind": "prompt",
+                "key": "chat.realizer",
+                "name": "自然表达",
+                "payload": {"template": "像熟悉的网友一样自然回应。"},
+                "note": "复制测试基线",
+            },
+        )
+        draft_id = draft_response.json()["id"]
+        assert (
+            await client.post(f"/api/v1/cognition/resources/{draft_id}/publish")
+        ).status_code == 200
+
+        blank_response = await client.post(
+            "/api/v1/administration/agents",
+            json={"name": "空白伙伴"},
+        )
+        copied_response = await client.post(
+            f"/api/v1/administration/agents/{source_agent_id}/copy",
+            json={"name": "人格副本"},
+        )
+        blank_agent_id = blank_response.json()["id"]
+        copied_agent_id = copied_response.json()["id"]
+        copied_resources = await client.get(
+            "/api/v1/cognition/resources",
+            headers={"X-CNB-Agent-ID": copied_agent_id},
+        )
+
+        source_conversation = await client.post(
+            "/api/v1/chat/conversations",
+            json={"title": "源 Agent 会话"},
+        )
+        blank_conversation = await client.post(
+            "/api/v1/chat/conversations",
+            json={"title": "空白 Agent 会话"},
+            headers={"X-CNB-Agent-ID": blank_agent_id},
+        )
+        source_list = await client.get("/api/v1/chat/conversations")
+        blank_list = await client.get(
+            "/api/v1/chat/conversations",
+            headers={"X-CNB-Agent-ID": blank_agent_id},
+        )
+        cross_agent_read = await client.get(
+            f"/api/v1/chat/conversations/{source_conversation.json()['id']}/messages",
+            headers={"X-CNB-Agent-ID": blank_agent_id},
+        )
+        unknown_agent = await client.get(
+            "/api/v1/chat/identity",
+            headers={"X-CNB-Agent-ID": str(uuid4())},
+        )
+        await client.post(
+            "/api/v1/administration/agents/status",
+            json={"ids": [blank_agent_id], "status": "disabled", "confirmed": True},
+        )
+        disabled_agent = await client.get(
+            "/api/v1/chat/identity",
+            headers={"X-CNB-Agent-ID": blank_agent_id},
+        )
+
+    assert blank_response.status_code == 201
+    assert copied_response.status_code == 201
+    copied = CognitionResourceListResponse.model_validate(copied_resources.json())
+    assert len(copied.items) == 1
+    assert copied.items[0].version == 1
+    assert copied.items[0].agent_id == UUID(copied_agent_id)
+    assert source_list.json()["items"][0]["title"] == "源 Agent 会话"
+    assert blank_list.json()["items"][0]["id"] == blank_conversation.json()["id"]
+    assert cross_agent_read.status_code == 404
+    assert unknown_agent.status_code == 404
+    assert disabled_agent.status_code == 409
+
+
 async def test_ready_health_discloses_disabled_deep_checks() -> None:
     async with AsyncClient(transport=_transport(), base_url="http://test") as client:
         response = await client.get("/health/ready")

@@ -1,6 +1,7 @@
 """应用服务与用例。"""
 
 from cnb_application.administration_service import (
+    AdministrationConflictError,
     AdministrationNotFoundError,
     AdministrationRepository,
     AdministrationService,
@@ -152,6 +153,7 @@ from cnb_application.task_service import (
 
 __all__ = [
     "AdminAuthenticator",
+    "AdministrationConflictError",
     "AdministrationNotFoundError",
     "AdministrationRepository",
     "AdministrationService",

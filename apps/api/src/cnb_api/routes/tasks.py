@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from cnb_api.dependencies import (
     get_admin_principal,
     get_configuration_service,
+    get_request_identity,
     get_scheduled_action_service,
     get_task_service,
     require_permission,
@@ -49,7 +50,10 @@ from cnb_domain import (
 router = APIRouter(
     prefix="/tasks",
     tags=["tasks"],
-    dependencies=[Depends(require_permission(AdminPermission.TASK_READ))],
+    dependencies=[
+        Depends(require_permission(AdminPermission.TASK_READ)),
+        Depends(get_request_identity),
+    ],
 )
 
 
@@ -271,6 +275,7 @@ async def recover_expired_leases(
 
 @router.get("/scheduled-actions", response_model=ScheduledActionListResponse)
 async def list_scheduled_actions(
+    request: Request,
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
     service: Annotated[ScheduledActionService, Depends(get_scheduled_action_service)],
     action_status: ScheduledActionStatus | None = None,
@@ -279,6 +284,7 @@ async def list_scheduled_actions(
     """查看待评估、已抑制和已分发的定时行为。"""
     items = await service.list(
         tenant_id=principal.tenant_id,
+        agent_id=request.state.request_identity.agent_id,
         status=action_status,
         limit=limit,
     )
@@ -299,7 +305,7 @@ async def create_scheduled_action(
     configuration: Annotated[ConfigurationService, Depends(get_configuration_service)],
 ) -> ScheduledActionResponse:
     """创建带 PostgreSQL 真相任务的主动行为候选。"""
-    agent_id: UUID = request.app.state.development_identity.agent_id
+    agent_id: UUID = request.state.request_identity.agent_id
     snapshot = await configuration.resolve_effective(
         tenant_id=principal.tenant_id,
         agent_id=agent_id,
@@ -355,6 +361,7 @@ def _integer(values: Mapping[str, JsonValue], key: str) -> int:
 async def cancel_scheduled_action(
     action_id: UUID,
     command: TaskCancelCommand,
+    request: Request,
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
     service: Annotated[ScheduledActionService, Depends(get_scheduled_action_service)],
 ) -> ScheduledActionResponse:
@@ -362,6 +369,7 @@ async def cancel_scheduled_action(
     try:
         item = await service.cancel(
             tenant_id=principal.tenant_id,
+            agent_id=request.state.request_identity.agent_id,
             action_id=action_id,
             actor_id=principal.user_id,
             confirmed=command.confirmed,

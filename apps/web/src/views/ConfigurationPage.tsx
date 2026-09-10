@@ -39,6 +39,7 @@ import {
   setSecret,
   testSecret,
 } from '../api'
+import { useSelectedAgentId } from '../agentSelection'
 import {
   configScopeLabels,
   configValueKindLabels,
@@ -156,6 +157,7 @@ function ConfigInput({
 
 export function ConfigurationPage() {
   const queryClient = useQueryClient()
+  const selectedAgentId = useSelectedAgentId()
   const [tab, setTab] = useState<'runtime' | 'secrets'>('runtime')
   const [scope, setScope] = useState<ConfigScope>('system')
   const [customScopeId, setCustomScopeId] = useState('')
@@ -168,7 +170,10 @@ export function ConfigurationPage() {
   const importInput = useRef<HTMLInputElement>(null)
   const registry = useQuery({ queryKey: ['config-registry'], queryFn: getConfigRegistry })
   const history = useQuery({ queryKey: ['config-versions'], queryFn: getConfigVersions })
-  const identity = useQuery({ queryKey: ['development-identity'], queryFn: getDevelopmentIdentity })
+  const identity = useQuery({
+    queryKey: ['development-identity', selectedAgentId],
+    queryFn: getDevelopmentIdentity,
+  })
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const canWrite = session.data?.permissions.includes('configuration:write') ?? false
   const canManageSecrets = session.data?.permissions.includes('secret:manage') ?? false
@@ -180,7 +185,7 @@ export function ConfigurationPage() {
   const published = history.data?.versions.find((item) => item.status === 'published')
   const scopeId = scopeIdFor(scope, identity.data, customScopeId)
   const effective = useQuery({
-    queryKey: ['effective-configuration', identity.data, customScopeId],
+    queryKey: ['effective-configuration', selectedAgentId, identity.data, customScopeId],
     queryFn: () => getEffectiveConfiguration({
       tenantId: identity.data!.tenant_id,
       agentId: identity.data!.agent_id,

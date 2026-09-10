@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 
 from cnb_application import (
+    AdministrationConflictError,
     AdministrationService,
     AdministrationValidationError,
     AuditCursor,
@@ -13,8 +14,8 @@ from cnb_application import (
     decode_audit_cursor,
     encode_audit_cursor,
 )
-from cnb_domain import DevelopmentIdentity, EntityStatus
-from cnb_infrastructure import MemoryAdministrationRepository
+from cnb_domain import CognitionResourceKind, DevelopmentIdentity, EntityStatus
+from cnb_infrastructure import MemoryAdministrationRepository, MemoryCognitionRepository
 
 
 def _identity() -> DevelopmentIdentity:
@@ -70,6 +71,70 @@ async def test_bulk_status_change_requires_explicit_confirmation() -> None:
             status=EntityStatus.DISABLED,
             actor_id=identity.user_id,
             confirmed=False,
+        )
+
+
+async def test_create_and_copy_agent_clones_only_published_cognition_resources() -> None:
+    identity = _identity()
+    cognition = MemoryCognitionRepository()
+    repository = MemoryAdministrationRepository(identity, cognition_cloner=cognition)
+    service = AdministrationService(repository)
+    draft = await cognition.create_resource_draft(
+        tenant_id=identity.tenant_id,
+        agent_id=identity.agent_id,
+        kind=CognitionResourceKind.PROMPT,
+        key="chat.realizer",
+        name="自然表达",
+        payload={"template": "自然回应"},
+        note="待发布基线",
+        actor_id=identity.user_id,
+    )
+    await cognition.publish_resource(
+        resource_id=draft.id,
+        tenant_id=identity.tenant_id,
+        agent_id=identity.agent_id,
+        actor_id=identity.user_id,
+    )
+    await cognition.create_resource_draft(
+        tenant_id=identity.tenant_id,
+        agent_id=identity.agent_id,
+        kind=CognitionResourceKind.POLICY,
+        key="draft-only",
+        name="未发布策略",
+        payload={},
+        note=None,
+        actor_id=identity.user_id,
+    )
+
+    blank = await service.create_agent(
+        tenant_id=identity.tenant_id,
+        name="  空白   Agent  ",
+        actor_id=identity.user_id,
+    )
+    copied = await service.copy_agent(
+        tenant_id=identity.tenant_id,
+        source_agent_id=identity.agent_id,
+        name="人格副本",
+        actor_id=identity.user_id,
+    )
+    resources = await cognition.list_resource_versions(
+        tenant_id=identity.tenant_id,
+        agent_id=copied.id,
+        kind=None,
+    )
+
+    assert blank.name == "空白 Agent"
+    assert copied.status is EntityStatus.ACTIVE
+    assert len(resources) == 1
+    assert resources[0].key == "chat.realizer"
+    assert resources[0].version == 1
+    assert resources[0].payload == {"template": "自然回应"}
+
+    with pytest.raises(AdministrationConflictError, match="同名 Agent"):
+        await service.create_agent(
+            tenant_id=identity.tenant_id,
+            name="人格副本",
+            actor_id=identity.user_id,
         )
 
 

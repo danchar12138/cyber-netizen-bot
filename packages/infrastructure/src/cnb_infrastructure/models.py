@@ -220,6 +220,7 @@ class Agent(Base):
     __table_args__ = (
         CheckConstraint("status IN ('active', 'disabled')", name="ck_agents_status"),
         Index("ix_agents_tenant", "tenant_id"),
+        Index("uq_agents_tenant_name_ci", "tenant_id", func.lower(name), unique=True),
     )
 
 

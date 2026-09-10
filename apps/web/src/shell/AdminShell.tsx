@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import {
   Activity,
@@ -24,9 +24,10 @@ import {
   Users,
   Wrench,
 } from 'lucide-react'
-import type { ComponentType, ReactNode } from 'react'
+import { useEffect, useMemo, type ComponentType, type ReactNode } from 'react'
 
-import { getAdminSession } from '../api'
+import { getAdminSession, getManagedAgents } from '../api'
+import { setSelectedAgentId, useSelectedAgentId } from '../agentSelection'
 import { useAuthentication } from '../components/authentication-context'
 import { adminRoleLabels } from '../displayLabels'
 
@@ -91,8 +92,27 @@ function NavigationGroup({
 }
 
 export function AdminShell({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient()
+  const selectedAgentId = useSelectedAgentId()
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
+  const agents = useQuery({
+    queryKey: ['managed-agents', 'selector'],
+    queryFn: () => getManagedAgents('', 'active'),
+    enabled: session.data?.permissions.includes('agent:read') ?? false,
+  })
   const authentication = useAuthentication()
+  const activeAgents = useMemo(() => agents.data?.items ?? [], [agents.data])
+
+  useEffect(() => {
+    if (!agents.data) return
+    if (activeAgents.some((agent) => agent.id === selectedAgentId)) return
+    setSelectedAgentId(activeAgents[0]?.id ?? null)
+  }, [activeAgents, agents.data, selectedAgentId])
+
+  const changeAgent = (agentId: string) => {
+    setSelectedAgentId(agentId || null)
+    void queryClient.invalidateQueries()
+  }
 
   return (
     <div className="admin-shell">
@@ -146,6 +166,21 @@ export function AdminShell({ children }: { children: ReactNode }) {
             <strong>赛博网友核心</strong>
           </div>
           <div className="topbar-actions">
+            <label className="agent-switcher">
+              <Bot size={14} />
+              <span>当前 Agent</span>
+              <select
+                aria-label="当前 Agent"
+                value={selectedAgentId ?? ''}
+                disabled={agents.isLoading || activeAgents.length === 0}
+                onChange={(event) => changeAgent(event.target.value)}
+              >
+                {activeAgents.length === 0 && <option value="">暂无启用 Agent</option>}
+                {activeAgents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>{agent.name}</option>
+                ))}
+              </select>
+            </label>
             <div className="secure-badge">
               <ShieldCheck size={14} /> {session.data ? adminRoleLabels[session.data.role] : '正在验证权限'}
             </div>

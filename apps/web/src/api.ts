@@ -1286,6 +1286,15 @@ export const getManagedAgents = (search = '', status?: string) =>
     },
   })
 
+export const createManagedAgent = (name: string) =>
+  apiSdk.postApiV1AdministrationAgents({ body: { name } })
+
+export const copyManagedAgent = (agentId: string, name: string) =>
+  apiSdk.postApiV1AdministrationAgentsByAgentIdCopy({
+    path: { agent_id: agentId },
+    body: { name },
+  })
+
 export const updateManagedAgentStatus = (
   ids: string[],
   status: 'active' | 'disabled',

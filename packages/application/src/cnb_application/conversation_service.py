@@ -101,6 +101,7 @@ class ConversationRepository(Protocol):
         self,
         *,
         user_id: UUID,
+        agent_id: UUID,
         limit: int,
         cursor: EntityCursor | None,
         search: str | None,
@@ -115,7 +116,15 @@ class ConversationRepository(Protocol):
     ) -> Conversation: ...
 
     async def get_conversation_for_user(
-        self, conversation_id: UUID, user_id: UUID
+        self, conversation_id: UUID, user_id: UUID, agent_id: UUID
+    ) -> Conversation | None: ...
+
+    async def get_conversation_for_message(
+        self, message_id: UUID, user_id: UUID, agent_id: UUID
+    ) -> Conversation | None: ...
+
+    async def get_conversation_for_run(
+        self, run_id: UUID, user_id: UUID, agent_id: UUID
     ) -> Conversation | None: ...
 
     async def update_conversation(
@@ -234,6 +243,7 @@ class ConversationRepository(Protocol):
         self,
         *,
         user_id: UUID,
+        agent_id: UUID,
         query: str,
         conversation_id: UUID | None,
         limit: int,
@@ -355,6 +365,7 @@ class ConversationService:
         await self.ensure_development_identity()
         rows = await self._repository.list_conversations(
             user_id=self._identity.user_id,
+            agent_id=self._identity.agent_id,
             limit=limit + 1,
             cursor=decode_cursor(cursor),
             search=search.strip() if search and search.strip() else None,
@@ -372,7 +383,7 @@ class ConversationService:
 
     async def get_conversation(self, conversation_id: UUID) -> Conversation:
         conversation = await self._repository.get_conversation_for_user(
-            conversation_id, self._identity.user_id
+            conversation_id, self._identity.user_id, self._identity.agent_id
         )
         if conversation is None:
             raise ConversationNotFoundError(f"会话不存在：{conversation_id}")
@@ -386,6 +397,7 @@ class ConversationService:
         status: ConversationStatus | None,
         pinned: bool | None,
     ) -> Conversation:
+        await self.get_conversation(conversation_id)
         normalized_title = title.strip() if title is not None else None
         if title is not None and not normalized_title:
             raise ConversationConflictError("会话标题不能为空")
@@ -398,6 +410,7 @@ class ConversationService:
         )
 
     async def soft_delete_conversation(self, conversation_id: UUID) -> Conversation:
+        await self.get_conversation(conversation_id)
         return await self._repository.soft_delete_conversation(
             conversation_id=conversation_id,
             user_id=self._identity.user_id,
@@ -451,6 +464,7 @@ class ConversationService:
         self, response_message_id: UUID, *, client_request_id: UUID
     ) -> PendingAgentRun:
         """保留旧回复和旧 Run，基于同一触发消息创建一次新运行。"""
+        await self._require_message_agent(response_message_id)
         (
             configuration_version,
             model_profile,
@@ -479,6 +493,7 @@ class ConversationService:
         content: str,
     ) -> PendingAgentRun:
         """复制目标消息之前的可见历史，并以编辑内容启动新会话分支。"""
+        await self._require_message_agent(source_message_id)
         (
             configuration_version,
             model_profile,
@@ -815,6 +830,13 @@ class ConversationService:
         )
 
     async def cancel_run(self, run_id: UUID) -> AgentRun:
+        conversation = await self._repository.get_conversation_for_run(
+            run_id,
+            self._identity.user_id,
+            self._identity.agent_id,
+        )
+        if conversation is None:
+            raise AgentRunNotFoundError(f"Agent Run 不存在：{run_id}")
         return await self._repository.cancel_run(run_id, user_id=self._identity.user_id)
 
     async def list_events(
@@ -835,6 +857,7 @@ class ConversationService:
         rating: MessageFeedbackRating,
         comment: str | None,
     ) -> MessageFeedback:
+        await self._require_message_agent(message_id)
         normalized_comment = comment.strip() if comment and comment.strip() else None
         return await self._repository.set_message_feedback(
             message_id=message_id,
@@ -844,6 +867,7 @@ class ConversationService:
         )
 
     async def delete_message_feedback(self, message_id: UUID) -> None:
+        await self._require_message_agent(message_id)
         await self._repository.delete_message_feedback(
             message_id=message_id, user_id=self._identity.user_id
         )
@@ -868,10 +892,21 @@ class ConversationService:
             await self.get_conversation(conversation_id)
         return await self._repository.search_messages(
             user_id=self._identity.user_id,
+            agent_id=self._identity.agent_id,
             query=normalized_query,
             conversation_id=conversation_id,
             limit=limit,
         )
+
+    async def _require_message_agent(self, message_id: UUID) -> Conversation:
+        conversation = await self._repository.get_conversation_for_message(
+            message_id,
+            self._identity.user_id,
+            self._identity.agent_id,
+        )
+        if conversation is None:
+            raise ConversationConflictError("消息不属于当前 Agent 的可访问会话")
+        return conversation
 
     async def _memory_context(
         self,

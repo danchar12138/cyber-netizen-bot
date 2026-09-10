@@ -1,14 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, Power, PowerOff, Users } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { Bot, Copy, Plus, Power, PowerOff, Users } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
+  copyManagedAgent,
+  createManagedAgent,
   getAdminSession,
   getManagedAgents,
   getManagedUsers,
   updateManagedAgentStatus,
   updateManagedUserStatus,
 } from '../api'
+import { setSelectedAgentId } from '../agentSelection'
 import { AdminDataTable, type AdminTableColumn } from '../components/AdminDataTable'
 import { adminRoleLabels } from '../displayLabels'
 import { invalidateAcrossTabs } from '../tabSync'
@@ -25,6 +28,9 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
   const isAgent = kind === 'agents'
   const queryClient = useQueryClient()
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [newAgentName, setNewAgentName] = useState('')
+  const [copySourceId, setCopySourceId] = useState('')
+  const [copyAgentName, setCopyAgentName] = useState('')
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const canWrite = session.data?.permissions.includes(isAgent ? 'agent:write' : 'user:write') ?? false
   const entities = useQuery({
@@ -57,9 +63,43 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
     },
     onSuccess: async () => {
       setSelected(new Set())
-      await invalidateAcrossTabs(queryClient, ['managed-entities', kind])
+      await Promise.all([
+        invalidateAcrossTabs(queryClient, ['managed-entities', kind]),
+        ...(isAgent
+          ? [invalidateAcrossTabs(queryClient, ['managed-agents', 'selector'])]
+          : []),
+      ])
     },
   })
+  const finishAgentCreation = async (agent: EntityRow | {
+    id: string
+    name: string
+  }) => {
+    await Promise.all([
+      invalidateAcrossTabs(queryClient, ['managed-entities', 'agents']),
+      queryClient.invalidateQueries({ queryKey: ['managed-agents', 'selector'] }),
+    ])
+    setSelectedAgentId(agent.id)
+  }
+  const createAgent = useMutation({
+    mutationFn: () => createManagedAgent(newAgentName.trim()),
+    onSuccess: async (agent) => {
+      setNewAgentName('')
+      await finishAgentCreation(agent)
+    },
+  })
+  const copyAgent = useMutation({
+    mutationFn: () => copyManagedAgent(copySourceId, copyAgentName.trim()),
+    onSuccess: async (agent) => {
+      setCopyAgentName('')
+      await finishAgentCreation(agent)
+    },
+  })
+
+  useEffect(() => {
+    if (!isAgent || copySourceId || !entities.data?.[0]) return
+    setCopySourceId(entities.data[0].id)
+  }, [copySourceId, entities.data, isAgent])
 
   const columns = useMemo<Array<AdminTableColumn<EntityRow>>>(() => [
     {
@@ -106,7 +146,57 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
           <span>{isAgent ? '状态变更由服务端再次校验租户边界、权限和明确确认字段。' : `租户 ${session.data?.tenant_id ?? '读取中'}；用户状态变更同样经过租户隔离、权限和确认校验。`}</span>
         </div>
       </div>
-      {updateStatus.error && <div className="notice error">{updateStatus.error.message}</div>}
+      {(updateStatus.error || createAgent.error || copyAgent.error) && (
+        <div className="notice error">
+          {(updateStatus.error ?? createAgent.error ?? copyAgent.error)?.message}
+        </div>
+      )}
+
+      {isAgent && canWrite && (
+        <section className="panel agent-create-panel" aria-label="创建或复制 Agent">
+          <form onSubmit={(event) => {
+            event.preventDefault()
+            if (newAgentName.trim()) createAgent.mutate()
+          }}>
+            <div><strong>新建 Agent</strong><span>创建空白认知空间，后续独立配置人格与模型。</span></div>
+            <input
+              aria-label="新 Agent 名称"
+              maxLength={120}
+              placeholder="输入新 Agent 名称"
+              value={newAgentName}
+              onChange={(event) => setNewAgentName(event.target.value)}
+            />
+            <button className="primary-button" disabled={!newAgentName.trim() || createAgent.isPending}>
+              <Plus size={14} /> 创建并切换
+            </button>
+          </form>
+          <form onSubmit={(event) => {
+            event.preventDefault()
+            if (copySourceId && copyAgentName.trim()) copyAgent.mutate()
+          }}>
+            <div><strong>复制 Agent</strong><span>复制源 Agent 已发布的认知资源，并从版本 1 独立演进。</span></div>
+            <select
+              aria-label="源 Agent"
+              value={copySourceId}
+              onChange={(event) => setCopySourceId(event.target.value)}
+            >
+              {(entities.data ?? []).map((agent) => (
+                <option key={agent.id} value={agent.id}>{agent.name}</option>
+              ))}
+            </select>
+            <input
+              aria-label="复制后的 Agent 名称"
+              maxLength={120}
+              placeholder="输入副本名称"
+              value={copyAgentName}
+              onChange={(event) => setCopyAgentName(event.target.value)}
+            />
+            <button className="secondary-button" disabled={!copySourceId || !copyAgentName.trim() || copyAgent.isPending}>
+              <Copy size={14} /> 复制并切换
+            </button>
+          </form>
+        </section>
+      )}
 
       <section className="panel table-panel">
         <AdminDataTable

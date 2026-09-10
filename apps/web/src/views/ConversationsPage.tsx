@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Archive, Eye, FileText, MessageSquareText, Pencil, Pin, RotateCcw, Trash2, X } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import {
   type Conversation,
@@ -11,6 +11,7 @@ import {
   getMessages,
   updateConversation,
 } from '../api'
+import { useSelectedAgentId } from '../agentSelection'
 import { AdminDataTable, type AdminTableColumn } from '../components/AdminDataTable'
 import { invalidateAcrossTabs } from '../tabSync'
 
@@ -26,21 +27,22 @@ const messageStatusLabels = {
 
 export function ConversationsPage() {
   const queryClient = useQueryClient()
+  const selectedAgentId = useSelectedAgentId()
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('all')
   const [detailId, setDetailId] = useState<string | null>(null)
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const canWrite = session.data?.permissions.includes('conversation:use') ?? false
   const conversations = useQuery({
-    queryKey: ['conversations', 'management', statusFilter],
+    queryKey: ['conversations', selectedAgentId, 'management', statusFilter],
     queryFn: () => getConversations('', statusFilter === 'all' ? undefined : statusFilter),
   })
   const messages = useQuery({
-    queryKey: ['messages', detailId],
+    queryKey: ['messages', selectedAgentId, detailId],
     queryFn: () => getMessages(detailId!),
     enabled: detailId !== null,
   })
   const attachments = useQuery({
-    queryKey: ['attachments', detailId],
+    queryKey: ['attachments', selectedAgentId, detailId],
     queryFn: () => getAttachments(detailId!),
     enabled: detailId !== null,
   })
@@ -53,6 +55,8 @@ export function ConversationsPage() {
     onSuccess: refresh,
   })
   const deleteMutation = useMutation({ mutationFn: deleteConversation, onSuccess: refresh })
+
+  useEffect(() => setDetailId(null), [selectedAgentId])
 
   const rename = (row: Conversation) => {
     const title = window.prompt('请输入新的会话标题', row.title)?.trim()

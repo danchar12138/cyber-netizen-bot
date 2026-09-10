@@ -24,6 +24,10 @@ class AdministrationNotFoundError(LookupError):
     """批量命令包含当前租户不可见的对象时抛出。"""
 
 
+class AdministrationConflictError(RuntimeError):
+    """Agent 名称或当前状态与管理命令冲突时抛出。"""
+
+
 @dataclass(frozen=True, slots=True)
 class AuditCursor:
     """审计日志按时间与自增 ID 组成的稳定键集游标。"""
@@ -54,6 +58,25 @@ class AdministrationRepository(Protocol):
         limit: int,
         cursor: EntityCursor | None,
     ) -> tuple[ManagedAgent, ...]: ...
+
+    async def get_agent(self, *, tenant_id: UUID, agent_id: UUID) -> ManagedAgent | None: ...
+
+    async def create_agent(
+        self,
+        *,
+        tenant_id: UUID,
+        name: str,
+        actor_id: UUID,
+    ) -> ManagedAgent: ...
+
+    async def copy_agent(
+        self,
+        *,
+        tenant_id: UUID,
+        source_agent_id: UUID,
+        name: str,
+        actor_id: UUID,
+    ) -> ManagedAgent: ...
 
     async def update_agent_status(
         self,
@@ -120,6 +143,42 @@ class AdministrationService:
             cursor=decode_cursor(cursor),
         )
         return self._entity_page(rows, limit, lambda item: EntityCursor(item.created_at, item.id))
+
+    async def get_agent(self, *, tenant_id: UUID, agent_id: UUID) -> ManagedAgent:
+        agent = await self._repository.get_agent(tenant_id=tenant_id, agent_id=agent_id)
+        if agent is None:
+            raise AdministrationNotFoundError("Agent 不存在")
+        return agent
+
+    async def create_agent(
+        self,
+        *,
+        tenant_id: UUID,
+        name: str,
+        actor_id: UUID,
+    ) -> ManagedAgent:
+        """创建一个启用状态且认知资源独立的新 Agent。"""
+        return await self._repository.create_agent(
+            tenant_id=tenant_id,
+            name=self._normalize_agent_name(name),
+            actor_id=actor_id,
+        )
+
+    async def copy_agent(
+        self,
+        *,
+        tenant_id: UUID,
+        source_agent_id: UUID,
+        name: str,
+        actor_id: UUID,
+    ) -> ManagedAgent:
+        """复制 Agent，并让源 Agent 的已发布认知资源从 v1 独立演进。"""
+        return await self._repository.copy_agent(
+            tenant_id=tenant_id,
+            source_agent_id=source_agent_id,
+            name=self._normalize_agent_name(name),
+            actor_id=actor_id,
+        )
 
     async def update_agent_status(
         self,
@@ -212,6 +271,17 @@ class AdministrationService:
     def _normalize_search(value: str | None) -> str | None:
         normalized = value.strip() if value else ""
         return normalized or None
+
+    @staticmethod
+    def _normalize_agent_name(value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise AdministrationValidationError("Agent 名称不能为空")
+        if len(normalized) > 120:
+            raise AdministrationValidationError("Agent 名称不能超过 120 个字符")
+        if any(ord(character) < 32 for character in normalized):
+            raise AdministrationValidationError("Agent 名称不能包含控制字符")
+        return normalized
 
     @staticmethod
     def _entity_page[T](

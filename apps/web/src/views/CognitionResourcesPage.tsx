@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, FlaskConical, History, Plus, Rocket, RotateCcw } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import {
   createCognitionResourceDraft,
@@ -13,6 +13,7 @@ import {
   type CognitionResourceKind,
   type ConfigValue,
 } from '../api'
+import { useSelectedAgentId } from '../agentSelection'
 import { invalidateAcrossTabs } from '../tabSync'
 
 const labels: Record<CognitionResourceKind, string> = {
@@ -48,6 +49,7 @@ function statusLabel(status: CognitionResource['status']) {
 
 export function CognitionResourcesPage({ title, kinds, description }: { title: string; kinds: [CognitionResourceKind, ...CognitionResourceKind[]]; description: string }) {
   const queryClient = useQueryClient()
+  const selectedAgentId = useSelectedAgentId()
   const [kind, setKind] = useState<CognitionResourceKind>(kinds[0])
   const [editing, setEditing] = useState(false)
   const [key, setKey] = useState(defaults[kind].key)
@@ -56,14 +58,19 @@ export function CognitionResourcesPage({ title, kinds, description }: { title: s
   const [payloadText, setPayloadText] = useState(JSON.stringify(defaults[kind].payload, null, 2))
   const [testResult, setTestResult] = useState<string | null>(null)
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
-  const resources = useQuery({ queryKey: ['cognition-resources', kind], queryFn: () => getCognitionResources(kind) })
+  const resources = useQuery({ queryKey: ['cognition-resources', selectedAgentId, kind], queryFn: () => getCognitionResources(kind) })
   const canWrite = session.data?.permissions.includes('cognition:write') ?? false
+
+  useEffect(() => {
+    setEditing(false)
+    setTestResult(null)
+  }, [selectedAgentId])
 
   const parsedPayload = useMemo(() => {
     try { return JSON.parse(payloadText) as Record<string, ConfigValue> } catch { return null }
   }, [payloadText])
 
-  const refresh = async () => invalidateAcrossTabs(queryClient, ['cognition-resources', kind])
+  const refresh = async () => invalidateAcrossTabs(queryClient, ['cognition-resources', selectedAgentId, kind])
   const createDraft = useMutation({
     mutationFn: () => {
       if (!parsedPayload) throw new Error('载荷不是有效 JSON')
