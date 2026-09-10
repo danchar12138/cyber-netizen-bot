@@ -1,0 +1,129 @@
+x-python-environment: &python-environment
+  CNB_ENVIRONMENT: ${CNB_ENVIRONMENT:-production}
+  CNB_LOG_LEVEL: ${CNB_LOG_LEVEL:-INFO}
+  CNB_DATABASE_URL: ${CNB_DATABASE_URL:?生产部署必须设置 CNB_DATABASE_URL}
+  CNB_REDIS_URL: ${CNB_REDIS_URL:?生产部署必须设置 CNB_REDIS_URL}
+  CNB_MINIO_ENDPOINT_URL: ${CNB_MINIO_ENDPOINT_URL:-http://minio:9000}
+  CNB_MINIO_ACCESS_KEY: ${CNB_MINIO_ACCESS_KEY:?生产部署必须设置 CNB_MINIO_ACCESS_KEY}
+  CNB_MINIO_SECRET_KEY: ${CNB_MINIO_SECRET_KEY:?生产部署必须设置 CNB_MINIO_SECRET_KEY}
+  CNB_MINIO_BUCKET: ${CNB_MINIO_BUCKET:-cyber-netizen}
+  CNB_CONFIG_MASTER_KEY: ${CNB_CONFIG_MASTER_KEY:?生产部署必须设置 CNB_CONFIG_MASTER_KEY}
+  CNB_CORS_ORIGINS: ${CNB_CORS_ORIGINS:-["http://localhost:8080"]}
+  CNB_READINESS_DEEP_CHECKS: ${CNB_READINESS_DEEP_CHECKS:-true}
+  CNB_AUTHENTICATION_MODE: ${CNB_AUTHENTICATION_MODE:-oidc}
+  CNB_OIDC_ISSUER_URL: ${CNB_OIDC_ISSUER_URL:-}
+  CNB_OIDC_CLIENT_ID: ${CNB_OIDC_CLIENT_ID:-}
+  CNB_OIDC_AUDIENCE: ${CNB_OIDC_AUDIENCE:-}
+  CNB_OIDC_TENANT_ID: ${CNB_OIDC_TENANT_ID:-}
+  CNB_OIDC_AGENT_ID: ${CNB_OIDC_AGENT_ID:-}
+  CNB_OIDC_ROLE_CLAIM: ${CNB_OIDC_ROLE_CLAIM:-cnb_role}
+  CNB_OIDC_DISPLAY_NAME_CLAIM: ${CNB_OIDC_DISPLAY_NAME_CLAIM:-name}
+  CNB_OTEL_ENABLED: ${CNB_OTEL_ENABLED:-false}
+  CNB_OTEL_SERVICE_NAME: ${CNB_OTEL_SERVICE_NAME:-cyber-netizen}
+  CNB_OTEL_EXPORTER_OTLP_ENDPOINT: ${CNB_OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  CNB_OTEL_EXPORTER_OTLP_HEADERS: ${CNB_OTEL_EXPORTER_OTLP_HEADERS:-}
+  CNB_OTEL_TRACE_SAMPLE_RATIO: ${CNB_OTEL_TRACE_SAMPLE_RATIO:-0.1}
+
+x-app-security: &app-security
+  restart: unless-stopped
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?生产部署必须设置 POSTGRES_PASSWORD}
+
+  redis:
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?生产部署必须设置 REDIS_PASSWORD}
+    command:
+      - /bin/sh
+      - -c
+      - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping"]
+
+  minio:
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?生产部署必须设置 MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?生产部署必须设置 MINIO_ROOT_PASSWORD}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_API_CORS_ALLOW_ORIGIN:?生产部署必须设置 MINIO_API_CORS_ALLOW_ORIGIN}
+
+  minio-init:
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?生产部署必须设置 MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?生产部署必须设置 MINIO_ROOT_PASSWORD}
+      MINIO_APP_ACCESS_KEY: ${CNB_MINIO_ACCESS_KEY:?生产部署必须设置 CNB_MINIO_ACCESS_KEY}
+      MINIO_APP_SECRET_KEY: ${CNB_MINIO_SECRET_KEY:?生产部署必须设置 CNB_MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${CNB_MINIO_BUCKET:-cyber-netizen}
+    command:
+      - >-
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
+        mc mb --ignore-existing "local/$${MINIO_BUCKET}" &&
+        mc admin user add local "$${MINIO_APP_ACCESS_KEY}" "$${MINIO_APP_SECRET_KEY}" &&
+        mc admin policy attach local readwrite --user "$${MINIO_APP_ACCESS_KEY}"
+
+  migrate:
+    <<: *app-security
+    image: ${CNB_API_IMAGE:-cyber-netizen-api:local}
+    build:
+      context: .
+      target: api
+    profiles: [operations]
+    restart: "no"
+    environment: *python-environment
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *app-security
+    image: ${CNB_API_IMAGE:-cyber-netizen-api:local}
+    build:
+      context: .
+      target: api
+    environment: *python-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *app-security
+    image: ${CNB_WORKER_IMAGE:-cyber-netizen-worker:local}
+    build:
+      context: .
+      target: worker
+    environment: *python-environment
+    stop_grace_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  web:
+    <<: *app-security
+    image: ${CNB_WEB_IMAGE:-cyber-netizen-web:local}
+    build:
+      context: .
+      target: web
+    environment:
+      CNB_API_UPSTREAM: http://api:8000
+    ports:
+      - "${CNB_WEB_BIND_ADDRESS:-127.0.0.1}:${CNB_WEB_PORT:-8080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy

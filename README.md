@@ -2,7 +2,7 @@
 
 以自研 Agent 认知运行时为核心的“赛博网友”项目。Web 首发形态是统一管理后台，其中包含内部全功能对话工作台；后续 IM 平台通过统一 Channel Adapter 接入。
 
-当前已完成 P1、P2、P3、P4、P5、P6，P7 已完成身份安全、数据生命周期、可观测性/性能/成本以及拟人评测四项纵向切片，下一步进入生产镜像与发布供应链；P0 的 Docker 实跑与分支保护仍待环境验证。最新开发计划见 [`docs/plans/2026-09-09-v3.md`](docs/plans/2026-09-09-v3.md)。
+当前已完成 P1 至 P7，包括身份安全、数据生命周期、可观测性/性能/成本、拟人评测，以及生产镜像与发布供应链；P0 的 Docker 实跑、备份恢复实操证据与分支保护仍待具备对应环境后验证。最新开发计划见 [`docs/plans/2026-09-09-v3.md`](docs/plans/2026-09-09-v3.md)。
 
 ## 已建立的能力
 
@@ -46,6 +46,8 @@
 - OpenTelemetry OTLP Trace、SQLAlchemy 与模型调用链路、路由模板请求指标、API/Agent SLO、数据库队列积压、模型 Token 与调用时冻结成本、确定性阈值告警和可观测管理页面。
 - Locust 分层性能场景、可配置失败率/P95 质量门，以及 PostgreSQL、Redis、MinIO、模型服务、队列、成本和 OTLP 故障处置手册。
 - 版本化拟人评测集、当前认知/模型真实回放、确定性自动质量门、冻结版本/Token/成本，以及来源随机化的匿名 A/B 双侧多维评分和聚合报告。
+- API、Worker、Web 非 root 多阶段生产镜像，同源 HTTP/WebSocket 反向代理，以及只读文件系统、最小权限和健康探针生产 Compose 覆盖层。
+- Python/Node 依赖审计、Hadolint、Trivy 镜像门禁、SPDX SBOM、GitHub provenance/SBOM attestation、Cosign OIDC 无密钥签名和多架构 GHCR 发布。
 - Markdown/GFM 消息、自动保存草稿、图片/文件选择、键盘跳转和 axe 无障碍回归。
 - Alembic 配置、对话、附件、加密密钥、审计、认知运行、长期记忆、可靠异步任务、渠道控制平面、OIDC、数据生命周期、可观测成本和拟人评测迁移，当前 head 为 `20260910_0014`。
 - Python/Web 测试、静态检查和 GitHub Actions。
@@ -92,6 +94,8 @@ uv run poe check
 corepack pnpm --filter @cnb/web check
 uv run alembic heads
 ```
+
+生产式镜像构建、Compose 启动、GHCR 发布、SBOM 与签名验证见 [`docs/runbooks/release-supply-chain.md`](docs/runbooks/release-supply-chain.md)。当前 CI 会额外执行锁文件检查、Python workspace 包构建、生产依赖审计、三个镜像构建、Trivy 扫描和 SBOM 生成。
 
 隔离性能环境的冒烟压测：
 

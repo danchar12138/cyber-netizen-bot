@@ -1,0 +1,56 @@
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
+server {
+    listen 8080;
+    server_name _;
+    server_tokens off;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; connect-src 'self' http: https: ws: wss:; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; img-src 'self' blob: data: http: https:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'" always;
+    add_header Permissions-Policy "camera=(), geolocation=(), microphone=()" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+
+    location = /health/web {
+        access_log off;
+        return 204;
+    }
+
+    location /api/ {
+        proxy_http_version 1.1;
+        proxy_pass ${CNB_API_UPSTREAM};
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Request-ID $request_id;
+    }
+
+    location /health/ {
+        proxy_pass ${CNB_API_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /assets/ {
+        try_files $uri =404;
+        expires 1y;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+        expires -1;
+    }
+}
