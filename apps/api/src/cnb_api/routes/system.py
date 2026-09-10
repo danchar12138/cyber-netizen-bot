@@ -20,7 +20,7 @@ from cnb_contracts import (
     TaskStatusResponse,
 )
 from cnb_domain import AdminPermission, AdminPrincipal
-from cnb_infrastructure import Settings
+from cnb_infrastructure import DependencyProbe, Settings
 
 router = APIRouter(
     prefix="/system",
@@ -37,10 +37,22 @@ async def overview(
     administration: Annotated[AdministrationService, Depends(get_administration_service)],
     tasks: Annotated[BackgroundTaskService, Depends(get_task_service)],
 ) -> SystemOverviewResponse:
-    """返回首版管理总览所需的安全聚合数据。"""
+    """返回管理总览所需的安全聚合数据和可选真实依赖状态。"""
     settings: Settings = request.app.state.settings
     counts = await administration.get_overview(tenant_id=principal.tenant_id)
     task_counts = await tasks.counts(tenant_id=principal.tenant_id)
+    if settings.readiness_deep_checks:
+        dependency_probe: DependencyProbe = request.app.state.dependency_probe
+        dependency_components = await dependency_probe(settings)
+    else:
+        dependency_components = tuple(
+            ComponentHealth(
+                name=name,
+                status="not_checked",
+                detail="启动配置未启用深度依赖检查。",
+            )
+            for name in ("postgresql", "redis", "object_storage")
+        )
     return SystemOverviewResponse(
         environment=settings.environment,
         version=__version__,
@@ -50,9 +62,7 @@ async def overview(
         configuration_definitions=len(registry),
         components=(
             ComponentHealth(name="api", status="healthy"),
-            ComponentHealth(name="postgresql", status="not_checked"),
-            ComponentHealth(name="redis", status="not_checked"),
-            ComponentHealth(name="object_storage", status="not_checked"),
+            *dependency_components,
         ),
     )
 

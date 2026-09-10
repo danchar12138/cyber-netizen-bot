@@ -1,53 +1,148 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Activity, ArrowUpRight, Bot, ListTodo, Settings2 } from 'lucide-react'
+import {
+  Activity,
+  ArrowUpRight,
+  CircleDollarSign,
+  ListTodo,
+  Settings2,
+  ShieldCheck,
+  TriangleAlert,
+} from 'lucide-react'
 
-import { getSystemOverview } from '../api'
-import { componentHealthLabels, componentLabels, displayLabel } from '../displayLabels'
+import {
+  getAdminSession,
+  getChannelInstances,
+  getObservabilityDashboard,
+  getSystemOverview,
+  getTaskStatus,
+} from '../api'
+import { useSelectedAgentId } from '../agentSelection'
+import {
+  channelHealthLabels,
+  componentHealthLabels,
+  componentLabels,
+  displayLabel,
+} from '../displayLabels'
 
-const fallbackMetrics = [
-  { label: '活跃 Agent', value: '—', icon: Bot },
-  { label: '活跃会话', value: '—', icon: Activity },
-  { label: '待处理任务', value: '—', icon: ListTodo },
-  { label: '配置定义', value: '—', icon: Settings2 },
-]
+const numberFormatter = new Intl.NumberFormat('zh-CN')
+
+function formatUsd(microusd: number) {
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 6,
+  }).format(microusd / 1_000_000)
+}
 
 export function DashboardPage() {
-  const overview = useQuery({ queryKey: ['system-overview'], queryFn: getSystemOverview })
-  const data = overview.data
-  const metrics = data
-    ? [
-        { label: '活跃 Agent', value: data.active_agents, icon: Bot },
-        { label: '活跃会话', value: data.active_conversations, icon: Activity },
-        { label: '待处理任务', value: data.pending_jobs, icon: ListTodo },
-        { label: '配置定义', value: data.configuration_definitions, icon: Settings2 },
-      ]
-    : fallbackMetrics
+  const selectedAgentId = useSelectedAgentId()
+  const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
+  const canReadObservability = session.data?.permissions.includes('trace:read') ?? false
+  const canReadChannels = session.data?.permissions.includes('channel:read') ?? false
+  const overview = useQuery({
+    queryKey: ['system-overview'],
+    queryFn: getSystemOverview,
+    refetchInterval: 30_000,
+  })
+  const tasks = useQuery({
+    queryKey: ['task-status'],
+    queryFn: getTaskStatus,
+    refetchInterval: 15_000,
+  })
+  const observability = useQuery({
+    queryKey: ['observability-dashboard'],
+    queryFn: getObservabilityDashboard,
+    enabled: session.isSuccess && canReadObservability,
+    refetchInterval: 30_000,
+  })
+  const channels = useQuery({
+    queryKey: ['channel-instances', selectedAgentId],
+    queryFn: getChannelInstances,
+    enabled: session.isSuccess && canReadChannels,
+    refetchInterval: 30_000,
+  })
+
+  const systemData = overview.data
+  const taskData = tasks.data
+  const telemetry = observability.data
+  const channelItems = channels.data?.items ?? []
+  const modelTokens = telemetry?.models.reduce(
+    (sum, item) => sum + item.input_tokens + item.output_tokens,
+    0,
+  ) ?? 0
+  const taskBacklog = taskData
+    ? taskData.pending_jobs + (taskData.retrying_jobs ?? 0)
+    : telemetry?.queue.backlog
+  const healthyChannels = channelItems.filter(
+    (channel) => channel.health_status === 'healthy',
+  ).length
+  const attentionChannels = channelItems.filter(
+    (channel) => ['degraded', 'not_configured'].includes(channel.health_status),
+  ).length
+  const hasPartialError = overview.isError
+    || tasks.isError
+    || (canReadObservability && observability.isError)
+    || (canReadChannels && channels.isError)
+
+  const metrics = [
+    {
+      label: '租户 Agent Run 成功率',
+      value: telemetry ? `${telemetry.agent_runs.success_rate_percent.toFixed(2)}%` : '—',
+      detail: canReadObservability
+        ? `${telemetry?.agent_runs.completed_runs ?? 0} 成功 · ${telemetry?.agent_runs.unsuccessful_runs ?? 0} 未成功`
+        : '当前角色无可观测数据权限',
+      icon: ShieldCheck,
+    },
+    {
+      label: '模型冻结估算成本',
+      value: telemetry ? formatUsd(telemetry.total_estimated_cost_microusd) : '—',
+      detail: canReadObservability
+        ? `${numberFormatter.format(modelTokens)} Token · 租户聚合`
+        : '当前角色无模型用量权限',
+      icon: CircleDollarSign,
+    },
+    {
+      label: '任务积压',
+      value: taskBacklog === undefined ? '—' : numberFormatter.format(taskBacklog),
+      detail: `${taskData?.running_jobs ?? 0} 运行 · ${taskData?.dead_letter_jobs ?? 0} 死信`,
+      icon: ListTodo,
+    },
+    {
+      label: 'API 5xx 错误率',
+      value: telemetry ? `${telemetry.api.error_rate_percent.toFixed(2)}%` : '—',
+      detail: canReadObservability
+        ? `${telemetry?.api.requests ?? 0} 请求 · ${telemetry?.api.server_errors ?? 0} 次 5xx`
+        : '当前角色无 API 指标权限',
+      icon: Activity,
+    },
+  ]
 
   return (
     <div className="page dashboard-page">
       <section className="page-heading">
         <div>
-          <p className="eyebrow">系统脉搏</p>
-          <h1>早上好，心智系统正在等待唤醒。</h1>
-          <p>在一个控制面中管理 Agent、模型、记忆、渠道与运行策略。</p>
+          <p className="eyebrow">运营控制面</p>
+          <h1>系统状态、运行质量与风险，一页掌握。</h1>
+          <p>租户级运行指标与当前 Agent 的渠道状态会自动刷新；切换 Agent 后渠道视图同步更新。</p>
         </div>
         <Link to="/agents" className="primary-button">管理 Agent <ArrowUpRight size={16} /></Link>
       </section>
 
-      {overview.isError && (
-        <div className="notice warning">
-          API 尚未连接。启动 `uv run poe dev-api` 后，实时状态会自动出现在这里。
+      {hasPartialError && (
+        <div className="notice warning" role="alert">
+          部分运营数据暂时不可用，其余已成功加载的状态仍可继续查看。
         </div>
       )}
 
-      <section className="metric-grid">
-        {metrics.map(({ icon: Icon, label, value }) => (
+      <section className="metric-grid" aria-label="核心运营指标">
+        {metrics.map(({ icon: Icon, label, value, detail }) => (
           <article className="metric-card" key={label}>
             <div className="metric-icon"><Icon size={18} /></div>
             <p>{label}</p>
             <strong>{value}</strong>
-            <span>实时聚合指标</span>
+            <span>{detail}</span>
           </article>
         ))}
       </section>
@@ -55,11 +150,11 @@ export function DashboardPage() {
       <section className="dashboard-grid">
         <article className="panel system-map">
           <div className="panel-heading">
-            <div><p className="eyebrow">运行时</p><h2>系统组件</h2></div>
-            <span className="subtle">v{data?.version ?? '0.1.0'}</span>
+            <div><p className="eyebrow">服务健康</p><h2>运行依赖</h2></div>
+            <Link to="/settings" className="panel-link">系统设置 <ArrowUpRight size={13} /></Link>
           </div>
           <div className="component-list">
-            {(data?.components ?? [
+            {(systemData?.components ?? [
               { name: 'api', status: 'not_checked' as const },
               { name: 'postgresql', status: 'not_checked' as const },
               { name: 'redis', status: 'not_checked' as const },
@@ -67,30 +162,95 @@ export function DashboardPage() {
             ]).map((component) => (
               <div className="component-row" key={component.name}>
                 <span className={`component-status ${component.status}`} />
-                <div><strong>{displayLabel(componentLabels, component.name)}</strong><small>{displayLabel(componentHealthLabels, component.status)}</small></div>
-                <span className="latency">等待探测</span>
+                <div>
+                  <strong>{displayLabel(componentLabels, component.name)}</strong>
+                  <small>{displayLabel(componentHealthLabels, component.status)}</small>
+                </div>
+                <span className="latency">{component.detail ?? '状态正常'}</span>
+              </div>
+            ))}
+          </div>
+          <dl className="overview-counts" aria-label="租户资产摘要">
+            <div><dt>活跃 Agent</dt><dd>{systemData?.active_agents ?? '—'}</dd></div>
+            <div><dt>活跃会话</dt><dd>{systemData?.active_conversations ?? '—'}</dd></div>
+            <div><dt>配置定义</dt><dd>{systemData?.configuration_definitions ?? '—'}</dd></div>
+            <div><dt>运行环境</dt><dd>{systemData?.environment ?? '—'}</dd></div>
+          </dl>
+        </article>
+
+        <article className="panel alert-panel">
+          <div className="panel-heading">
+            <div><p className="eyebrow">近期风险</p><h2>活动告警</h2></div>
+            {canReadObservability
+              ? <Link to="/observability" className="panel-link">全部指标 <ArrowUpRight size={13} /></Link>
+              : <span className="subtle">权限受限</span>}
+          </div>
+          {!canReadObservability && <div className="empty-state">当前角色不能查看运行轨迹和活动告警。</div>}
+          {canReadObservability && !telemetry?.alerts.length && <div className="empty-state">当前聚合窗口没有活动告警。</div>}
+          <div className="alert-list compact">
+            {telemetry?.alerts.slice(0, 4).map((alert) => (
+              <article className={alert.severity} key={alert.code}>
+                <TriangleAlert size={16} />
+                <div>
+                  <strong>{alert.title}</strong>
+                  <p>{alert.summary}</p>
+                  <small>当前 {alert.current_value.toFixed(2)} {alert.unit} · 阈值 {alert.threshold_value.toFixed(2)} {alert.unit}</small>
+                </div>
+              </article>
+            ))}
+          </div>
+        </article>
+      </section>
+
+      <section className="dashboard-grid operational-grid">
+        <article className="panel channel-overview">
+          <div className="panel-heading">
+            <div><p className="eyebrow">当前 Agent</p><h2>渠道状态</h2></div>
+            {canReadChannels
+              ? <Link to="/channels" className="panel-link">管理渠道 <ArrowUpRight size={13} /></Link>
+              : <span className="subtle">权限受限</span>}
+          </div>
+          {canReadChannels && (
+            <div className="status-summary" role="group" aria-label="渠道健康摘要">
+              <div><span>实例</span><strong>{channelItems.length}</strong></div>
+              <div><span>健康</span><strong>{healthyChannels}</strong></div>
+              <div><span>需处理</span><strong>{attentionChannels}</strong></div>
+              <div><span>已停用</span><strong>{channelItems.filter((channel) => channel.status === 'disabled').length}</strong></div>
+            </div>
+          )}
+          {!canReadChannels && <div className="empty-state">当前角色不能查看渠道实例。</div>}
+          {canReadChannels && channelItems.length === 0 && <div className="empty-state">当前 Agent 尚未配置渠道实例。</div>}
+          <div className="component-list">
+            {channelItems.slice(0, 5).map((channel) => (
+              <div className="component-row" key={channel.id}>
+                <span className={`component-status ${channel.health_status}`} />
+                <div><strong>{channel.name}</strong><small>{channel.display_name}</small></div>
+                <span className="latency">{displayLabel(channelHealthLabels, channel.health_status)}</span>
               </div>
             ))}
           </div>
         </article>
 
-        <article className="panel roadmap-card">
+        <article className="panel task-overview">
           <div className="panel-heading">
-            <div><p className="eyebrow">能力验收</p><h2>核心系统能力</h2></div>
-            <span className="phase-tag">主要能力可用</span>
+            <div><p className="eyebrow">异步执行</p><h2>任务与 Worker</h2></div>
+            <Link to="/tasks" className="panel-link">任务控制台 <ArrowUpRight size={13} /></Link>
           </div>
-          <div className="progress-track"><span className="complete" /></div>
-          <p className="progress-copy">认知、记忆、主动行为、渠道、安全治理与生产发布链路已经接通，并持续接受自动回归验证。</p>
-          <ul className="phase-list">
-            <li className="done">可恢复的流式内部对话</li>
-            <li className="done">版本化拟人认知与策略门</li>
-            <li className="done">长期记忆、关系与混合召回</li>
-            <li className="done">异步反思和受控主动行为</li>
-            <li className="done">多模态渠道协议与能力协商</li>
-            <li className="done">配置、密钥、权限与审计治理</li>
-            <li className="done">数据生命周期和隔离恢复验证</li>
-            <li className="done">拟人回归、可观测性与发布供应链</li>
-          </ul>
+          <div className="component-list">
+            <div className="component-row">
+              <span className={`component-status ${taskData?.worker.status ?? 'not_checked'}`} />
+              <div><strong>后台任务进程</strong><small>{displayLabel(componentHealthLabels, taskData?.worker.status ?? 'not_checked')}</small></div>
+              <span className="latency">{taskData?.worker.detail ?? '等待心跳'}</span>
+            </div>
+          </div>
+          <div className="status-summary task-summary" role="group" aria-label="任务状态摘要">
+            <div><span>等待</span><strong>{taskData?.pending_jobs ?? '—'}</strong></div>
+            <div><span>运行</span><strong>{taskData?.running_jobs ?? '—'}</strong></div>
+            <div><span>重试</span><strong>{taskData?.retrying_jobs ?? '—'}</strong></div>
+            <div><span>死信</span><strong>{taskData?.dead_letter_jobs ?? '—'}</strong></div>
+            <div><span>计划行为</span><strong>{taskData?.scheduled_actions ?? '—'}</strong></div>
+          </div>
+          <div className="task-footnote"><Settings2 size={14} /><span>队列积压以 PostgreSQL 为真相源，Worker 心跳每 15 秒刷新。</span></div>
         </article>
       </section>
     </div>

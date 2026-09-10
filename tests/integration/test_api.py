@@ -818,7 +818,13 @@ async def test_configuration_definitions_never_contain_secret_values() -> None:
 
 
 async def test_system_overview_matches_registry_count() -> None:
-    async with AsyncClient(transport=_transport(), base_url="http://test") as client:
+    async def unexpected_probe(_: Settings) -> tuple[ComponentHealth, ...]:
+        raise AssertionError("深度检查关闭时不应访问外部依赖")
+
+    async with AsyncClient(
+        transport=_transport(dependency_probe=unexpected_probe),
+        base_url="http://test",
+    ) as client:
         overview_response = await client.get("/api/v1/system/overview")
         registry_response = await client.get("/api/v1/configuration/definitions")
 
@@ -827,6 +833,43 @@ async def test_system_overview_matches_registry_count() -> None:
 
     assert overview.configuration_definitions == len(registry.definitions)
     assert overview.environment == "test"
+    assert overview.components[0] == ComponentHealth(name="api", status="healthy")
+    assert [component.status for component in overview.components[1:]] == [
+        "not_checked",
+        "not_checked",
+        "not_checked",
+    ]
+    assert all(component.detail for component in overview.components[1:])
+
+
+async def test_system_overview_uses_real_dependency_probe_when_enabled() -> None:
+    probes = 0
+
+    async def mixed_probe(_: Settings) -> tuple[ComponentHealth, ...]:
+        nonlocal probes
+        probes += 1
+        return (
+            ComponentHealth(name="postgresql", status="healthy"),
+            ComponentHealth(name="redis", status="degraded", detail="ConnectionError"),
+            ComponentHealth(name="object_storage", status="healthy"),
+        )
+
+    async with AsyncClient(
+        transport=_transport(deep_checks=True, dependency_probe=mixed_probe),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/api/v1/system/overview")
+
+    overview = SystemOverviewResponse.model_validate(response.json())
+    assert response.status_code == 200
+    assert probes == 1
+    assert [(component.name, component.status) for component in overview.components] == [
+        ("api", "healthy"),
+        ("postgresql", "healthy"),
+        ("redis", "degraded"),
+        ("object_storage", "healthy"),
+    ]
+    assert overview.components[2].detail == "ConnectionError"
 
 
 async def test_system_settings_and_task_status_hide_bootstrap_secrets() -> None:
