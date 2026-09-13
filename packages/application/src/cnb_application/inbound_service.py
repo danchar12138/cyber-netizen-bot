@@ -17,7 +17,7 @@ from cnb_application.attachment_service import (
     AttachmentService,
     AttachmentValidationError,
 )
-from cnb_application.channel_service import ChannelRepository
+from cnb_application.channel_service import ChannelDeliveryReceipt, ChannelRepository
 from cnb_application.configuration_service import ConfigurationService
 from cnb_application.conversation_service import (
     ConversationConflictError,
@@ -53,6 +53,8 @@ from cnb_domain import (
     InboxEvent,
     InboxEventStatus,
     JsonValue,
+    Message,
+    MessageStatus,
     MultimodalContentBlock,
 )
 
@@ -89,6 +91,7 @@ class InboundProcessingResult:
     run_status: AgentRunStatus
     idempotent_replay: bool
     execution_status: str
+    reply_delivery: ChannelDeliveryReceipt | None = None
 
 
 class InboundConversationServiceFactory(Protocol):
@@ -106,6 +109,18 @@ class InboundAttachmentServiceFactory(Protocol):
     """按 Envelope 身份构建现有附件生命周期服务。"""
 
     def __call__(self, *, identity: DevelopmentIdentity) -> AttachmentService: ...
+
+
+class InboundReplyDispatcher(Protocol):
+    """将已完成的外部入站回复投递回原渠道。"""
+
+    async def dispatch(
+        self,
+        *,
+        envelope: InboundEnvelope,
+        response: Message,
+        idempotency_key: str,
+    ) -> ChannelDeliveryReceipt: ...
 
 
 class InboundGatewayRepository(Protocol):
@@ -707,9 +722,11 @@ class InboundConversationProcessor:
         *,
         conversation_services: InboundConversationServiceFactory,
         attachment_services: InboundAttachmentServiceFactory,
+        reply_dispatcher: InboundReplyDispatcher | None = None,
     ) -> None:
         self._conversation_services = conversation_services
         self._attachment_services = attachment_services
+        self._reply_dispatcher = reply_dispatcher
 
     async def process(self, envelope: InboundEnvelope) -> InboundProcessingResult:
         identity = DevelopmentIdentity(
@@ -764,17 +781,32 @@ class InboundConversationProcessor:
             AgentRunStatus.CANCELLED,
             AgentRunStatus.FAILED,
         }:
+            delivery = await self._deliver_reply(
+                envelope=envelope,
+                conversation_service=conversation_service,
+                run_status=pending.run.status,
+                run_id=pending.run.id,
+                response_message_id=pending.run.response_message_id,
+            )
             return InboundProcessingResult(
                 message_id=pending.trigger_message.id,
                 run_id=pending.run.id,
                 run_status=pending.run.status,
                 idempotent_replay=True,
                 execution_status="already_terminal",
+                reply_delivery=delivery,
             )
 
         completed = await conversation_service.execute_run(
             pending,
             resume_queued=not pending.created,
+        )
+        delivery = await self._deliver_reply(
+            envelope=envelope,
+            conversation_service=conversation_service,
+            run_status=completed.status,
+            run_id=completed.id,
+            response_message_id=completed.response_message_id,
         )
         return InboundProcessingResult(
             message_id=pending.trigger_message.id,
@@ -785,6 +817,35 @@ class InboundConversationProcessor:
                 "claimed_elsewhere"
                 if completed.status is AgentRunStatus.QUEUED
                 else "agent_run_processed"
+            ),
+            reply_delivery=delivery,
+        )
+
+    async def _deliver_reply(
+        self,
+        *,
+        envelope: InboundEnvelope,
+        conversation_service: ConversationService,
+        run_status: AgentRunStatus,
+        run_id: UUID,
+        response_message_id: UUID,
+    ) -> ChannelDeliveryReceipt | None:
+        """仅发送成功且有正文的 Telegram 回复，所有其他情况保持静默。"""
+        if self._reply_dispatcher is None or envelope.platform is not ChannelPlatform.TELEGRAM:
+            return None
+        if run_status is not AgentRunStatus.COMPLETED:
+            return None
+        response = await conversation_service.get_response_message_for_run(run_id)
+        if response.id != response_message_id or response.status is not MessageStatus.COMPLETED:
+            return None
+        if not response.content.strip():
+            return None
+        return await self._reply_dispatcher.dispatch(
+            envelope=envelope,
+            response=response,
+            idempotency_key=(
+                f"inbound-reply:{envelope.tenant_id}:{envelope.channel_id}:"
+                f"{envelope.external_message_id}"
             ),
         )
 
@@ -885,6 +946,14 @@ class InboundMessageTaskHandler:
                 "execution_status": processed.execution_status,
             }
         )
+        if processed.reply_delivery is not None:
+            result.update(
+                {
+                    "reply_delivery_status": processed.reply_delivery.status.value,
+                    "reply_external_message_id": processed.reply_delivery.external_message_id,
+                    "reply_idempotent_replay": processed.reply_delivery.idempotent_replay,
+                }
+            )
         return result
 
     @classmethod
@@ -1074,5 +1143,6 @@ __all__ = [
     "InboundMessageTaskHandler",
     "InboundNotFoundError",
     "InboundProcessingResult",
+    "InboundReplyDispatcher",
     "InboundValidationError",
 ]

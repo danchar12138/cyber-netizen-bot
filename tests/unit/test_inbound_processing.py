@@ -10,17 +10,24 @@ import pytest
 from cnb_application import (
     AttachmentService,
     BackgroundTaskService,
+    ChannelDeliveryReceipt,
     CognitionService,
     ConfigurationService,
     ConversationService,
     InboundConversationProcessor,
     InboundConversationServiceFactory,
     InboundMessageTaskHandler,
+    InboundReplyDispatcher,
     PermanentTaskError,
     StaticModelProviderResolver,
     build_default_registry,
 )
 from cnb_cognition import (
+    AgentDecision,
+    AgentEvent,
+    CognitiveAction,
+    CognitiveContext,
+    CognitiveRuntime,
     MinimalCognitiveRuntime,
     ModelCapabilities,
     ModelRequest,
@@ -34,12 +41,14 @@ from cnb_domain import (
     BackgroundJob,
     BackgroundJobKind,
     BackgroundJobStatus,
+    ChannelEventStatus,
     ChannelPlatform,
     ContentBlockKind,
     DevelopmentIdentity,
     ExternalConversationKind,
     InboundEnvelope,
     JsonValue,
+    Message,
     MessageStatus,
     MultimodalContentBlock,
 )
@@ -61,8 +70,9 @@ CHANNEL_ID = UUID("44444444-4444-4444-8444-444444444444")
 class CountingModelProvider:
     """记录真正发生的模型调用，便于证明重复投递不会重复输出。"""
 
-    def __init__(self) -> None:
+    def __init__(self, response_text: str = "收到") -> None:
         self.calls = 0
+        self.response_text = response_text
 
     @property
     def name(self) -> str:
@@ -79,8 +89,52 @@ class CountingModelProvider:
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
         del request
         self.calls += 1
-        yield ModelStreamEvent(delta="收到")
+        if self.response_text:
+            yield ModelStreamEvent(delta=self.response_text)
         yield ModelStreamEvent(usage=ModelUsage(input_tokens=2, output_tokens=1))
+
+
+class SilentCognitiveRuntime:
+    """固定产生抑制决策，验证策略边界不会触发渠道出站。"""
+
+    async def run(self, event: AgentEvent, context: CognitiveContext) -> AgentDecision:
+        del event, context
+        return AgentDecision(
+            action=CognitiveAction.WAIT,
+            rationale_summary="测试抑制回复。",
+        )
+
+
+class RecordingReplyDispatcher(InboundReplyDispatcher):
+    """记录分发调用，并按幂等键模拟远端只发送一次。"""
+
+    def __init__(self) -> None:
+        self.attempts: list[tuple[InboundEnvelope, str, str]] = []
+        self.deliveries: dict[str, ChannelDeliveryReceipt] = {}
+        self.external_calls = 0
+
+    async def dispatch(
+        self,
+        *,
+        envelope: InboundEnvelope,
+        response: Message,
+        idempotency_key: str,
+    ) -> ChannelDeliveryReceipt:
+        content = response.content
+        self.attempts.append((envelope, content, idempotency_key))
+        existing = self.deliveries.get(idempotency_key)
+        if existing is not None:
+            return replace(existing, idempotent_replay=True)
+        self.external_calls += 1
+        receipt = ChannelDeliveryReceipt(
+            status=ChannelEventStatus.DELIVERED,
+            external_message_id=f"telegram-reply-{self.external_calls}",
+            degradations=(),
+            delivered_at=datetime.now(UTC),
+            idempotent_replay=False,
+        )
+        self.deliveries[idempotency_key] = receipt
+        return receipt
 
 
 class FailAfterProcessingHandler:
@@ -105,7 +159,12 @@ class ProcessingHarness:
     conversation_services: InboundConversationServiceFactory
 
 
-async def _harness() -> ProcessingHarness:
+async def _harness(
+    *,
+    runtime: CognitiveRuntime | None = None,
+    response_text: str = "收到",
+    reply_dispatcher: InboundReplyDispatcher | None = None,
+) -> ProcessingHarness:
     identity = DevelopmentIdentity(
         tenant_id=TENANT_ID,
         user_id=USER_ID,
@@ -121,7 +180,7 @@ async def _harness() -> ProcessingHarness:
         MemoryConfigurationRepository(),
     )
     cognition = MemoryCognitionRepository()
-    provider = CountingModelProvider()
+    provider = CountingModelProvider(response_text)
     await conversations.ensure_development_identity(identity)
     conversation = await conversations.create_conversation(identity=identity, title="入站会话")
 
@@ -130,7 +189,7 @@ async def _harness() -> ProcessingHarness:
     ) -> ConversationService:
         return ConversationService(
             repository=conversations,
-            runtime=MinimalCognitiveRuntime(),
+            runtime=runtime or MinimalCognitiveRuntime(),
             model_provider_resolver=StaticModelProviderResolver(provider),
             configuration_service=configuration,
             cognition_service=CognitionService(cognition, agent_id=identity.agent_id),
@@ -150,6 +209,7 @@ async def _harness() -> ProcessingHarness:
     processor = InboundConversationProcessor(
         conversation_services=conversation_services,
         attachment_services=attachment_services,
+        reply_dispatcher=reply_dispatcher,
     )
     return ProcessingHarness(
         identity=identity,
@@ -166,6 +226,8 @@ def _envelope(
     harness: ProcessingHarness,
     *,
     external_message_id: str = "message-1",
+    platform: ChannelPlatform = ChannelPlatform.WEB,
+    external_thread_id: str | None = None,
     blocks: tuple[MultimodalContentBlock, ...] | None = None,
 ) -> InboundEnvelope:
     now = datetime.now(UTC)
@@ -174,13 +236,13 @@ def _envelope(
         tenant_id=TENANT_ID,
         agent_id=AGENT_ID,
         channel_id=CHANNEL_ID,
-        platform=ChannelPlatform.WEB,
+        platform=platform,
         external_event_id=f"event-{uuid4()}",
         external_subject_id="subject-1",
         user_id=USER_ID,
         conversation_kind=ExternalConversationKind.DIRECT,
         external_conversation_id="conversation-1",
-        external_thread_id=None,
+        external_thread_id=external_thread_id,
         conversation_id=harness.conversation_id,
         external_message_id=external_message_id,
         blocks=blocks or (MultimodalContentBlock(kind=ContentBlockKind.TEXT, text="你好\n第二行"),),
@@ -274,6 +336,67 @@ async def test_platform_retry_and_worker_redelivery_are_idempotent() -> None:
     assert len(page) == 2
     assert page[0].status is MessageStatus.COMPLETED
     assert page[1].content == "你好\n第二行"
+
+
+async def test_telegram_reply_delivery_is_idempotent_and_preserves_forum_thread() -> None:
+    dispatcher = RecordingReplyDispatcher()
+    harness = await _harness(reply_dispatcher=dispatcher)
+    envelope = _envelope(
+        harness,
+        external_message_id="telegram-message-1",
+        platform=ChannelPlatform.TELEGRAM,
+        external_thread_id="17",
+    )
+
+    first = await harness.handler.handle(_job(envelope))
+    replay = await harness.handler.handle(_job(envelope))
+
+    assert first["reply_delivery_status"] == ChannelEventStatus.DELIVERED.value
+    assert first["reply_external_message_id"] == "telegram-reply-1"
+    assert first["reply_idempotent_replay"] is False
+    assert replay["reply_external_message_id"] == first["reply_external_message_id"]
+    assert replay["reply_idempotent_replay"] is True
+    assert dispatcher.external_calls == 1
+    assert len(dispatcher.attempts) == 2
+    sent_envelope, content, idempotency_key = dispatcher.attempts[0]
+    assert sent_envelope.external_conversation_id == "conversation-1"
+    assert sent_envelope.external_thread_id == "17"
+    assert content == "收到"
+    assert idempotency_key == f"inbound-reply:{TENANT_ID}:{CHANNEL_ID}:telegram-message-1"
+    run_id = UUID(str(first["run_id"]))
+    assert (
+        await harness.conversations.get_response_message_for_run(run_id, uuid4(), AGENT_ID) is None
+    )
+    assert (
+        await harness.conversations.get_response_message_for_run(run_id, USER_ID, uuid4()) is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("runtime", "response_text"),
+    ((SilentCognitiveRuntime(), "收到"), (None, "")),
+)
+async def test_suppressed_or_empty_telegram_reply_is_not_delivered(
+    runtime: CognitiveRuntime | None,
+    response_text: str,
+) -> None:
+    dispatcher = RecordingReplyDispatcher()
+    harness = await _harness(
+        runtime=runtime,
+        response_text=response_text,
+        reply_dispatcher=dispatcher,
+    )
+    envelope = _envelope(
+        harness,
+        external_message_id=f"telegram-no-reply-{uuid4()}",
+        platform=ChannelPlatform.TELEGRAM,
+    )
+
+    result = await harness.handler.handle(_job(envelope))
+
+    assert "reply_delivery_status" not in result
+    assert dispatcher.external_calls == 0
+    assert dispatcher.attempts == []
 
 
 async def test_manual_task_replay_after_post_processing_failure_is_idempotent() -> None:

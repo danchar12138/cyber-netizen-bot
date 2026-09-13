@@ -338,6 +338,30 @@ class MemoryConversationRepository:
                 return None
             return conversation
 
+    async def get_response_message_for_run(
+        self, run_id: UUID, user_id: UUID, agent_id: UUID
+    ) -> Message | None:
+        async with self._lock:
+            run = self._runs.get(run_id)
+            if run is None:
+                return None
+            conversation = self._conversations.get(run.conversation_id)
+            response = self._messages.get(run.response_message_id)
+            if (
+                conversation is None
+                or response is None
+                or conversation.tenant_id != run.tenant_id
+                or run.agent_id != agent_id
+                or conversation.agent_id != agent_id
+                or conversation.deleted_at is not None
+                or (conversation.id, user_id) not in self._members
+                or response.tenant_id != run.tenant_id
+                or response.conversation_id != conversation.id
+                or response.sender_type is not MessageSenderType.AGENT
+            ):
+                return None
+            return response
+
     async def get_reflection_source(
         self,
         *,
@@ -1455,6 +1479,32 @@ class SqlAlchemyConversationRepository:
                 )
             )
             return None if row is None else self._conversation(row)
+
+    async def get_response_message_for_run(
+        self, run_id: UUID, user_id: UUID, agent_id: UUID
+    ) -> Message | None:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(MessageModel)
+                .join(AgentRunModel, AgentRunModel.response_message_id == MessageModel.id)
+                .join(ConversationModel, ConversationModel.id == AgentRunModel.conversation_id)
+                .join(
+                    ConversationMember,
+                    ConversationMember.conversation_id == ConversationModel.id,
+                )
+                .where(
+                    AgentRunModel.id == run_id,
+                    AgentRunModel.tenant_id == MessageModel.tenant_id,
+                    AgentRunModel.agent_id == agent_id,
+                    ConversationModel.agent_id == AgentRunModel.agent_id,
+                    ConversationModel.tenant_id == AgentRunModel.tenant_id,
+                    ConversationModel.deleted_at.is_(None),
+                    ConversationMember.user_id == user_id,
+                    MessageModel.conversation_id == ConversationModel.id,
+                    MessageModel.sender_type == MessageSenderType.AGENT.value,
+                )
+            )
+        return None if row is None else self._message(row)
 
     async def get_reflection_source(
         self,

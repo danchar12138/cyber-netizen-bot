@@ -109,6 +109,7 @@ from cnb_application.inbound_service import (
     InboundMessageTaskHandler,
     InboundNotFoundError,
     InboundProcessingResult,
+    InboundReplyDispatcher,
     InboundValidationError,
 )
 from cnb_application.memory_service import (
@@ -245,6 +246,7 @@ __all__ = [
     "InboundMessageTaskHandler",
     "InboundNotFoundError",
     "InboundProcessingResult",
+    "InboundReplyDispatcher",
     "InboundValidationError",
     "InvalidCursorError",
     "LoadedModelInput",

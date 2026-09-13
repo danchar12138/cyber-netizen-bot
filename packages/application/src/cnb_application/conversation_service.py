@@ -129,6 +129,10 @@ class ConversationRepository(Protocol):
         self, run_id: UUID, user_id: UUID, agent_id: UUID
     ) -> Conversation | None: ...
 
+    async def get_response_message_for_run(
+        self, run_id: UUID, user_id: UUID, agent_id: UUID
+    ) -> Message | None: ...
+
     async def get_reflection_source(
         self,
         *,
@@ -405,6 +409,17 @@ class ConversationService:
         if conversation is None:
             raise ConversationNotFoundError(f"会话不存在：{conversation_id}")
         return conversation
+
+    async def get_response_message_for_run(self, run_id: UUID) -> Message:
+        """读取当前身份可见 Run 的最终回复消息，避免跨租户消息访问。"""
+        message = await self._repository.get_response_message_for_run(
+            run_id,
+            self._identity.user_id,
+            self._identity.agent_id,
+        )
+        if message is None:
+            raise AgentRunNotFoundError(f"Agent Run 回复不存在：{run_id}")
+        return message
 
     async def update_conversation(
         self,

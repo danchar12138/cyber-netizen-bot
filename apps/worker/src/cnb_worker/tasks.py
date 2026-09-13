@@ -14,10 +14,13 @@ from dramatiq import Broker, Middleware, Worker
 from dramatiq.brokers.redis import RedisBroker
 from dramatiq.middleware import AsyncIO
 
+from cnb_adapters import build_default_channel_registry
 from cnb_application import (
     AttachmentService,
     BackgroundJobHandler,
     BackgroundTaskService,
+    ChannelDeliveryReceipt,
+    ChannelService,
     CognitionService,
     ConfigurationService,
     ConversationService,
@@ -25,6 +28,7 @@ from cnb_application import (
     EpisodeConsolidationTaskHandler,
     InboundConversationProcessor,
     InboundMessageTaskHandler,
+    InboundReplyDispatcher,
     MemoryExtractionTaskHandler,
     MemoryService,
     ModelReliabilityGuard,
@@ -37,12 +41,21 @@ from cnb_application import (
     build_default_registry,
 )
 from cnb_cognition import AnthropomorphicCognitiveRuntime
-from cnb_domain import BackgroundJobKind, DevelopmentIdentity
+from cnb_domain import (
+    BackgroundJobKind,
+    ChannelPlatform,
+    ContentBlockKind,
+    DevelopmentIdentity,
+    InboundEnvelope,
+    Message,
+    MultimodalContentBlock,
+)
 from cnb_infrastructure import (
     AesGcmEnvelopeCipher,
     ConfiguredModelProviderResolver,
     MinioObjectStorage,
     SqlAlchemyAttachmentRepository,
+    SqlAlchemyChannelRepository,
     SqlAlchemyCognitionRepository,
     SqlAlchemyConfigurationRepository,
     SqlAlchemyConversationRepository,
@@ -69,6 +82,7 @@ attachment_repository = SqlAlchemyAttachmentRepository(session_factory)
 task_service = BackgroundTaskService(task_repository)
 memory_service = MemoryService(memory_repository)
 configuration_service = ConfigurationService(build_default_registry(), configuration_repository)
+channel_repository = SqlAlchemyChannelRepository(session_factory)
 object_storage = MinioObjectStorage(settings)
 secret_cipher = AesGcmEnvelopeCipher.from_encoded_key(
     settings.config_master_key.get_secret_value(),
@@ -79,6 +93,11 @@ model_provider_resolver = ConfiguredModelProviderResolver(secret_store)
 cognitive_runtime = AnthropomorphicCognitiveRuntime()
 model_reliability_guard = ModelReliabilityGuard()
 scheduled_action_service = ScheduledActionService(task_repository, task_service)
+channel_service = ChannelService(
+    channel_repository,
+    build_default_channel_registry(),
+    secret_store,
+)
 worker_id = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}"
 worker_started_at = datetime.now(UTC)
 worker_queues = ("system", "memory", "reflection", "proactive", "inbound")
@@ -86,6 +105,38 @@ worker_queues = ("system", "memory", "reflection", "proactive", "inbound")
 
 class _ActorSender(Protocol):
     def send(self, job_id: str) -> object: ...
+
+
+class TelegramInboundReplyDispatcher(InboundReplyDispatcher):
+    """将完成的 Telegram 入站 Run 回复投递回原会话。"""
+
+    def __init__(self, channels: ChannelService) -> None:
+        self._channels = channels
+
+    async def dispatch(
+        self,
+        *,
+        envelope: InboundEnvelope,
+        response: Message,
+        idempotency_key: str,
+    ) -> ChannelDeliveryReceipt:
+        if envelope.platform is not ChannelPlatform.TELEGRAM:
+            raise ValueError("Telegram 回复分发器收到不匹配的平台")
+        text = response.content.strip()
+        if not text:
+            raise ValueError("Telegram 回复正文不能为空")
+        return await self._channels.deliver(
+            tenant_id=envelope.tenant_id,
+            agent_id=envelope.agent_id,
+            channel_id=envelope.channel_id,
+            recipient_id=envelope.external_conversation_id,
+            blocks=(MultimodalContentBlock(kind=ContentBlockKind.TEXT, text=text),),
+            idempotency_key=idempotency_key,
+            request_streaming=False,
+            thread_id=envelope.external_thread_id,
+            edit_message_id=None,
+            proactive=False,
+        )
 
 
 class DramatiqTaskDispatcher(TaskDispatcher):
@@ -192,6 +243,7 @@ _handlers: dict[BackgroundJobKind, BackgroundJobHandler] = {
         InboundConversationProcessor(
             conversation_services=_conversation_service,
             attachment_services=_attachment_service,
+            reply_dispatcher=TelegramInboundReplyDispatcher(channel_service),
         )
     ),
 }

@@ -198,7 +198,7 @@ Telegram 已支持 Bot Token 连接测试、纯文本主动发送、Forum 话题
 
 管理后台“外部身份与 Inbox”页面可绑定平台稳定主体 ID 与本地用户，并将平台会话/线程显式路由到内部 Conversation。标准化入站事件通过签名结果、时效和大小边界后，以渠道和外部消息 ID 的 SHA-256 组合幂等落库，再投递 `inbound` Worker 队列。所有运行设置位于配置中心，映射变更与重放受 RBAC 和审计保护。
 
-`POST /api/v1/integrations/inbound/{channel_id}/simulate` 仍是内部 Web Adapter 管理联调入口。Telegram 真实入站使用公开的 `POST /api/v1/webhooks/telegram/{channel_id}`：部署侧将该 URL 和渠道级 `telegram_webhook_secret` 注册到 Telegram Bot API 的 `secret_token` 后，平台必须在 `X-Telegram-Bot-Api-Secret-Token` 请求头携带对应值。该端点不要求管理登录，只接受受限大小的 JSON 文本 Update，验证外部身份和会话/线程映射后返回 `204`，不回显正文、密钥或内部 Inbox/任务 ID。Worker 会严格解析净化后的 Envelope，以租户、渠道和外部消息 ID 生成确定性 `client_message_id`，复用现有 Conversation、长期记忆、多模态和自研认知运行时创建并处理 Agent Run；平台重试、Worker 重投和人工重放不会重复生成消息或 Run。管理后台可查看内部消息/Run ID、终态和幂等结果，但不展示正文、附件对象键、凭证或模型原始响应。飞书和 Discord 仍然是零外部副作用占位，不访问平台 API。
+`POST /api/v1/integrations/inbound/{channel_id}/simulate` 仍是内部 Web Adapter 管理联调入口。Telegram 真实入站使用公开的 `POST /api/v1/webhooks/telegram/{channel_id}`：部署侧将该 URL 和渠道级 `telegram_webhook_secret` 注册到 Telegram Bot API 的 `secret_token` 后，平台必须在 `X-Telegram-Bot-Api-Secret-Token` 请求头携带对应值。该端点不要求管理登录，只接受受限大小的 JSON 文本 Update，验证外部身份和会话/线程映射后返回 `204`，不回显正文、密钥或内部 Inbox/任务 ID。Worker 会严格解析净化后的 Envelope，以租户、渠道和外部消息 ID 生成确定性 `client_message_id`，复用现有 Conversation、长期记忆、多模态和自研认知运行时创建并处理 Agent Run；仅对已完成且有正文的 Agent Run 自动回复 Telegram，收件人和 Forum 线程沿用入站映射，出站使用稳定幂等键，因此平台重试、Worker 重投和人工重放不会重复生成消息、Run 或外部回复。管理后台可查看内部消息/Run ID、终态和幂等结果，但不展示正文、附件对象键、凭证或模型原始响应。飞书和 Discord 仍然是零外部副作用占位，不访问平台 API。
 
 ## GitHub
 
