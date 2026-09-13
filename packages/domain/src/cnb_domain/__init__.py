@@ -29,6 +29,8 @@ from cnb_domain.administration import (
 from cnb_domain.attachment import Attachment, AttachmentStatus
 from cnb_domain.channels import (
     ChannelAlert,
+    ChannelAlertDisposition,
+    ChannelAlertDispositionStatus,
     ChannelCapabilities,
     ChannelDiagnosticEvent,
     ChannelErrorMetrics,
@@ -212,6 +214,8 @@ __all__ = [
     "BlindReviewPreference",
     "BlindReviewScore",
     "ChannelAlert",
+    "ChannelAlertDisposition",
+    "ChannelAlertDispositionStatus",
     "ChannelCapabilities",
     "ChannelDiagnosticEvent",
     "ChannelErrorMetrics",

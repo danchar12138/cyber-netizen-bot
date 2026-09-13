@@ -39,7 +39,12 @@ from cnb_contracts.attachment import (
 )
 from cnb_contracts.authentication import AuthenticationConfigResponse
 from cnb_contracts.channels import (
+    ChannelAlertDispositionClearCommand,
+    ChannelAlertDispositionCommand,
+    ChannelAlertDispositionResponse,
     ChannelAlertListResponse,
+    ChannelAlertNotificationCommand,
+    ChannelAlertNotificationResponse,
     ChannelAlertResponse,
     ChannelCapabilitiesResponse,
     ChannelCatalogListResponse,
@@ -276,7 +281,12 @@ __all__ = [
     "BlindReviewSubmit",
     "BootstrapSettingsResponse",
     "BulkStatusUpdateCommand",
+    "ChannelAlertDispositionClearCommand",
+    "ChannelAlertDispositionCommand",
+    "ChannelAlertDispositionResponse",
     "ChannelAlertListResponse",
+    "ChannelAlertNotificationCommand",
+    "ChannelAlertNotificationResponse",
     "ChannelAlertResponse",
     "ChannelCapabilitiesResponse",
     "ChannelCatalogListResponse",

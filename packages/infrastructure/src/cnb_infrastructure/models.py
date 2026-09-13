@@ -2305,6 +2305,45 @@ class ChannelHealthSnapshotModel(Base):
     )
 
 
+class ChannelAlertDispositionModel(Base):
+    """渠道告警确认或抑制的租户隔离处置记录。"""
+
+    __tablename__ = "channel_alert_dispositions"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    channel_id: Mapped[UUID] = mapped_column(
+        ForeignKey("channel_instances.id", ondelete="CASCADE"), nullable=False
+    )
+    alert_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    code: Mapped[str] = mapped_column(String(120), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    actor_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('acknowledged', 'suppressed')",
+            name="ck_channel_alert_dispositions_status",
+        ),
+        UniqueConstraint(
+            "tenant_id", "agent_id", "alert_key", name="uq_channel_alert_disposition_key"
+        ),
+        Index("ix_channel_alert_dispositions_tenant_agent", "tenant_id", "agent_id", "updated_at"),
+    )
+
+
 class ChannelRateLimitWindowModel(Base):
     """数据库原子维护的分钟级渠道发送预算。"""
 

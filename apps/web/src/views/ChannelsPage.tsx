@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState, type FormEvent } from 'react'
 
 import {
   clearChannelCredential,
+  acknowledgeChannelAlert,
   createChannelInstance,
   deliverChannelMessage,
   getAdminSession,
@@ -15,12 +16,15 @@ import {
   getChannelInstances,
   getChannelOperationMetrics,
   getModelCapabilities,
+  notifyChannelAlerts,
   getTelegramWebhookStatus,
   clearTelegramWebhook,
   registerTelegramWebhook,
   setChannelCredential,
+  suppressChannelAlert,
   simulateChannel,
   testChannelConnection,
+  unsuppressChannelAlert,
   updateChannelInstance,
   type ChannelDiagnosticEvent,
   type ChannelAlert,
@@ -106,6 +110,7 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
   const [deliveryThreadId, setDeliveryThreadId] = useState('')
   const [deliveryEditMessageId, setDeliveryEditMessageId] = useState('')
   const [metricsWindow, setMetricsWindow] = useState(60)
+  const [alertNotificationWindow, setAlertNotificationWindow] = useState(60)
   const [formError, setFormError] = useState('')
 
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
@@ -145,6 +150,8 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
   const canWrite = session.data?.permissions.includes('channel:write') ?? false
   const canSend = session.data?.permissions.includes('channel:send') ?? false
   const canManageCredential = session.data?.permissions.includes('channel_credential:manage') ?? false
+  const canManageAlerts = session.data?.permissions.includes('channel_alert:manage') ?? false
+  const canManageNotifications = session.data?.permissions.includes('channel_notification:manage') ?? false
   const deliveryTarget = instances.data?.items.find((item) => item.id === deliveryChannelId)
 
   const refresh = async () => {
@@ -224,6 +231,27 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       edit_message_id: deliveryEditMessageId.trim() || null,
       proactive: true,
     }),
+    onSuccess: refresh,
+  })
+  const alertDispositionMutation = useMutation({
+    mutationFn: ({ action, channelId, alertKey, reason, expiresAt }: {
+      action: 'acknowledge' | 'suppress'
+      channelId: string
+      alertKey: string
+      reason: string
+      expiresAt?: string | null
+    }) => action === 'acknowledge'
+      ? acknowledgeChannelAlert(channelId, { alert_key: alertKey, reason, expires_at: expiresAt, confirmed: true })
+      : suppressChannelAlert(channelId, { alert_key: alertKey, reason, expires_at: expiresAt ?? '', confirmed: true }),
+    onSuccess: refresh,
+  })
+  const unsuppressMutation = useMutation({
+    mutationFn: ({ channelId, alertKey }: { channelId: string; alertKey: string }) =>
+      unsuppressChannelAlert(channelId, { alert_key: alertKey, confirmed: true }),
+    onSuccess: refresh,
+  })
+  const alertNotificationMutation = useMutation({
+    mutationFn: () => notifyChannelAlerts({ window_minutes: alertNotificationWindow, confirmed: true }),
     onSuccess: refresh,
   })
 
@@ -310,6 +338,28 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     { key: 'remote-error', label: '远端错误', render: (row) => row.remote_error_present ? '有记录' : '无记录' },
     { key: 'sampled', label: '采样时间', render: (row) => new Date(row.sampled_at).toLocaleString('zh-CN') },
   ], [instanceNames])
+  const runAlertDisposition = useCallback((row: ChannelAlert, action: 'acknowledge' | 'suppress') => {
+    const reason = window.prompt(action === 'suppress' ? '请输入抑制原因' : '请输入确认备注', row.disposition_reason ?? '')?.trim()
+    if (!reason) return
+    let expiresAt: string | null = null
+    if (action === 'suppress') {
+      const input = window.prompt('请输入抑制到期时间（ISO 8601，例如 2026-09-14T12:00:00+08:00）')?.trim()
+      if (!input) return
+      const parsed = new Date(input)
+      if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) {
+        setFormError('抑制到期时间必须是未来的有效时间')
+        return
+      }
+      expiresAt = parsed.toISOString()
+    }
+    if (!window.confirm(`确认${action === 'suppress' ? '抑制' : '确认'}告警“${row.title}”？`)) return
+    alertDispositionMutation.mutate({ action, channelId: row.channel_id, alertKey: row.alert_key, reason, expiresAt })
+  }, [alertDispositionMutation])
+  const runUnsuppress = useCallback((row: ChannelAlert) => {
+    if (window.confirm(`确认解除告警“${row.title}”的抑制？`)) {
+      unsuppressMutation.mutate({ channelId: row.channel_id, alertKey: row.alert_key })
+    }
+  }, [unsuppressMutation])
   const alertColumns = useMemo<Array<AdminTableColumn<ChannelAlert>>>(() => [
     {
       key: 'alert', label: '告警',
@@ -320,7 +370,23 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     { key: 'value', label: '当前 / 阈值', render: (row) => `${row.current_value.toFixed(2)} / ${row.threshold_value.toFixed(2)} ${row.unit}` },
     { key: 'occurrences', label: '聚合次数', render: (row) => row.occurrences.toLocaleString('zh-CN') },
     { key: 'cooldown', label: '冷却至', render: (row) => new Date(row.cooldown_until).toLocaleString('zh-CN') },
-  ], [instanceNames])
+    {
+      key: 'disposition', label: '处置',
+      render: (row) => row.disposition_status
+        ? <div className="table-primary"><span className={`entity-status task-${row.disposition_status}`}>{row.disposition_status === 'suppressed' ? '已抑制' : '已确认'}</span><small>{row.disposition_reason ?? ''}{row.disposition_expires_at ? ` · ${new Date(row.disposition_expires_at).toLocaleString('zh-CN')}` : ''}</small></div>
+        : '未处置',
+    },
+    {
+      key: 'actions', label: '操作',
+      render: (row) => <div className="table-actions">
+        {!row.disposition_status && <>
+          <button disabled={!canManageAlerts || alertDispositionMutation.isPending} onClick={() => runAlertDisposition(row, 'acknowledge')}><CheckCircle2 size={12} />确认</button>
+          <button disabled={!canManageAlerts || alertDispositionMutation.isPending} onClick={() => runAlertDisposition(row, 'suppress')}><ShieldCheck size={12} />抑制</button>
+        </>}
+        {row.disposition_status === 'suppressed' && <button disabled={!canManageAlerts || unsuppressMutation.isPending} onClick={() => runUnsuppress(row)}><RefreshCw size={12} />解除抑制</button>}
+      </div>,
+    },
+  ], [alertDispositionMutation.isPending, canManageAlerts, instanceNames, runAlertDisposition, runUnsuppress, unsuppressMutation.isPending])
   const metricTotals = useMemo(() => {
     const totals = (operationMetrics.data?.items ?? []).reduce(
       (result, row) => ({
@@ -358,7 +424,12 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     { key: 'degradation', label: '降级 / 错误', render: (row) => degradationLabels(row.degradations).join('、') || row.error_code || '无' },
     { key: 'time', label: '时间', render: (row) => new Date(row.occurred_at).toLocaleString('zh-CN') },
   ], [])
-  const operationError = createMutation.error ?? testMutation.error ?? updateMutation.error ?? credentialMutation.error ?? clearCredentialMutation.error ?? webhookStatusMutation.error ?? registerWebhookMutation.error ?? clearWebhookMutation.error ?? simulation.error ?? delivery.error
+  const notifyAlerts = useCallback(() => {
+    if (window.confirm(`确认投递最近 ${alertNotificationWindow} 分钟的活动告警？`)) {
+      alertNotificationMutation.mutate()
+    }
+  }, [alertNotificationMutation, alertNotificationWindow])
+  const operationError = createMutation.error ?? testMutation.error ?? updateMutation.error ?? credentialMutation.error ?? clearCredentialMutation.error ?? webhookStatusMutation.error ?? registerWebhookMutation.error ?? clearWebhookMutation.error ?? simulation.error ?? delivery.error ?? alertDispositionMutation.error ?? unsuppressMutation.error ?? alertNotificationMutation.error
 
   return (
     <div className="page">
@@ -447,7 +518,7 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       </section>
 
       <section className="panel table-panel" aria-label="渠道告警">
-        <div className="panel-heading task-panel-heading"><div><span>策略聚合 · 不含远端错误正文</span><h2><BellRing size={18} />活动告警</h2></div><small>{alerts.data?.items.length ?? 0} 条</small></div>
+        <div className="panel-heading task-panel-heading"><div><span>策略聚合 · 不含远端错误正文</span><h2><BellRing size={18} />活动告警</h2></div><div className="table-actions"><select value={alertNotificationWindow} onChange={(event) => setAlertNotificationWindow(Number(event.target.value))} aria-label="告警通知时间窗"><option value={15}>最近 15 分钟</option><option value={60}>最近 1 小时</option><option value={360}>最近 6 小时</option><option value={1440}>最近 24 小时</option></select><button disabled={!canManageNotifications || alertNotificationMutation.isPending} onClick={notifyAlerts}><Send size={12} />投递告警通知</button><small>{alerts.data?.items.length ?? 0} 条</small></div></div>
         <AdminDataTable rows={alerts.data?.items ?? []} columns={alertColumns} rowKey={(row) => `${row.channel_id}:${row.code}:${row.error_code ?? ''}`} searchableText={(row) => `${row.title} ${row.code} ${row.error_code ?? ''} ${row.severity}`} searchPlaceholder="搜索告警规则、错误码或级别" emptyMessage={alerts.isLoading ? '正在读取告警…' : '当前窗口没有活动告警'} />
       </section>
 

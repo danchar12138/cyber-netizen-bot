@@ -351,6 +351,37 @@ class ChannelAlertResponse(BaseModel):
     unit: str = Field(min_length=1, max_length=24)
     last_occurred_at: datetime
     cooldown_until: datetime
+    alert_key: str = Field(min_length=1, max_length=400)
+    disposition_status: Literal["acknowledged", "suppressed"] | None = None
+    disposition_reason: str | None = Field(default=None, max_length=500)
+    disposition_expires_at: datetime | None = None
+
+
+class ChannelAlertDispositionCommand(BaseModel):
+    """告警确认或抑制命令，必须由调用方显式确认。"""
+
+    alert_key: str = Field(min_length=1, max_length=400)
+    reason: str = Field(min_length=1, max_length=500)
+    expires_at: datetime | None = None
+    confirmed: bool = False
+
+
+class ChannelAlertDispositionResponse(BaseModel):
+    """告警处置结果，不包含消息正文或敏感配置。"""
+
+    alert_key: str
+    channel_id: UUID
+    status: Literal["acknowledged", "suppressed", "cleared"]
+    reason: str
+    expires_at: datetime | None
+    updated_at: datetime
+
+
+class ChannelAlertDispositionClearCommand(BaseModel):
+    """解除告警处置命令。"""
+
+    alert_key: str = Field(min_length=1, max_length=400)
+    confirmed: bool = False
 
 
 class ChannelAlertListResponse(BaseModel):
@@ -359,6 +390,24 @@ class ChannelAlertListResponse(BaseModel):
     window_started_at: datetime
     window_ended_at: datetime
     items: tuple[ChannelAlertResponse, ...]
+
+
+class ChannelAlertNotificationCommand(BaseModel):
+    """告警摘要 Webhook 投递命令，必须显式确认。"""
+
+    window_minutes: int = Field(default=60, ge=5, le=1_440)
+    confirmed: bool = False
+
+
+class ChannelAlertNotificationResponse(BaseModel):
+    """告警通知投递的安全结果，不包含地址、密钥或远端正文。"""
+
+    delivered: bool
+    alert_count: int = Field(ge=0)
+    attempts: int = Field(ge=0)
+    idempotency_key: str = Field(min_length=1, max_length=64)
+    elapsed_ms: int = Field(ge=0)
+    status_code: int | None = Field(default=None, ge=100, le=599)
 
 
 class ModelCapabilityResponse(BaseModel):

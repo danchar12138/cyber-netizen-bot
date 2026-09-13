@@ -2,6 +2,7 @@
 
 from collections.abc import Iterable
 
+from cnb_adapters import AlertWebhookValidationError, validate_webhook_url
 from cnb_domain import ConfigDefinition, ConfigEntry, ConfigScope, ConfigValueKind, JsonValue
 
 
@@ -84,6 +85,11 @@ class ConfigurationRegistry:
             raise ConfigurationValidationError(
                 f"配置 {definition.key} 必须是以下选项之一：{', '.join(definition.options)}"
             )
+        if definition.key == "alerts.notification.webhook_url" and isinstance(value, str) and value:
+            try:
+                validate_webhook_url(value)
+            except AlertWebhookValidationError as error:
+                raise ConfigurationValidationError(str(error)) from error
 
 
 def build_default_registry() -> ConfigurationRegistry:
@@ -498,6 +504,56 @@ def build_default_registry() -> ConfigurationRegistry:
                 scopes=system_and_tenant,
                 minimum=1,
                 maximum=10080,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.enabled",
+                section="observability",
+                label="启用告警 Webhook 通知",
+                description="将当前 Agent 的安全告警摘要投递到 HTTPS Webhook，默认关闭。",
+                value_kind=ConfigValueKind.BOOLEAN,
+                default=False,
+                scopes=per_agent,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.webhook_url",
+                section="observability",
+                label="告警 Webhook 地址",
+                description="只允许 HTTPS 且不允许用户信息或内网目标的通知地址。",
+                value_kind=ConfigValueKind.STRING,
+                default="",
+                scopes=per_agent,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.webhook_timeout_seconds",
+                section="observability",
+                label="告警 Webhook 超时",
+                description="单次告警通知请求的超时秒数。",
+                value_kind=ConfigValueKind.INTEGER,
+                default=5,
+                scopes=per_agent,
+                minimum=1,
+                maximum=30,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.webhook_max_retries",
+                section="observability",
+                label="告警 Webhook 最大重试",
+                description="网络错误或 429/5xx 响应允许的重试次数。",
+                value_kind=ConfigValueKind.INTEGER,
+                default=2,
+                scopes=per_agent,
+                minimum=0,
+                maximum=5,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.webhook_signing_secret",
+                section="observability",
+                label="告警 Webhook 签名密钥",
+                description="用于 HMAC-SHA256 的 SecretStore 密钥，管理 API 永不回显明文。",
+                value_kind=ConfigValueKind.SECRET,
+                default=None,
+                scopes=per_agent,
+                secret=True,
             ),
             ConfigDefinition(
                 key="cost.window_budget_usd",

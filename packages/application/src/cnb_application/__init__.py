@@ -13,6 +13,14 @@ from cnb_application.administration_service import (
     decode_audit_cursor,
     encode_audit_cursor,
 )
+from cnb_application.alert_notification_service import (
+    AlertNotificationDeliveryError,
+    AlertNotificationDisabledError,
+    AlertNotificationNotConfiguredError,
+    AlertNotificationSecretMissingError,
+    AlertNotificationService,
+    AlertNotificationValidationError,
+)
 from cnb_application.attachment_service import (
     AttachmentConflictError,
     AttachmentNotFoundError,
@@ -185,6 +193,12 @@ __all__ = [
     "AdministrationValidationError",
     "AgentRetentionCandidate",
     "AgentRunNotFoundError",
+    "AlertNotificationDeliveryError",
+    "AlertNotificationDisabledError",
+    "AlertNotificationNotConfiguredError",
+    "AlertNotificationSecretMissingError",
+    "AlertNotificationService",
+    "AlertNotificationValidationError",
     "ApiRequestObservation",
     "AttachmentConflictError",
     "AttachmentNotFoundError",

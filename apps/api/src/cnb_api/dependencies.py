@@ -9,13 +9,14 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, status
 from starlette.requests import HTTPConnection
 
-from cnb_adapters import ChannelAdapterRegistry
+from cnb_adapters import AlertWebhookNotifier, ChannelAdapterRegistry
 from cnb_application import (
     AdminAuthenticator,
     AdministrationAccessDeniedError,
     AdministrationRateLimitError,
     AdministrationRepository,
     AdministrationService,
+    AlertNotificationService,
     AttachmentRepository,
     AttachmentService,
     AuthenticationError,
@@ -137,6 +138,26 @@ def get_channel_service(
 ) -> ChannelService:
     """构建请求级渠道控制平面服务。"""
     return ChannelService(repository, registry, secret_store)
+
+
+def get_alert_notification_service(
+    request: HTTPConnection,
+    channel_service: Annotated[ChannelService, Depends(get_channel_service)],
+    configuration_service: Annotated[ConfigurationService, Depends(get_configuration_service)],
+    secret_store: Annotated[SecretStore, Depends(get_secret_store)],
+    administration_repository: Annotated[
+        AdministrationRepository, Depends(get_administration_repository)
+    ],
+) -> AlertNotificationService:
+    """构建当前应用实例的安全告警通知服务。"""
+    notifier: AlertWebhookNotifier = request.app.state.alert_webhook_notifier
+    return AlertNotificationService(
+        channel_service=channel_service,
+        configuration_service=configuration_service,
+        secret_store=secret_store,
+        notifier=notifier,
+        audit_recorder=administration_repository,
+    )
 
 
 def get_secret_management_service(

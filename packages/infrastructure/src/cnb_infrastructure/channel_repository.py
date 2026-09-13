@@ -12,6 +12,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from cnb_domain import (
+    ChannelAlertDisposition,
+    ChannelAlertDispositionStatus,
     ChannelDiagnosticEvent,
     ChannelErrorMetrics,
     ChannelEventDirection,
@@ -26,6 +28,7 @@ from cnb_domain import (
 )
 from cnb_infrastructure.models import (
     AuditLog,
+    ChannelAlertDispositionModel,
     ChannelDiagnosticEventModel,
     ChannelHealthSnapshotModel,
     ChannelInstanceModel,
@@ -62,6 +65,7 @@ class MemoryChannelRepository:
         self.instances: dict[UUID, ChannelInstance] = {}
         self.events: dict[UUID, ChannelDiagnosticEvent] = {}
         self.health_snapshots: dict[UUID, ChannelHealthSnapshot] = {}
+        self.alert_dispositions: dict[str, ChannelAlertDisposition] = {}
         self.rate_windows: dict[tuple[UUID, datetime], int] = {}
         self._lock = asyncio.Lock()
 
@@ -418,6 +422,53 @@ class MemoryChannelRepository:
                 return False
             self.rate_windows[key] = used + 1
             return True
+
+    async def get_alert_disposition(
+        self, *, tenant_id: UUID, agent_id: UUID, alert_key: str
+    ) -> ChannelAlertDisposition | None:
+        item = self.alert_dispositions.get(alert_key)
+        return (
+            item
+            if item is not None and item.tenant_id == tenant_id and item.agent_id == agent_id
+            else None
+        )
+
+    async def list_alert_dispositions(
+        self, *, tenant_id: UUID, agent_id: UUID
+    ) -> tuple[ChannelAlertDisposition, ...]:
+        return tuple(
+            item
+            for item in self.alert_dispositions.values()
+            if item.tenant_id == tenant_id and item.agent_id == agent_id
+        )
+
+    async def save_alert_disposition(
+        self, disposition: ChannelAlertDisposition
+    ) -> ChannelAlertDisposition:
+        async with self._lock:
+            channel = self.instances.get(disposition.channel_id)
+            if (
+                channel is None
+                or channel.tenant_id != disposition.tenant_id
+                or channel.agent_id != disposition.agent_id
+            ):
+                raise LookupError(f"渠道实例不存在：{disposition.channel_id}")
+            self.alert_dispositions[disposition.alert_key] = disposition
+            return disposition
+
+    async def clear_alert_disposition(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        alert_key: str,
+        actor_id: UUID | None = None,
+    ) -> None:
+        del actor_id
+        async with self._lock:
+            item = self.alert_dispositions.get(alert_key)
+            if item is not None and item.tenant_id == tenant_id and item.agent_id == agent_id:
+                del self.alert_dispositions[alert_key]
 
 
 class SqlAlchemyChannelRepository:
@@ -973,6 +1024,121 @@ class SqlAlchemyChannelRepository:
             used = await session.scalar(statement)
         return used is not None
 
+    async def get_alert_disposition(
+        self, *, tenant_id: UUID, agent_id: UUID, alert_key: str
+    ) -> ChannelAlertDisposition | None:
+        statement = select(ChannelAlertDispositionModel).where(
+            ChannelAlertDispositionModel.tenant_id == tenant_id,
+            ChannelAlertDispositionModel.agent_id == agent_id,
+            ChannelAlertDispositionModel.alert_key == alert_key,
+        )
+        async with self._session_factory() as session:
+            row = await session.scalar(statement)
+        return None if row is None else self._disposition(row)
+
+    async def list_alert_dispositions(
+        self, *, tenant_id: UUID, agent_id: UUID
+    ) -> tuple[ChannelAlertDisposition, ...]:
+        statement = (
+            select(ChannelAlertDispositionModel)
+            .where(
+                ChannelAlertDispositionModel.tenant_id == tenant_id,
+                ChannelAlertDispositionModel.agent_id == agent_id,
+            )
+            .order_by(ChannelAlertDispositionModel.updated_at.desc())
+        )
+        async with self._session_factory() as session:
+            rows = (await session.scalars(statement)).all()
+        return tuple(self._disposition(row) for row in rows)
+
+    async def save_alert_disposition(
+        self, disposition: ChannelAlertDisposition
+    ) -> ChannelAlertDisposition:
+        async with self._session_factory.begin() as session:
+            channel = await session.scalar(
+                select(ChannelInstanceModel).where(
+                    ChannelInstanceModel.id == disposition.channel_id,
+                    ChannelInstanceModel.tenant_id == disposition.tenant_id,
+                    ChannelInstanceModel.agent_id == disposition.agent_id,
+                )
+            )
+            if channel is None:
+                raise LookupError(f"渠道实例不存在：{disposition.channel_id}")
+            row = await session.scalar(
+                select(ChannelAlertDispositionModel)
+                .where(
+                    ChannelAlertDispositionModel.tenant_id == disposition.tenant_id,
+                    ChannelAlertDispositionModel.agent_id == disposition.agent_id,
+                    ChannelAlertDispositionModel.alert_key == disposition.alert_key,
+                )
+                .with_for_update()
+            )
+            if row is None:
+                row = self._disposition_model(disposition)
+                session.add(row)
+            else:
+                row.channel_id = disposition.channel_id
+                row.code = disposition.code
+                row.error_code = disposition.error_code
+                row.status = disposition.status.value
+                row.reason = disposition.reason
+                row.actor_id = disposition.actor_id
+                row.expires_at = disposition.expires_at
+                row.updated_at = disposition.updated_at
+            session.add(
+                AuditLog(
+                    tenant_id=disposition.tenant_id,
+                    actor_id=disposition.actor_id,
+                    action=f"channel_alert.{disposition.status.value}",
+                    resource_type="channel_alert_disposition",
+                    resource_id=disposition.alert_key,
+                    detail={
+                        "agent_id": str(disposition.agent_id),
+                        "channel_id": str(disposition.channel_id),
+                        "code": disposition.code,
+                        "error_code": disposition.error_code,
+                        "status": disposition.status.value,
+                        "expires_at": disposition.expires_at.isoformat()
+                        if disposition.expires_at
+                        else None,
+                    },
+                )
+            )
+            await session.flush()
+            return self._disposition(row)
+
+    async def clear_alert_disposition(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        alert_key: str,
+        actor_id: UUID | None = None,
+    ) -> None:
+        async with self._session_factory.begin() as session:
+            row = await session.scalar(
+                select(ChannelAlertDispositionModel)
+                .where(
+                    ChannelAlertDispositionModel.tenant_id == tenant_id,
+                    ChannelAlertDispositionModel.agent_id == agent_id,
+                    ChannelAlertDispositionModel.alert_key == alert_key,
+                )
+                .with_for_update()
+            )
+            if row is None:
+                return
+            session.add(
+                AuditLog(
+                    tenant_id=tenant_id,
+                    actor_id=actor_id or row.actor_id,
+                    action="channel_alert.disposition_cleared",
+                    resource_type="channel_alert_disposition",
+                    resource_id=alert_key,
+                    detail={"agent_id": str(agent_id), "channel_id": str(row.channel_id)},
+                )
+            )
+            await session.delete(row)
+
     @staticmethod
     def _instance_model(item: ChannelInstance) -> ChannelInstanceModel:
         return ChannelInstanceModel(
@@ -1026,6 +1192,24 @@ class SqlAlchemyChannelRepository:
         )
 
     @staticmethod
+    def _disposition_model(item: ChannelAlertDisposition) -> ChannelAlertDispositionModel:
+        return ChannelAlertDispositionModel(
+            id=item.id,
+            tenant_id=item.tenant_id,
+            agent_id=item.agent_id,
+            channel_id=item.channel_id,
+            alert_key=item.alert_key,
+            code=item.code,
+            error_code=item.error_code,
+            status=item.status.value,
+            reason=item.reason,
+            actor_id=item.actor_id,
+            expires_at=item.expires_at,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+        )
+
+    @staticmethod
     def _instance(row: ChannelInstanceModel) -> ChannelInstance:
         return ChannelInstance(
             id=row.id,
@@ -1075,6 +1259,24 @@ class SqlAlchemyChannelRepository:
             pending_update_count=row.pending_update_count,
             remote_error_present=row.remote_error_present,
             sampled_at=row.sampled_at,
+        )
+
+    @staticmethod
+    def _disposition(row: ChannelAlertDispositionModel) -> ChannelAlertDisposition:
+        return ChannelAlertDisposition(
+            id=row.id,
+            tenant_id=row.tenant_id,
+            agent_id=row.agent_id,
+            channel_id=row.channel_id,
+            alert_key=row.alert_key,
+            code=row.code,
+            error_code=row.error_code,
+            status=ChannelAlertDispositionStatus(row.status),
+            reason=row.reason,
+            actor_id=row.actor_id,
+            expires_at=row.expires_at,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
         )
 
     @staticmethod

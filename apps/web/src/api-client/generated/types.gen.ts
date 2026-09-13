@@ -88,7 +88,7 @@ export type ActiveAlertResponse = {
  *
  * API 按能力而非页面名称执行的细粒度权限。
  */
-export type AdminPermission = 'dashboard:read' | 'configuration:read' | 'configuration:write' | 'secret:manage' | 'conversation:read' | 'conversation:use' | 'access_control:read' | 'agent:read' | 'agent:write' | 'cognition:read' | 'cognition:write' | 'cognition:evaluate' | 'evaluation:review' | 'memory:read' | 'memory:write' | 'memory:rebuild' | 'task:read' | 'task:manage' | 'proactive:manage' | 'channel:read' | 'channel:write' | 'channel:send' | 'channel_credential:manage' | 'integration:read' | 'integration:manage' | 'inbox:replay' | 'trace:read' | 'user:read' | 'user:write' | 'user:role_write' | 'audit:read' | 'data_lifecycle:read' | 'data_lifecycle:export' | 'data_lifecycle:forget' | 'data_lifecycle:retention_manage' | 'data_lifecycle:backup_drill_record';
+export type AdminPermission = 'dashboard:read' | 'configuration:read' | 'configuration:write' | 'secret:manage' | 'conversation:read' | 'conversation:use' | 'access_control:read' | 'agent:read' | 'agent:write' | 'cognition:read' | 'cognition:write' | 'cognition:evaluate' | 'evaluation:review' | 'memory:read' | 'memory:write' | 'memory:rebuild' | 'task:read' | 'task:manage' | 'proactive:manage' | 'channel:read' | 'channel:write' | 'channel:send' | 'channel_credential:manage' | 'channel_alert:manage' | 'channel_notification:manage' | 'integration:read' | 'integration:manage' | 'inbox:replay' | 'trace:read' | 'user:read' | 'user:write' | 'user:role_write' | 'audit:read' | 'data_lifecycle:read' | 'data_lifecycle:export' | 'data_lifecycle:forget' | 'data_lifecycle:retention_manage' | 'data_lifecycle:backup_drill_record';
 
 /**
  * AdminRole
@@ -1142,6 +1142,78 @@ export type BulkStatusUpdateCommand = {
 };
 
 /**
+ * ChannelAlertDispositionClearCommand
+ *
+ * 解除告警处置命令。
+ */
+export type ChannelAlertDispositionClearCommand = {
+    /**
+     * Alert Key
+     */
+    alert_key: string;
+    /**
+     * Confirmed
+     */
+    confirmed?: boolean;
+};
+
+/**
+ * ChannelAlertDispositionCommand
+ *
+ * 告警确认或抑制命令，必须由调用方显式确认。
+ */
+export type ChannelAlertDispositionCommand = {
+    /**
+     * Alert Key
+     */
+    alert_key: string;
+    /**
+     * Confirmed
+     */
+    confirmed?: boolean;
+    /**
+     * Expires At
+     */
+    expires_at?: string | null;
+    /**
+     * Reason
+     */
+    reason: string;
+};
+
+/**
+ * ChannelAlertDispositionResponse
+ *
+ * 告警处置结果，不包含消息正文或敏感配置。
+ */
+export type ChannelAlertDispositionResponse = {
+    /**
+     * Alert Key
+     */
+    alert_key: string;
+    /**
+     * Channel Id
+     */
+    channel_id: string;
+    /**
+     * Expires At
+     */
+    expires_at: string | null;
+    /**
+     * Reason
+     */
+    reason: string;
+    /**
+     * Status
+     */
+    status: 'acknowledged' | 'suppressed' | 'cleared';
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
  * ChannelAlertListResponse
  *
  * 渠道活动告警及其统一聚合窗口。
@@ -1162,11 +1234,63 @@ export type ChannelAlertListResponse = {
 };
 
 /**
+ * ChannelAlertNotificationCommand
+ *
+ * 告警摘要 Webhook 投递命令，必须显式确认。
+ */
+export type ChannelAlertNotificationCommand = {
+    /**
+     * Confirmed
+     */
+    confirmed?: boolean;
+    /**
+     * Window Minutes
+     */
+    window_minutes?: number;
+};
+
+/**
+ * ChannelAlertNotificationResponse
+ *
+ * 告警通知投递的安全结果，不包含地址、密钥或远端正文。
+ */
+export type ChannelAlertNotificationResponse = {
+    /**
+     * Alert Count
+     */
+    alert_count: number;
+    /**
+     * Attempts
+     */
+    attempts: number;
+    /**
+     * Delivered
+     */
+    delivered: boolean;
+    /**
+     * Elapsed Ms
+     */
+    elapsed_ms: number;
+    /**
+     * Idempotency Key
+     */
+    idempotency_key: string;
+    /**
+     * Status Code
+     */
+    status_code?: number | null;
+};
+
+/**
  * ChannelAlertResponse
  *
  * 渠道告警策略结果，仅包含聚合数值和安全摘要。
  */
 export type ChannelAlertResponse = {
+    /**
+     * Alert Key
+     */
+    alert_key: string;
     /**
      * Channel Id
      */
@@ -1183,6 +1307,18 @@ export type ChannelAlertResponse = {
      * Current Value
      */
     current_value: number;
+    /**
+     * Disposition Expires At
+     */
+    disposition_expires_at?: string | null;
+    /**
+     * Disposition Reason
+     */
+    disposition_reason?: string | null;
+    /**
+     * Disposition Status
+     */
+    disposition_status?: 'acknowledged' | 'suppressed' | null;
     /**
      * Error Code
      */
@@ -8023,6 +8159,249 @@ export type GetApiV1ChannelsOperationsAlertsResponses = {
 };
 
 export type GetApiV1ChannelsOperationsAlertsResponse = GetApiV1ChannelsOperationsAlertsResponses[keyof GetApiV1ChannelsOperationsAlertsResponses];
+
+export type PostApiV1ChannelsOperationsAlertsNotifyData = {
+    body: ChannelAlertNotificationCommand;
+    path?: never;
+    query?: never;
+    url: '/api/v1/channels/operations/alerts/notify';
+};
+
+export type PostApiV1ChannelsOperationsAlertsNotifyErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1ChannelsOperationsAlertsNotifyError = PostApiV1ChannelsOperationsAlertsNotifyErrors[keyof PostApiV1ChannelsOperationsAlertsNotifyErrors];
+
+export type PostApiV1ChannelsOperationsAlertsNotifyResponses = {
+    /**
+     * 请求成功
+     */
+    200: ChannelAlertNotificationResponse;
+};
+
+export type PostApiV1ChannelsOperationsAlertsNotifyResponse = PostApiV1ChannelsOperationsAlertsNotifyResponses[keyof PostApiV1ChannelsOperationsAlertsNotifyResponses];
+
+export type PostApiV1ChannelsOperationsAlertsByChannelIdAcknowledgeData = {
+    body: ChannelAlertDispositionCommand;
+    path: {
+        /**
+         * Channel Id
+         */
+        channel_id: string;
+    };
+    query?: never;
+    url: '/api/v1/channels/operations/alerts/{channel_id}/acknowledge';
+};
+
+export type PostApiV1ChannelsOperationsAlertsByChannelIdAcknowledgeErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1ChannelsOperationsAlertsByChannelIdAcknowledgeError = PostApiV1ChannelsOperationsAlertsByChannelIdAcknowledgeErrors[keyof PostApiV1ChannelsOperationsAlertsByChannelIdAcknowledgeErrors];
+
+export type PostApiV1ChannelsOperationsAlertsByChannelIdAcknowledgeResponses = {
+    /**
+     * 请求成功
+     */
+    200: ChannelAlertDispositionResponse;
+};
+
+export type PostApiV1ChannelsOperationsAlertsByChannelIdAcknowledgeResponse = PostApiV1ChannelsOperationsAlertsByChannelIdAcknowledgeResponses[keyof PostApiV1ChannelsOperationsAlertsByChannelIdAcknowledgeResponses];
+
+export type PostApiV1ChannelsOperationsAlertsByChannelIdSuppressData = {
+    body: ChannelAlertDispositionCommand;
+    path: {
+        /**
+         * Channel Id
+         */
+        channel_id: string;
+    };
+    query?: never;
+    url: '/api/v1/channels/operations/alerts/{channel_id}/suppress';
+};
+
+export type PostApiV1ChannelsOperationsAlertsByChannelIdSuppressErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1ChannelsOperationsAlertsByChannelIdSuppressError = PostApiV1ChannelsOperationsAlertsByChannelIdSuppressErrors[keyof PostApiV1ChannelsOperationsAlertsByChannelIdSuppressErrors];
+
+export type PostApiV1ChannelsOperationsAlertsByChannelIdSuppressResponses = {
+    /**
+     * 请求成功
+     */
+    200: ChannelAlertDispositionResponse;
+};
+
+export type PostApiV1ChannelsOperationsAlertsByChannelIdSuppressResponse = PostApiV1ChannelsOperationsAlertsByChannelIdSuppressResponses[keyof PostApiV1ChannelsOperationsAlertsByChannelIdSuppressResponses];
+
+export type PostApiV1ChannelsOperationsAlertsByChannelIdUnsuppressData = {
+    body: ChannelAlertDispositionClearCommand;
+    path: {
+        /**
+         * Channel Id
+         */
+        channel_id: string;
+    };
+    query?: never;
+    url: '/api/v1/channels/operations/alerts/{channel_id}/unsuppress';
+};
+
+export type PostApiV1ChannelsOperationsAlertsByChannelIdUnsuppressErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1ChannelsOperationsAlertsByChannelIdUnsuppressError = PostApiV1ChannelsOperationsAlertsByChannelIdUnsuppressErrors[keyof PostApiV1ChannelsOperationsAlertsByChannelIdUnsuppressErrors];
+
+export type PostApiV1ChannelsOperationsAlertsByChannelIdUnsuppressResponses = {
+    /**
+     * 请求成功
+     */
+    200: ChannelAlertDispositionResponse;
+};
+
+export type PostApiV1ChannelsOperationsAlertsByChannelIdUnsuppressResponse = PostApiV1ChannelsOperationsAlertsByChannelIdUnsuppressResponses[keyof PostApiV1ChannelsOperationsAlertsByChannelIdUnsuppressResponses];
 
 export type GetApiV1ChannelsOperationsErrorsData = {
     body?: never;

@@ -1,7 +1,7 @@
 """Agent、用户与审计资源的管理应用用例。"""
 
 from base64 import urlsafe_b64decode, urlsafe_b64encode
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
@@ -28,6 +28,7 @@ from cnb_domain import (
     AgentLifecycleStatus,
     AuditRecord,
     EntityStatus,
+    JsonValue,
     ManagedAdminSession,
     ManagedAgent,
     ManagedRoleAssignment,
@@ -242,6 +243,17 @@ class AdministrationRepository(Protocol):
         limit: int,
         cursor: AuditCursor | None,
     ) -> tuple[AuditRecord, ...]: ...
+
+    async def record_audit(
+        self,
+        *,
+        tenant_id: UUID,
+        actor_id: UUID,
+        action: str,
+        resource_type: str,
+        resource_id: str | None,
+        detail: Mapping[str, JsonValue],
+    ) -> None: ...
 
 
 class AdministrationService:

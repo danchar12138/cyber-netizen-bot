@@ -9,7 +9,11 @@ from uuid import NAMESPACE_DNS, UUID, uuid5
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from cnb_adapters import ChannelAdapterRegistry, build_default_channel_registry
+from cnb_adapters import (
+    AlertWebhookNotifier,
+    ChannelAdapterRegistry,
+    build_default_channel_registry,
+)
 from cnb_api import __version__
 from cnb_api.errors import RequestIdMiddleware, SecurityHeadersMiddleware, install_error_handlers
 from cnb_api.openapi import OPENAPI_TAGS, localize_openapi_routes, stable_operation_id
@@ -116,6 +120,7 @@ def create_app(
     model_provider_resolver: ModelProviderResolver | None = None,
     dependency_probe: DependencyProbe | None = None,
     admin_authenticator: AdminAuthenticator | None = None,
+    alert_webhook_notifier: AlertWebhookNotifier | None = None,
 ) -> FastAPI:
     """创建可用于生产或测试的独立应用实例。"""
     resolved_settings = settings or get_settings()
@@ -203,6 +208,7 @@ def create_app(
     application.state.channel_adapter_registry = (
         channel_adapter_registry or build_default_channel_registry()
     )
+    application.state.alert_webhook_notifier = alert_webhook_notifier or AlertWebhookNotifier()
     application.state.conversation_repository = (
         conversation_repository or SqlAlchemyConversationRepository(session_factory)
     )

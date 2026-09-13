@@ -24,6 +24,8 @@ from cnb_application.configuration_service import SecretStore
 from cnb_domain import (
     AlertSeverity,
     ChannelAlert,
+    ChannelAlertDisposition,
+    ChannelAlertDispositionStatus,
     ChannelCapabilities,
     ChannelDiagnosticEvent,
     ChannelErrorMetrics,
@@ -217,6 +219,27 @@ class ChannelRepository(Protocol):
         limit: int,
         now: datetime,
     ) -> bool: ...
+
+    async def get_alert_disposition(
+        self, *, tenant_id: UUID, agent_id: UUID, alert_key: str
+    ) -> ChannelAlertDisposition | None: ...
+
+    async def list_alert_dispositions(
+        self, *, tenant_id: UUID, agent_id: UUID
+    ) -> tuple[ChannelAlertDisposition, ...]: ...
+
+    async def save_alert_disposition(
+        self, disposition: ChannelAlertDisposition
+    ) -> ChannelAlertDisposition: ...
+
+    async def clear_alert_disposition(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        alert_key: str,
+        actor_id: UUID | None = None,
+    ) -> None: ...
 
 
 _CREDENTIAL_KEYS = {
@@ -1156,12 +1179,114 @@ class ChannelService:
                     cooldown_until=newest.sampled_at + timedelta(minutes=cooldown_minutes),
                 )
             )
+        dispositions = {
+            item.alert_key: item
+            for item in await self._repository.list_alert_dispositions(
+                tenant_id=tenant_id, agent_id=agent_id
+            )
+            if item.expires_at is None or item.expires_at > ended_at
+        }
+        enriched: list[ChannelAlert] = []
+        for alert in alerts:
+            disposition = dispositions.get(alert.alert_key)
+            enriched.append(
+                replace(
+                    alert,
+                    disposition_status=(disposition.status if disposition else None),
+                    disposition_reason=(disposition.reason if disposition else None),
+                    disposition_expires_at=(disposition.expires_at if disposition else None),
+                )
+            )
         return tuple(
             sorted(
-                alerts,
+                enriched,
                 key=lambda item: (item.last_occurred_at, str(item.channel_id), item.code),
                 reverse=True,
             )
+        )
+
+    async def set_alert_disposition(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID,
+        alert_key: str,
+        status: ChannelAlertDispositionStatus,
+        reason: str,
+        expires_at: datetime | None,
+        actor_id: UUID,
+        confirmed: bool,
+        values: Mapping[str, JsonValue],
+        window_minutes: int = 60,
+    ) -> ChannelAlertDisposition:
+        """确认或抑制当前告警，处置前重新校验稳定键和归属。"""
+        if not confirmed:
+            raise ChannelValidationError("告警处置必须明确确认")
+        normalized_reason = self._text(reason, "处置原因", 500)
+        if status is ChannelAlertDispositionStatus.SUPPRESSED:
+            if expires_at is None:
+                raise ChannelValidationError("抑制告警必须设置过期时间")
+            expires_at = expires_at.astimezone(UTC)
+            if expires_at <= datetime.now(UTC):
+                raise ChannelValidationError("抑制过期时间必须晚于当前时间")
+        alerts = await self.alerts(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+            values=values,
+            window_minutes=window_minutes,
+        )
+        target = next((item for item in alerts if item.alert_key == alert_key), None)
+        if target is None:
+            raise ChannelNotFoundError(f"活动告警不存在：{alert_key}")
+        now = datetime.now(UTC)
+        disposition = ChannelAlertDisposition(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+            alert_key=alert_key,
+            code=target.code,
+            error_code=target.error_code,
+            status=status,
+            reason=normalized_reason,
+            actor_id=actor_id,
+            expires_at=expires_at,
+            created_at=now,
+            updated_at=now,
+        )
+        existing = await self._repository.get_alert_disposition(
+            tenant_id=tenant_id, agent_id=agent_id, alert_key=alert_key
+        )
+        if existing is not None:
+            disposition = replace(disposition, id=existing.id, created_at=existing.created_at)
+        return await self._repository.save_alert_disposition(disposition)
+
+    async def get_alert_disposition(
+        self, *, tenant_id: UUID, agent_id: UUID, alert_key: str
+    ) -> ChannelAlertDisposition | None:
+        """读取当前 Agent 的单条告警处置记录。"""
+        return await self._repository.get_alert_disposition(
+            tenant_id=tenant_id, agent_id=agent_id, alert_key=alert_key
+        )
+
+    async def clear_alert_disposition(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        alert_key: str,
+        actor_id: UUID | None = None,
+        confirmed: bool,
+    ) -> None:
+        if not confirmed:
+            raise ChannelValidationError("解除告警处置必须明确确认")
+        await self._repository.clear_alert_disposition(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            alert_key=alert_key,
+            actor_id=actor_id,
         )
 
     @staticmethod

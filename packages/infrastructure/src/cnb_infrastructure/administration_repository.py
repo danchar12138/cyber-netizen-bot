@@ -1,6 +1,7 @@
 """Agent、用户与审计资源的内存及 PostgreSQL 管理仓储。"""
 
 import asyncio
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -746,6 +747,26 @@ class MemoryAdministrationRepository:
             ]
             return tuple(
                 sorted(rows, key=lambda item: (item.created_at, item.id), reverse=True)[:limit]
+            )
+
+    async def record_audit(
+        self,
+        *,
+        tenant_id: UUID,
+        actor_id: UUID,
+        action: str,
+        resource_type: str,
+        resource_id: str | None,
+        detail: Mapping[str, JsonValue],
+    ) -> None:
+        async with self._lock:
+            self._append_audit(
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                detail=dict(detail),
             )
 
     def _append_audit(
@@ -1737,6 +1758,28 @@ class SqlAlchemyAdministrationRepository:
                 )
             ).all()
             return tuple(self._audit(row) for row in rows)
+
+    async def record_audit(
+        self,
+        *,
+        tenant_id: UUID,
+        actor_id: UUID,
+        action: str,
+        resource_type: str,
+        resource_id: str | None,
+        detail: Mapping[str, JsonValue],
+    ) -> None:
+        async with self._session_factory.begin() as session:
+            session.add(
+                AuditLog(
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                    action=action,
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    detail=dict(detail),
+                )
+            )
 
     @staticmethod
     def _agent(row: Agent) -> ManagedAgent:

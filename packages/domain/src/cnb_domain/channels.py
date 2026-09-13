@@ -198,6 +198,13 @@ class ChannelHealthSnapshot:
     sampled_at: datetime
 
 
+class ChannelAlertDispositionStatus(StrEnum):
+    """告警处置状态。"""
+
+    ACKNOWLEDGED = "acknowledged"
+    SUPPRESSED = "suppressed"
+
+
 @dataclass(frozen=True, slots=True)
 class ChannelAlert:
     """由渠道聚合指标确定性生成的安全活动告警。"""
@@ -214,3 +221,30 @@ class ChannelAlert:
     unit: str
     last_occurred_at: datetime
     cooldown_until: datetime
+    disposition_status: ChannelAlertDispositionStatus | None = None
+    disposition_reason: str | None = None
+    disposition_expires_at: datetime | None = None
+
+    @property
+    def alert_key(self) -> str:
+        """稳定告警键，不依赖易变的标题或聚合数值。"""
+        return f"{self.channel_id}:{self.code}:{self.error_code or '-'}"
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelAlertDisposition:
+    """按租户和稳定告警键保存的确认或抑制记录。"""
+
+    id: UUID
+    tenant_id: UUID
+    agent_id: UUID
+    channel_id: UUID
+    alert_key: str
+    code: str
+    error_code: str | None
+    status: ChannelAlertDispositionStatus
+    reason: str
+    actor_id: UUID
+    expires_at: datetime | None
+    created_at: datetime
+    updated_at: datetime

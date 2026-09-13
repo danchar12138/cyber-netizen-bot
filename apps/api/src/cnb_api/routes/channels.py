@@ -9,12 +9,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from cnb_adapters import ChannelAdapterError, ChannelCapabilityError, ChannelNotConfiguredError
 from cnb_api.dependencies import (
+    get_alert_notification_service,
     get_channel_service,
     get_configuration_service,
     get_request_identity,
     require_permission,
 )
 from cnb_application import (
+    AlertNotificationDeliveryError,
+    AlertNotificationService,
+    AlertNotificationValidationError,
     ChannelAlert,
     ChannelConflictError,
     ChannelErrorMetrics,
@@ -28,7 +32,12 @@ from cnb_application import (
     TelegramWebhookStatus,
 )
 from cnb_contracts import (
+    ChannelAlertDispositionClearCommand,
+    ChannelAlertDispositionCommand,
+    ChannelAlertDispositionResponse,
     ChannelAlertListResponse,
+    ChannelAlertNotificationCommand,
+    ChannelAlertNotificationResponse,
     ChannelAlertResponse,
     ChannelCapabilitiesResponse,
     ChannelCatalogListResponse,
@@ -64,6 +73,8 @@ from cnb_contracts import (
 from cnb_domain import (
     AdminPermission,
     AdminPrincipal,
+    ChannelAlertDisposition,
+    ChannelAlertDispositionStatus,
     ChannelCapabilities,
     ChannelDiagnosticEvent,
     DevelopmentIdentity,
@@ -181,6 +192,19 @@ def _health_snapshot_response(value: ChannelHealthSnapshot) -> ChannelHealthSnap
 
 def _alert_response(value: ChannelAlert) -> ChannelAlertResponse:
     return ChannelAlertResponse.model_validate(value, from_attributes=True)
+
+
+def _disposition_response(
+    value: ChannelAlertDisposition,
+) -> ChannelAlertDispositionResponse:
+    return ChannelAlertDispositionResponse(
+        alert_key=value.alert_key,
+        channel_id=value.channel_id,
+        status=value.status.value,
+        reason=value.reason,
+        expires_at=value.expires_at,
+        updated_at=value.updated_at,
+    )
 
 
 @router.get(
@@ -383,7 +407,11 @@ async def channel_alerts(
     channel_id: Annotated[UUID | None, Query()] = None,
     window_minutes: Annotated[int, Query(ge=5, le=1_440)] = 60,
 ) -> ChannelAlertListResponse:
-    effective = await configuration.resolve_effective(tenant_id=principal.tenant_id)
+    effective = await configuration.resolve_effective(
+        tenant_id=principal.tenant_id,
+        agent_id=identity.agent_id,
+        channel_id=channel_id,
+    )
     ended_at = datetime.now(UTC)
     try:
         alerts = await service.alerts(
@@ -404,6 +432,186 @@ async def channel_alerts(
         window_started_at=ended_at - timedelta(minutes=window_minutes),
         window_ended_at=ended_at,
         items=tuple(_alert_response(item) for item in alerts),
+    )
+
+
+async def _set_alert_disposition(
+    *,
+    channel_id: UUID,
+    command: ChannelAlertDispositionCommand,
+    disposition_status: ChannelAlertDispositionStatus,
+    principal: AdminPrincipal,
+    identity: DevelopmentIdentity,
+    service: ChannelService,
+    configuration: ConfigurationService,
+) -> ChannelAlertDispositionResponse:
+    effective = await configuration.resolve_effective(
+        tenant_id=principal.tenant_id,
+        agent_id=identity.agent_id,
+        channel_id=channel_id,
+    )
+    try:
+        disposition = await service.set_alert_disposition(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            channel_id=channel_id,
+            alert_key=command.alert_key,
+            status=disposition_status,
+            reason=command.reason,
+            expires_at=command.expires_at,
+            actor_id=principal.user_id,
+            confirmed=command.confirmed,
+            values=effective.values,
+        )
+    except ChannelNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="告警不存在") from error
+    except ChannelValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return _disposition_response(disposition)
+
+
+@router.post(
+    "/operations/alerts/{channel_id}/acknowledge",
+    response_model=ChannelAlertDispositionResponse,
+    dependencies=[Depends(require_permission(AdminPermission.CHANNEL_ALERT_MANAGE))],
+)
+async def acknowledge_alert(
+    channel_id: UUID,
+    command: ChannelAlertDispositionCommand,
+    principal: Annotated[
+        AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_ALERT_MANAGE))
+    ],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ChannelService, Depends(get_channel_service)],
+    configuration: Annotated[ConfigurationService, Depends(get_configuration_service)],
+) -> ChannelAlertDispositionResponse:
+    return await _set_alert_disposition(
+        channel_id=channel_id,
+        command=command,
+        disposition_status=ChannelAlertDispositionStatus.ACKNOWLEDGED,
+        principal=principal,
+        identity=identity,
+        service=service,
+        configuration=configuration,
+    )
+
+
+@router.post(
+    "/operations/alerts/{channel_id}/suppress",
+    response_model=ChannelAlertDispositionResponse,
+    dependencies=[Depends(require_permission(AdminPermission.CHANNEL_ALERT_MANAGE))],
+)
+async def suppress_alert(
+    channel_id: UUID,
+    command: ChannelAlertDispositionCommand,
+    principal: Annotated[
+        AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_ALERT_MANAGE))
+    ],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ChannelService, Depends(get_channel_service)],
+    configuration: Annotated[ConfigurationService, Depends(get_configuration_service)],
+) -> ChannelAlertDispositionResponse:
+    return await _set_alert_disposition(
+        channel_id=channel_id,
+        command=command,
+        disposition_status=ChannelAlertDispositionStatus.SUPPRESSED,
+        principal=principal,
+        identity=identity,
+        service=service,
+        configuration=configuration,
+    )
+
+
+@router.post(
+    "/operations/alerts/{channel_id}/unsuppress",
+    response_model=ChannelAlertDispositionResponse,
+    dependencies=[Depends(require_permission(AdminPermission.CHANNEL_ALERT_MANAGE))],
+)
+async def unsuppress_alert(
+    channel_id: UUID,
+    command: ChannelAlertDispositionClearCommand,
+    principal: Annotated[
+        AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_ALERT_MANAGE))
+    ],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ChannelService, Depends(get_channel_service)],
+) -> ChannelAlertDispositionResponse:
+    if not command.confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="解除告警处置必须明确确认",
+        )
+    try:
+        existing = await service.get_alert_disposition(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            alert_key=command.alert_key,
+        )
+        if existing is None or existing.channel_id != channel_id:
+            raise ChannelNotFoundError("告警处置不存在")
+        await service.clear_alert_disposition(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            alert_key=command.alert_key,
+            actor_id=principal.user_id,
+            confirmed=True,
+        )
+    except ChannelNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="告警处置不存在"
+        ) from error
+    return ChannelAlertDispositionResponse(
+        alert_key=command.alert_key,
+        channel_id=channel_id,
+        status="cleared",
+        reason="已解除处置",
+        expires_at=None,
+        updated_at=datetime.now(UTC),
+    )
+
+
+@router.post(
+    "/operations/alerts/notify",
+    response_model=ChannelAlertNotificationResponse,
+    dependencies=[Depends(require_permission(AdminPermission.CHANNEL_NOTIFICATION_MANAGE))],
+)
+async def notify_channel_alerts(
+    command: ChannelAlertNotificationCommand,
+    principal: Annotated[
+        AdminPrincipal,
+        Depends(require_permission(AdminPermission.CHANNEL_NOTIFICATION_MANAGE)),
+    ],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[AlertNotificationService, Depends(get_alert_notification_service)],
+) -> ChannelAlertNotificationResponse:
+    try:
+        result = await service.notify(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            actor_id=principal.user_id,
+            window_minutes=command.window_minutes,
+            confirmed=command.confirmed,
+        )
+    except AlertNotificationValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(error),
+        ) from error
+    except AlertNotificationDeliveryError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="告警通知投递失败，请稍后重试",
+            headers={"X-CNB-Error-Code": error.code},
+        ) from error
+    return ChannelAlertNotificationResponse(
+        delivered=result.delivered,
+        alert_count=result.alert_count,
+        attempts=result.attempts,
+        idempotency_key=result.idempotency_key,
+        elapsed_ms=result.elapsed_ms,
+        status_code=result.status_code,
     )
 
 

@@ -67,6 +67,8 @@ class AdminPermission(StrEnum):
     CHANNEL_WRITE = "channel:write"
     CHANNEL_SEND = "channel:send"
     CHANNEL_CREDENTIAL_MANAGE = "channel_credential:manage"
+    CHANNEL_ALERT_MANAGE = "channel_alert:manage"
+    CHANNEL_NOTIFICATION_MANAGE = "channel_notification:manage"
     INTEGRATION_READ = "integration:read"
     INTEGRATION_MANAGE = "integration:manage"
     INBOX_REPLAY = "inbox:replay"

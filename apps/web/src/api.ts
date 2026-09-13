@@ -7,7 +7,9 @@ import type {
   BackgroundJobReplayChainItem as BackgroundJobReplayChainItemResponse,
   BackgroundJobReplayChainResponse,
   ChannelAlertListResponse,
+  ChannelAlertDispositionResponse,
   ChannelAlertResponse,
+  ChannelAlertNotificationResponse,
   ChannelErrorMetricResponse,
   ChannelHealthSnapshotResponse,
   ChannelHealthTrendResponse,
@@ -242,6 +244,8 @@ export type ChannelHealthSnapshot = ChannelHealthSnapshotResponse
 export type ChannelHealthTrend = ChannelHealthTrendResponse
 export type ChannelAlert = ChannelAlertResponse
 export type ChannelAlertList = ChannelAlertListResponse
+export type ChannelAlertDisposition = ChannelAlertDispositionResponse
+export type ChannelAlertNotification = ChannelAlertNotificationResponse
 export type BackgroundJobReplayChainItem = BackgroundJobReplayChainItemResponse
 export type BackgroundJobReplayChain = BackgroundJobReplayChainResponse
 
@@ -304,6 +308,8 @@ export type AdminPermission =
   | 'channel:write'
   | 'channel:send'
   | 'channel_credential:manage'
+  | 'channel_alert:manage'
+  | 'channel_notification:manage'
   | 'integration:read'
   | 'integration:manage'
   | 'inbox:replay'
@@ -1319,6 +1325,33 @@ export const getChannelAlerts = (channelId?: string, windowMinutes = 60) =>
   apiSdk.getApiV1ChannelsOperationsAlerts({
     query: { channel_id: channelId, window_minutes: windowMinutes },
   })
+
+export const acknowledgeChannelAlert = (
+  channelId: string,
+  command: { alert_key: string; reason: string; expires_at?: string | null; confirmed: boolean },
+) => apiSdk.postApiV1ChannelsOperationsAlertsByChannelIdAcknowledge({
+  path: { channel_id: channelId },
+  body: command,
+})
+
+export const suppressChannelAlert = (
+  channelId: string,
+  command: { alert_key: string; reason: string; expires_at: string; confirmed: boolean },
+) => apiSdk.postApiV1ChannelsOperationsAlertsByChannelIdSuppress({
+  path: { channel_id: channelId },
+  body: command,
+})
+
+export const unsuppressChannelAlert = (
+  channelId: string,
+  command: { alert_key: string; confirmed: boolean },
+) => apiSdk.postApiV1ChannelsOperationsAlertsByChannelIdUnsuppress({
+  path: { channel_id: channelId },
+  body: command,
+})
+
+export const notifyChannelAlerts = (command: { window_minutes: number; confirmed: boolean }) =>
+  apiSdk.postApiV1ChannelsOperationsAlertsNotify({ body: command })
 
 export const getBackgroundJobReplayChain = (jobId: string) =>
   apiSdk.getApiV1TasksJobsByJobIdReplayChain({ path: { job_id: jobId } })

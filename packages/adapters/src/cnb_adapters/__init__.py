@@ -1,5 +1,12 @@
 """渠道 Adapter 协议、能力协商、正式实现与 IM 占位实现。"""
 
+from cnb_adapters.alert_webhook import (
+    AlertWebhookDeliveryResult,
+    AlertWebhookError,
+    AlertWebhookNotifier,
+    AlertWebhookValidationError,
+    validate_webhook_url,
+)
 from cnb_adapters.channel import (
     SAFE_ATTACHMENT_CONTENT_TYPES,
     SAFE_DOCUMENT_CONTENT_TYPES,
@@ -30,6 +37,10 @@ __all__ = [
     "SAFE_IMAGE_CONTENT_TYPES",
     "AdapterDeliveryResult",
     "AdapterHealth",
+    "AlertWebhookDeliveryResult",
+    "AlertWebhookError",
+    "AlertWebhookNotifier",
+    "AlertWebhookValidationError",
     "CapabilityNegotiation",
     "ChannelAdapter",
     "ChannelAdapterError",
@@ -48,4 +59,5 @@ __all__ = [
     "build_default_channel_registry",
     "negotiate_capabilities",
     "summarize_blocks",
+    "validate_webhook_url",
 ]
