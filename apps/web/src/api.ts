@@ -4,6 +4,13 @@ import type {
   AgentLifecycleStatus,
   AgentRunResponse,
   AttachmentReservationResponse,
+  BackgroundJobReplayChainItem as BackgroundJobReplayChainItemResponse,
+  BackgroundJobReplayChainResponse,
+  ChannelAlertListResponse,
+  ChannelAlertResponse,
+  ChannelErrorMetricResponse,
+  ChannelHealthSnapshotResponse,
+  ChannelHealthTrendResponse,
   ChannelOperationMetricsResponse,
   ConfigDefinitionResponse,
   ConversationResponse,
@@ -230,6 +237,13 @@ export interface ChannelDiagnosticEvent {
 }
 
 export type ChannelOperationMetrics = ChannelOperationMetricsResponse
+export type ChannelErrorMetric = ChannelErrorMetricResponse
+export type ChannelHealthSnapshot = ChannelHealthSnapshotResponse
+export type ChannelHealthTrend = ChannelHealthTrendResponse
+export type ChannelAlert = ChannelAlertResponse
+export type ChannelAlertList = ChannelAlertListResponse
+export type BackgroundJobReplayChainItem = BackgroundJobReplayChainItemResponse
+export type BackgroundJobReplayChain = BackgroundJobReplayChainResponse
 
 export interface ModelCapabilityProfile {
   provider: string
@@ -1287,6 +1301,27 @@ export const getChannelOperationMetrics = (channelId?: string, windowMinutes = 6
   apiSdk.getApiV1ChannelsOperationsMetrics({
     query: { channel_id: channelId, window_minutes: windowMinutes },
   })
+
+export const getChannelErrorMetrics = (channelId?: string, windowMinutes = 60) =>
+  apiSdk.getApiV1ChannelsOperationsErrors({
+    query: { channel_id: channelId, window_minutes: windowMinutes },
+  })
+
+export const getChannelHealthTrend = (
+  channelId?: string,
+  windowMinutes = 1_440,
+  limit = 500,
+) => apiSdk.getApiV1ChannelsHealthTrend({
+  query: { channel_id: channelId, window_minutes: windowMinutes, limit },
+})
+
+export const getChannelAlerts = (channelId?: string, windowMinutes = 60) =>
+  apiSdk.getApiV1ChannelsOperationsAlerts({
+    query: { channel_id: channelId, window_minutes: windowMinutes },
+  })
+
+export const getBackgroundJobReplayChain = (jobId: string) =>
+  apiSdk.getApiV1TasksJobsByJobIdReplayChain({ path: { job_id: jobId } })
 
 export type ExternalIdentityMapping = ExternalIdentityMappingResponse
 export type ExternalConversationMapping = ExternalConversationMappingResponse

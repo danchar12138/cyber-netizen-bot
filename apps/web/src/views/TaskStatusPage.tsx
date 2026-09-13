@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, Clock3, ListRestart, ListTodo, Plus, ServerCog, ShieldAlert, XCircle } from 'lucide-react'
+import { Activity, Clock3, GitBranch, ListRestart, ListTodo, Plus, ServerCog, ShieldAlert, XCircle } from 'lucide-react'
 import { useCallback, useMemo, useState, type FormEvent } from 'react'
 
 import {
@@ -8,11 +8,13 @@ import {
   createScheduledAction,
   getAdminSession,
   getBackgroundJobs,
+  getBackgroundJobReplayChain,
   getDevelopmentIdentity,
   getScheduledActions,
   getTaskDashboard,
   replayBackgroundJob,
   type BackgroundJob,
+  type BackgroundJobReplayChainItem,
   type BackgroundJobStatus,
   type ScheduledAction,
 } from '../api'
@@ -38,6 +40,7 @@ export function TaskStatusPage() {
   const [statusFilter, setStatusFilter] = useState<BackgroundJobStatus | ''>('')
   const [reason, setReason] = useState('在合适时间自然跟进上次交流')
   const [scheduledFor, setScheduledFor] = useState(() => localInputValue(new Date(Date.now() + 60_000)))
+  const [replayChainJobId, setReplayChainJobId] = useState<string | null>(null)
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const identity = useQuery({ queryKey: ['development-identity', selectedAgentId], queryFn: getDevelopmentIdentity })
   const dashboard = useQuery({ queryKey: ['task-dashboard'], queryFn: getTaskDashboard, refetchInterval: 15_000 })
@@ -45,6 +48,11 @@ export function TaskStatusPage() {
     queryKey: ['background-jobs', statusFilter],
     queryFn: () => getBackgroundJobs({ status: statusFilter || undefined }),
     refetchInterval: 15_000,
+  })
+  const replayChain = useQuery({
+    queryKey: ['background-job-replay-chain', replayChainJobId],
+    queryFn: () => getBackgroundJobReplayChain(replayChainJobId!),
+    enabled: Boolean(replayChainJobId),
   })
   const scheduled = useQuery({
     queryKey: ['scheduled-actions', selectedAgentId],
@@ -111,9 +119,18 @@ export function TaskStatusPage() {
       render: (row) => <div className="table-actions">
         <button disabled={!canManageTasks || !['pending', 'retrying', 'running'].includes(row.status)} onClick={() => runCancel(row)}><XCircle size={12} />取消</button>
         <button disabled={!canManageTasks || !['failed', 'dead_letter', 'canceled'].includes(row.status)} onClick={() => runReplay(row)}><ListRestart size={12} />重放</button>
+        <button onClick={() => setReplayChainJobId(row.id)}><GitBranch size={12} />来源链</button>
       </div>,
     },
   ], [canManageTasks, runCancel, runReplay])
+  const replayChainColumns = useMemo<Array<AdminTableColumn<BackgroundJobReplayChainItem>>>(() => [
+    { key: 'task', label: '任务', render: (row) => <div className="table-primary"><strong>{backgroundJobKindLabels[row.kind]}</strong><code>{row.id}</code></div> },
+    { key: 'status', label: '状态', render: (row) => <span className={`entity-status task-${row.status}`}>{backgroundJobStatusLabels[row.status]}</span> },
+    { key: 'error', label: '安全错误码', render: (row) => row.last_error_code ? <code>{row.last_error_code}</code> : '无' },
+    { key: 'source', label: '来源任务', render: (row) => row.replayed_from_id ? <code>{row.replayed_from_id}</code> : '原始任务' },
+    { key: 'created', label: '创建时间', render: (row) => new Date(row.created_at).toLocaleString('zh-CN') },
+    { key: 'completed', label: '完成时间', render: (row) => row.completed_at ? new Date(row.completed_at).toLocaleString('zh-CN') : '未完成' },
+  ], [])
   const actionColumns = useMemo<Array<AdminTableColumn<ScheduledAction>>>(() => [
     {
       key: 'reason', label: '主动行为',
@@ -168,6 +185,12 @@ export function TaskStatusPage() {
         <div className="panel-heading task-panel-heading"><div><span>执行真相</span><h2>后台任务</h2></div><label className="status-filter">状态<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as BackgroundJobStatus | '')}><option value="">全部</option>{Object.entries(backgroundJobStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
         <AdminDataTable rows={jobs.data?.items ?? []} columns={jobColumns} rowKey={(row) => row.id} searchableText={jobSearch} searchPlaceholder="搜索任务 ID、类型、队列或错误码" emptyMessage={jobs.isLoading ? '正在读取任务…' : '暂无匹配任务'} />
       </section>
+
+      {replayChainJobId && <section className="panel table-panel task-table-panel" aria-label="任务重放来源链">
+        <div className="panel-heading task-panel-heading"><div><span>安全摘要 · 不含任务载荷</span><h2>重放来源链</h2></div><button className="secondary-button" type="button" onClick={() => setReplayChainJobId(null)}>关闭</button></div>
+        {replayChain.isError && <div className="notice error">来源链读取失败，请检查任务是否仍属于当前租户。</div>}
+        <AdminDataTable rows={replayChain.data?.items ?? []} columns={replayChainColumns} rowKey={(row) => row.id} searchableText={(row) => `${row.id} ${row.kind} ${row.status} ${row.last_error_code ?? ''}`} searchPlaceholder="搜索来源任务或错误码" emptyMessage={replayChain.isLoading ? '正在读取来源链…' : '没有可展示的来源链'} />
+      </section>}
 
       <section className="panel table-panel task-table-panel">
         <div className="panel-heading task-panel-heading"><div><span>社交策略</span><h2>定时行为</h2></div><small>待调度 {data?.scheduled ?? '—'}</small></div>

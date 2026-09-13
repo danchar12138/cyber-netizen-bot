@@ -732,6 +732,48 @@ export type BackgroundJobListResponse = {
 };
 
 /**
+ * BackgroundJobReplayChainItem
+ *
+ * 重放来源链中的安全任务摘要。
+ */
+export type BackgroundJobReplayChainItem = {
+    /**
+     * Completed At
+     */
+    completed_at: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Id
+     */
+    id: string;
+    kind: BackgroundJobKind;
+    /**
+     * Last Error Code
+     */
+    last_error_code: string | null;
+    /**
+     * Replayed From Id
+     */
+    replayed_from_id: string | null;
+    status: BackgroundJobStatus;
+};
+
+/**
+ * BackgroundJobReplayChainResponse
+ *
+ * 从最早来源到当前任务的重放链。
+ */
+export type BackgroundJobReplayChainResponse = {
+    /**
+     * Items
+     */
+    items: Array<BackgroundJobReplayChainItem>;
+};
+
+/**
  * BackgroundJobResponse
  *
  * 不返回原始业务载荷的后台任务安全摘要。
@@ -1100,6 +1142,79 @@ export type BulkStatusUpdateCommand = {
 };
 
 /**
+ * ChannelAlertListResponse
+ *
+ * 渠道活动告警及其统一聚合窗口。
+ */
+export type ChannelAlertListResponse = {
+    /**
+     * Items
+     */
+    items: Array<ChannelAlertResponse>;
+    /**
+     * Window Ended At
+     */
+    window_ended_at: string;
+    /**
+     * Window Started At
+     */
+    window_started_at: string;
+};
+
+/**
+ * ChannelAlertResponse
+ *
+ * 渠道告警策略结果，仅包含聚合数值和安全摘要。
+ */
+export type ChannelAlertResponse = {
+    /**
+     * Channel Id
+     */
+    channel_id: string;
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Cooldown Until
+     */
+    cooldown_until: string;
+    /**
+     * Current Value
+     */
+    current_value: number;
+    /**
+     * Error Code
+     */
+    error_code?: string | null;
+    /**
+     * Last Occurred At
+     */
+    last_occurred_at: string;
+    /**
+     * Occurrences
+     */
+    occurrences: number;
+    severity: AlertSeverity;
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Threshold Value
+     */
+    threshold_value: number;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Unit
+     */
+    unit: string;
+};
+
+/**
  * ChannelCapabilitiesResponse
  *
  * Adapter 能力和载荷边界。
@@ -1343,6 +1458,50 @@ export type ChannelDiagnosticEventResponse = {
 };
 
 /**
+ * ChannelErrorMetricListResponse
+ *
+ * 当前 Agent 渠道错误指标及其统一查询时间窗。
+ */
+export type ChannelErrorMetricListResponse = {
+    /**
+     * Items
+     */
+    items: Array<ChannelErrorMetricResponse>;
+    /**
+     * Window Ended At
+     */
+    window_ended_at: string;
+    /**
+     * Window Started At
+     */
+    window_started_at: string;
+};
+
+/**
+ * ChannelErrorMetricResponse
+ *
+ * 按安全错误码聚合的渠道告警指标。
+ */
+export type ChannelErrorMetricResponse = {
+    /**
+     * Channel Id
+     */
+    channel_id: string;
+    /**
+     * Error Code
+     */
+    error_code: string;
+    /**
+     * Last Occurred At
+     */
+    last_occurred_at: string;
+    /**
+     * Occurrences
+     */
+    occurrences: number;
+};
+
+/**
  * ChannelEventDirection
  *
  * 渠道诊断事件相对于 Agent 网关的方向。
@@ -1357,11 +1516,65 @@ export type ChannelEventDirection = 'inbound' | 'outbound' | 'system';
 export type ChannelEventStatus = 'accepted' | 'delivered' | 'degraded' | 'rejected' | 'failed' | 'rate_limited';
 
 /**
+ * ChannelHealthSnapshotResponse
+ *
+ * 渠道健康趋势安全快照，不含 URL、凭证或远端错误正文。
+ */
+export type ChannelHealthSnapshotResponse = {
+    /**
+     * Channel Id
+     */
+    channel_id: string;
+    /**
+     * Configured
+     */
+    configured: boolean;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Pending Update Count
+     */
+    pending_update_count: number;
+    platform: ChannelPlatform;
+    /**
+     * Remote Error Present
+     */
+    remote_error_present: boolean;
+    /**
+     * Sampled At
+     */
+    sampled_at: string;
+    status: ChannelHealthStatus;
+};
+
+/**
  * ChannelHealthStatus
  *
  * 最近一次无密钥连接检查结果。
  */
 export type ChannelHealthStatus = 'healthy' | 'degraded' | 'not_configured' | 'disabled';
+
+/**
+ * ChannelHealthTrendResponse
+ *
+ * 当前 Agent 渠道健康快照及其统一查询时间窗。
+ */
+export type ChannelHealthTrendResponse = {
+    /**
+     * Items
+     */
+    items: Array<ChannelHealthSnapshotResponse>;
+    /**
+     * Window Ended At
+     */
+    window_ended_at: string;
+    /**
+     * Window Started At
+     */
+    window_started_at: string;
+};
 
 /**
  * ChannelInboundResponse
@@ -7618,6 +7831,76 @@ export type GetApiV1ChannelsDiagnosticsEventsResponses = {
 
 export type GetApiV1ChannelsDiagnosticsEventsResponse = GetApiV1ChannelsDiagnosticsEventsResponses[keyof GetApiV1ChannelsDiagnosticsEventsResponses];
 
+export type GetApiV1ChannelsHealthTrendData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Channel Id
+         */
+        channel_id?: string | null;
+        /**
+         * Window Minutes
+         */
+        window_minutes?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/channels/health/trend';
+};
+
+export type GetApiV1ChannelsHealthTrendErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ChannelsHealthTrendError = GetApiV1ChannelsHealthTrendErrors[keyof GetApiV1ChannelsHealthTrendErrors];
+
+export type GetApiV1ChannelsHealthTrendResponses = {
+    /**
+     * 请求成功
+     */
+    200: ChannelHealthTrendResponse;
+};
+
+export type GetApiV1ChannelsHealthTrendResponse = GetApiV1ChannelsHealthTrendResponses[keyof GetApiV1ChannelsHealthTrendResponses];
+
 export type GetApiV1ChannelsModelCapabilitiesData = {
     body?: never;
     path?: never;
@@ -7674,6 +7957,138 @@ export type GetApiV1ChannelsModelCapabilitiesResponses = {
 };
 
 export type GetApiV1ChannelsModelCapabilitiesResponse = GetApiV1ChannelsModelCapabilitiesResponses[keyof GetApiV1ChannelsModelCapabilitiesResponses];
+
+export type GetApiV1ChannelsOperationsAlertsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Channel Id
+         */
+        channel_id?: string | null;
+        /**
+         * Window Minutes
+         */
+        window_minutes?: number;
+    };
+    url: '/api/v1/channels/operations/alerts';
+};
+
+export type GetApiV1ChannelsOperationsAlertsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ChannelsOperationsAlertsError = GetApiV1ChannelsOperationsAlertsErrors[keyof GetApiV1ChannelsOperationsAlertsErrors];
+
+export type GetApiV1ChannelsOperationsAlertsResponses = {
+    /**
+     * 请求成功
+     */
+    200: ChannelAlertListResponse;
+};
+
+export type GetApiV1ChannelsOperationsAlertsResponse = GetApiV1ChannelsOperationsAlertsResponses[keyof GetApiV1ChannelsOperationsAlertsResponses];
+
+export type GetApiV1ChannelsOperationsErrorsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Channel Id
+         */
+        channel_id?: string | null;
+        /**
+         * Window Minutes
+         */
+        window_minutes?: number;
+    };
+    url: '/api/v1/channels/operations/errors';
+};
+
+export type GetApiV1ChannelsOperationsErrorsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ChannelsOperationsErrorsError = GetApiV1ChannelsOperationsErrorsErrors[keyof GetApiV1ChannelsOperationsErrorsErrors];
+
+export type GetApiV1ChannelsOperationsErrorsResponses = {
+    /**
+     * 请求成功
+     */
+    200: ChannelErrorMetricListResponse;
+};
+
+export type GetApiV1ChannelsOperationsErrorsResponse = GetApiV1ChannelsOperationsErrorsResponses[keyof GetApiV1ChannelsOperationsErrorsResponses];
 
 export type GetApiV1ChannelsOperationsMetricsData = {
     body?: never;
@@ -14226,6 +14641,68 @@ export type PostApiV1TasksJobsByJobIdReplayResponses = {
 };
 
 export type PostApiV1TasksJobsByJobIdReplayResponse = PostApiV1TasksJobsByJobIdReplayResponses[keyof PostApiV1TasksJobsByJobIdReplayResponses];
+
+export type GetApiV1TasksJobsByJobIdReplayChainData = {
+    body?: never;
+    path: {
+        /**
+         * Job Id
+         */
+        job_id: string;
+    };
+    query?: never;
+    url: '/api/v1/tasks/jobs/{job_id}/replay-chain';
+};
+
+export type GetApiV1TasksJobsByJobIdReplayChainErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1TasksJobsByJobIdReplayChainError = GetApiV1TasksJobsByJobIdReplayChainErrors[keyof GetApiV1TasksJobsByJobIdReplayChainErrors];
+
+export type GetApiV1TasksJobsByJobIdReplayChainResponses = {
+    /**
+     * 请求成功
+     */
+    200: BackgroundJobReplayChainResponse;
+};
+
+export type GetApiV1TasksJobsByJobIdReplayChainResponse = GetApiV1TasksJobsByJobIdReplayChainResponses[keyof GetApiV1TasksJobsByJobIdReplayChainResponses];
 
 export type PostApiV1TasksMaintenanceRecoverData = {
     body?: never;

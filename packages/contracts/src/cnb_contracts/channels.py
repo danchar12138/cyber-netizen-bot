@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, SecretStr, model_validator
 
 from cnb_domain import (
+    AlertSeverity,
     ChannelEventDirection,
     ChannelEventStatus,
     ChannelHealthStatus,
@@ -295,6 +296,69 @@ class ChannelOperationMetricsListResponse(BaseModel):
     window_started_at: datetime
     window_ended_at: datetime
     items: tuple[ChannelOperationMetricsResponse, ...]
+
+
+class ChannelErrorMetricResponse(BaseModel):
+    """按安全错误码聚合的渠道告警指标。"""
+
+    channel_id: UUID
+    error_code: str = Field(min_length=1, max_length=160)
+    occurrences: int = Field(ge=1)
+    last_occurred_at: datetime
+
+
+class ChannelErrorMetricListResponse(BaseModel):
+    """当前 Agent 渠道错误指标及其统一查询时间窗。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    items: tuple[ChannelErrorMetricResponse, ...]
+
+
+class ChannelHealthSnapshotResponse(BaseModel):
+    """渠道健康趋势安全快照，不含 URL、凭证或远端错误正文。"""
+
+    id: UUID
+    channel_id: UUID
+    platform: ChannelPlatform
+    status: ChannelHealthStatus
+    configured: bool
+    pending_update_count: int = Field(ge=0)
+    remote_error_present: bool
+    sampled_at: datetime
+
+
+class ChannelHealthTrendResponse(BaseModel):
+    """当前 Agent 渠道健康快照及其统一查询时间窗。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    items: tuple[ChannelHealthSnapshotResponse, ...]
+
+
+class ChannelAlertResponse(BaseModel):
+    """渠道告警策略结果，仅包含聚合数值和安全摘要。"""
+
+    channel_id: UUID
+    code: str = Field(min_length=1, max_length=120)
+    error_code: str | None = Field(default=None, max_length=160)
+    severity: AlertSeverity
+    title: str
+    summary: str
+    occurrences: int = Field(ge=1)
+    current_value: float = Field(ge=0)
+    threshold_value: float = Field(ge=0)
+    unit: str = Field(min_length=1, max_length=24)
+    last_occurred_at: datetime
+    cooldown_until: datetime
+
+
+class ChannelAlertListResponse(BaseModel):
+    """渠道活动告警及其统一聚合窗口。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    items: tuple[ChannelAlertResponse, ...]
 
 
 class ModelCapabilityResponse(BaseModel):

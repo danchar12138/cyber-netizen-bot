@@ -13,8 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from cnb_domain import (
     ChannelDiagnosticEvent,
+    ChannelErrorMetrics,
     ChannelEventDirection,
     ChannelEventStatus,
+    ChannelHealthSnapshot,
     ChannelHealthStatus,
     ChannelInstance,
     ChannelInstanceStatus,
@@ -25,6 +27,7 @@ from cnb_domain import (
 from cnb_infrastructure.models import (
     AuditLog,
     ChannelDiagnosticEventModel,
+    ChannelHealthSnapshotModel,
     ChannelInstanceModel,
     ChannelRateLimitWindowModel,
 )
@@ -58,6 +61,7 @@ class MemoryChannelRepository:
     def __init__(self) -> None:
         self.instances: dict[UUID, ChannelInstance] = {}
         self.events: dict[UUID, ChannelDiagnosticEvent] = {}
+        self.health_snapshots: dict[UUID, ChannelHealthSnapshot] = {}
         self.rate_windows: dict[tuple[UUID, datetime], int] = {}
         self._lock = asyncio.Lock()
 
@@ -308,6 +312,94 @@ class MemoryChannelRepository:
             )
             for values in (by_channel[item.id],)
         )
+
+    async def get_error_metrics(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+    ) -> tuple[ChannelErrorMetrics, ...]:
+        visible_channels = {
+            item.id
+            for item in self.instances.values()
+            if item.tenant_id == tenant_id
+            and item.agent_id == agent_id
+            and (channel_id is None or item.id == channel_id)
+        }
+        aggregates: dict[tuple[UUID, str], tuple[int, datetime]] = {}
+        for event in self.events.values():
+            if (
+                event.channel_id not in visible_channels
+                or event.direction is not ChannelEventDirection.OUTBOUND
+                or event.status
+                not in {
+                    ChannelEventStatus.FAILED,
+                    ChannelEventStatus.REJECTED,
+                    ChannelEventStatus.RATE_LIMITED,
+                }
+                or event.error_code is None
+                or not window_started_at <= event.occurred_at <= window_ended_at
+            ):
+                continue
+            key = (event.channel_id, event.error_code)
+            count, latest = aggregates.get(key, (0, event.occurred_at))
+            aggregates[key] = (count + 1, max(latest, event.occurred_at))
+        return tuple(
+            ChannelErrorMetrics(
+                channel_id=key[0],
+                error_code=key[1],
+                occurrences=value[0],
+                last_occurred_at=value[1],
+            )
+            for key, value in sorted(
+                aggregates.items(),
+                key=lambda item: (item[1][1], str(item[0][0]), item[0][1]),
+                reverse=True,
+            )
+        )
+
+    async def record_health_snapshot(
+        self, snapshot: ChannelHealthSnapshot
+    ) -> ChannelHealthSnapshot:
+        async with self._lock:
+            instance = self.instances.get(snapshot.channel_id)
+            if (
+                instance is None
+                or instance.tenant_id != snapshot.tenant_id
+                or instance.agent_id != snapshot.agent_id
+            ):
+                raise LookupError(f"渠道实例不存在：{snapshot.channel_id}")
+            self.health_snapshots[snapshot.id] = snapshot
+            return snapshot
+
+    async def list_health_snapshots(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+        limit: int,
+    ) -> tuple[ChannelHealthSnapshot, ...]:
+        visible_channels = {
+            item.id
+            for item in self.instances.values()
+            if item.tenant_id == tenant_id
+            and item.agent_id == agent_id
+            and (channel_id is None or item.id == channel_id)
+        }
+        rows = [
+            item
+            for item in self.health_snapshots.values()
+            if item.channel_id in visible_channels
+            and window_started_at <= item.sampled_at <= window_ended_at
+        ]
+        rows.sort(key=lambda item: (item.sampled_at, str(item.id)), reverse=True)
+        return tuple(rows[:limit])
 
     async def reserve_rate_limit(
         self,
@@ -733,6 +825,118 @@ class SqlAlchemyChannelRepository:
             for channel in channels
         )
 
+    async def get_error_metrics(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+    ) -> tuple[ChannelErrorMetrics, ...]:
+        statement = (
+            select(
+                ChannelDiagnosticEventModel.channel_id,
+                ChannelDiagnosticEventModel.error_code,
+                func.count().label("occurrences"),
+                func.max(ChannelDiagnosticEventModel.occurred_at).label("last_occurred_at"),
+            )
+            .join(
+                ChannelInstanceModel,
+                ChannelInstanceModel.id == ChannelDiagnosticEventModel.channel_id,
+            )
+            .where(
+                ChannelDiagnosticEventModel.tenant_id == tenant_id,
+                ChannelInstanceModel.tenant_id == tenant_id,
+                ChannelInstanceModel.agent_id == agent_id,
+                ChannelDiagnosticEventModel.direction == ChannelEventDirection.OUTBOUND.value,
+                ChannelDiagnosticEventModel.status.in_(
+                    [
+                        ChannelEventStatus.FAILED.value,
+                        ChannelEventStatus.REJECTED.value,
+                        ChannelEventStatus.RATE_LIMITED.value,
+                    ]
+                ),
+                ChannelDiagnosticEventModel.error_code.is_not(None),
+                ChannelDiagnosticEventModel.occurred_at >= window_started_at,
+                ChannelDiagnosticEventModel.occurred_at <= window_ended_at,
+            )
+            .group_by(
+                ChannelDiagnosticEventModel.channel_id,
+                ChannelDiagnosticEventModel.error_code,
+            )
+            .order_by(
+                func.max(ChannelDiagnosticEventModel.occurred_at).desc(),
+                ChannelDiagnosticEventModel.channel_id,
+                ChannelDiagnosticEventModel.error_code,
+            )
+        )
+        if channel_id is not None:
+            statement = statement.where(ChannelDiagnosticEventModel.channel_id == channel_id)
+        async with self._session_factory() as session:
+            rows = (await session.execute(statement)).all()
+        return tuple(
+            ChannelErrorMetrics(
+                channel_id=row[0],
+                error_code=row[1],
+                occurrences=int(row[2]),
+                last_occurred_at=row[3],
+            )
+            for row in rows
+            if row[1] is not None
+        )
+
+    async def record_health_snapshot(
+        self, snapshot: ChannelHealthSnapshot
+    ) -> ChannelHealthSnapshot:
+        async with self._session_factory.begin() as session:
+            channel = await session.scalar(
+                select(ChannelInstanceModel).where(
+                    ChannelInstanceModel.id == snapshot.channel_id,
+                    ChannelInstanceModel.tenant_id == snapshot.tenant_id,
+                    ChannelInstanceModel.agent_id == snapshot.agent_id,
+                )
+            )
+            if channel is None:
+                raise LookupError(f"渠道实例不存在：{snapshot.channel_id}")
+            session.add(self._snapshot_model(snapshot))
+        return snapshot
+
+    async def list_health_snapshots(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+        limit: int,
+    ) -> tuple[ChannelHealthSnapshot, ...]:
+        statement = (
+            select(ChannelHealthSnapshotModel)
+            .join(
+                ChannelInstanceModel,
+                ChannelInstanceModel.id == ChannelHealthSnapshotModel.channel_id,
+            )
+            .where(
+                ChannelHealthSnapshotModel.tenant_id == tenant_id,
+                ChannelInstanceModel.tenant_id == tenant_id,
+                ChannelInstanceModel.agent_id == agent_id,
+                ChannelHealthSnapshotModel.sampled_at >= window_started_at,
+                ChannelHealthSnapshotModel.sampled_at <= window_ended_at,
+            )
+            .order_by(
+                ChannelHealthSnapshotModel.sampled_at.desc(),
+                ChannelHealthSnapshotModel.id.desc(),
+            )
+            .limit(limit)
+        )
+        if channel_id is not None:
+            statement = statement.where(ChannelHealthSnapshotModel.channel_id == channel_id)
+        async with self._session_factory() as session:
+            rows = (await session.scalars(statement)).all()
+        return tuple(self._snapshot(row) for row in rows)
+
     async def reserve_rate_limit(
         self,
         *,
@@ -807,6 +1011,21 @@ class SqlAlchemyChannelRepository:
         )
 
     @staticmethod
+    def _snapshot_model(item: ChannelHealthSnapshot) -> ChannelHealthSnapshotModel:
+        return ChannelHealthSnapshotModel(
+            id=item.id,
+            tenant_id=item.tenant_id,
+            agent_id=item.agent_id,
+            channel_id=item.channel_id,
+            platform=item.platform.value,
+            status=item.status.value,
+            configured=item.configured,
+            pending_update_count=item.pending_update_count,
+            remote_error_present=item.remote_error_present,
+            sampled_at=item.sampled_at,
+        )
+
+    @staticmethod
     def _instance(row: ChannelInstanceModel) -> ChannelInstance:
         return ChannelInstance(
             id=row.id,
@@ -841,6 +1060,21 @@ class SqlAlchemyChannelRepository:
             error_code=row.error_code,
             degradations=tuple(row.degradations),
             occurred_at=row.occurred_at,
+        )
+
+    @staticmethod
+    def _snapshot(row: ChannelHealthSnapshotModel) -> ChannelHealthSnapshot:
+        return ChannelHealthSnapshot(
+            id=row.id,
+            tenant_id=row.tenant_id,
+            agent_id=row.agent_id,
+            channel_id=row.channel_id,
+            platform=ChannelPlatform(row.platform),
+            status=ChannelHealthStatus(row.status),
+            configured=row.configured,
+            pending_update_count=row.pending_update_count,
+            remote_error_present=row.remote_error_present,
+            sampled_at=row.sampled_at,
         )
 
     @staticmethod

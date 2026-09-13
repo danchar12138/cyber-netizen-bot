@@ -1182,6 +1182,90 @@
         "title": "BackgroundJobListResponse",
         "type": "object"
       },
+      "BackgroundJobReplayChainItem": {
+        "description": "重放来源链中的安全任务摘要。",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/BackgroundJobKind"
+          },
+          "last_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Code"
+          },
+          "replayed_from_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replayed From Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BackgroundJobStatus"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "kind",
+          "created_at",
+          "completed_at",
+          "last_error_code",
+          "replayed_from_id"
+        ],
+        "title": "BackgroundJobReplayChainItem",
+        "type": "object"
+      },
+      "BackgroundJobReplayChainResponse": {
+        "description": "从最早来源到当前任务的重放链。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BackgroundJobReplayChainItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "BackgroundJobReplayChainResponse",
+        "type": "object"
+      },
       "BackgroundJobResponse": {
         "description": "不返回原始业务载荷的后台任务安全摘要。",
         "properties": {
@@ -1816,6 +1900,120 @@
         "title": "BulkStatusUpdateCommand",
         "type": "object"
       },
+      "ChannelAlertListResponse": {
+        "description": "渠道活动告警及其统一聚合窗口。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ChannelAlertResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "window_ended_at": {
+            "format": "date-time",
+            "title": "Window Ended At",
+            "type": "string"
+          },
+          "window_started_at": {
+            "format": "date-time",
+            "title": "Window Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_started_at",
+          "window_ended_at",
+          "items"
+        ],
+        "title": "ChannelAlertListResponse",
+        "type": "object"
+      },
+      "ChannelAlertResponse": {
+        "description": "渠道告警策略结果，仅包含聚合数值和安全摘要。",
+        "properties": {
+          "channel_id": {
+            "format": "uuid",
+            "title": "Channel Id",
+            "type": "string"
+          },
+          "code": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "cooldown_until": {
+            "format": "date-time",
+            "title": "Cooldown Until",
+            "type": "string"
+          },
+          "current_value": {
+            "minimum": 0.0,
+            "title": "Current Value",
+            "type": "number"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "last_occurred_at": {
+            "format": "date-time",
+            "title": "Last Occurred At",
+            "type": "string"
+          },
+          "occurrences": {
+            "minimum": 1.0,
+            "title": "Occurrences",
+            "type": "integer"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AlertSeverity"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "threshold_value": {
+            "minimum": 0.0,
+            "title": "Threshold Value",
+            "type": "number"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "unit": {
+            "maxLength": 24,
+            "minLength": 1,
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel_id",
+          "code",
+          "severity",
+          "title",
+          "summary",
+          "occurrences",
+          "current_value",
+          "threshold_value",
+          "unit",
+          "last_occurred_at",
+          "cooldown_until"
+        ],
+        "title": "ChannelAlertResponse",
+        "type": "object"
+      },
       "ChannelCapabilitiesResponse": {
         "description": "Adapter 能力和载荷边界。",
         "properties": {
@@ -2199,6 +2397,69 @@
         "title": "ChannelDiagnosticEventResponse",
         "type": "object"
       },
+      "ChannelErrorMetricListResponse": {
+        "description": "当前 Agent 渠道错误指标及其统一查询时间窗。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ChannelErrorMetricResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "window_ended_at": {
+            "format": "date-time",
+            "title": "Window Ended At",
+            "type": "string"
+          },
+          "window_started_at": {
+            "format": "date-time",
+            "title": "Window Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_started_at",
+          "window_ended_at",
+          "items"
+        ],
+        "title": "ChannelErrorMetricListResponse",
+        "type": "object"
+      },
+      "ChannelErrorMetricResponse": {
+        "description": "按安全错误码聚合的渠道告警指标。",
+        "properties": {
+          "channel_id": {
+            "format": "uuid",
+            "title": "Channel Id",
+            "type": "string"
+          },
+          "error_code": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Error Code",
+            "type": "string"
+          },
+          "last_occurred_at": {
+            "format": "date-time",
+            "title": "Last Occurred At",
+            "type": "string"
+          },
+          "occurrences": {
+            "minimum": 1.0,
+            "title": "Occurrences",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "channel_id",
+          "error_code",
+          "occurrences",
+          "last_occurred_at"
+        ],
+        "title": "ChannelErrorMetricResponse",
+        "type": "object"
+      },
       "ChannelEventDirection": {
         "description": "渠道诊断事件相对于 Agent 网关的方向。",
         "enum": [
@@ -2222,6 +2483,57 @@
         "title": "ChannelEventStatus",
         "type": "string"
       },
+      "ChannelHealthSnapshotResponse": {
+        "description": "渠道健康趋势安全快照，不含 URL、凭证或远端错误正文。",
+        "properties": {
+          "channel_id": {
+            "format": "uuid",
+            "title": "Channel Id",
+            "type": "string"
+          },
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "pending_update_count": {
+            "minimum": 0.0,
+            "title": "Pending Update Count",
+            "type": "integer"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/ChannelPlatform"
+          },
+          "remote_error_present": {
+            "title": "Remote Error Present",
+            "type": "boolean"
+          },
+          "sampled_at": {
+            "format": "date-time",
+            "title": "Sampled At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChannelHealthStatus"
+          }
+        },
+        "required": [
+          "id",
+          "channel_id",
+          "platform",
+          "status",
+          "configured",
+          "pending_update_count",
+          "remote_error_present",
+          "sampled_at"
+        ],
+        "title": "ChannelHealthSnapshotResponse",
+        "type": "object"
+      },
       "ChannelHealthStatus": {
         "description": "最近一次无密钥连接检查结果。",
         "enum": [
@@ -2232,6 +2544,35 @@
         ],
         "title": "ChannelHealthStatus",
         "type": "string"
+      },
+      "ChannelHealthTrendResponse": {
+        "description": "当前 Agent 渠道健康快照及其统一查询时间窗。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ChannelHealthSnapshotResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "window_ended_at": {
+            "format": "date-time",
+            "title": "Window Ended At",
+            "type": "string"
+          },
+          "window_started_at": {
+            "format": "date-time",
+            "title": "Window Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_started_at",
+          "window_ended_at",
+          "items"
+        ],
+        "title": "ChannelHealthTrendResponse",
+        "type": "object"
       },
       "ChannelInboundResponse": {
         "description": "归一化的入站事件，仅用于契约与诊断验证。",
@@ -13314,6 +13655,160 @@
         ]
       }
     },
+    "/api/v1/channels/health/trend": {
+      "get": {
+        "operationId": "get_api_v1_channels_health_trend",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "channel_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Channel Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "window_minutes",
+            "required": false,
+            "schema": {
+              "default": 1440,
+              "maximum": 10080,
+              "minimum": 5,
+              "title": "Window Minutes",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 2000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelHealthTrendResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "执行渠道与适配器操作",
+        "tags": [
+          "渠道与适配器"
+        ]
+      }
+    },
     "/api/v1/channels/model-capabilities": {
       "get": {
         "description": "返回当前内置模型服务的稳定能力矩阵。",
@@ -13421,6 +13916,290 @@
           }
         },
         "summary": "返回当前内置模型服务的稳定能力矩阵",
+        "tags": [
+          "渠道与适配器"
+        ]
+      }
+    },
+    "/api/v1/channels/operations/alerts": {
+      "get": {
+        "operationId": "get_api_v1_channels_operations_alerts",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "channel_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Channel Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "window_minutes",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "maximum": 1440,
+              "minimum": 5,
+              "title": "Window Minutes",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelAlertListResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "执行渠道与适配器操作",
+        "tags": [
+          "渠道与适配器"
+        ]
+      }
+    },
+    "/api/v1/channels/operations/errors": {
+      "get": {
+        "operationId": "get_api_v1_channels_operations_errors",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "channel_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Channel Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "window_minutes",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "maximum": 1440,
+              "minimum": 5,
+              "title": "Window Minutes",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelErrorMetricListResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "执行渠道与适配器操作",
         "tags": [
           "渠道与适配器"
         ]
@@ -27117,6 +27896,130 @@
           }
         },
         "summary": "复制失败任务为全新审计实体，不复活或改写原任务",
+        "tags": [
+          "任务与主动行为"
+        ]
+      }
+    },
+    "/api/v1/tasks/jobs/{job_id}/replay-chain": {
+      "get": {
+        "description": "返回重放任务的来源链，不返回任务载荷或出站消息正文。",
+        "operationId": "get_api_v1_tasks_jobs_by_job_id_replay_chain",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackgroundJobReplayChainResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "返回重放任务的来源链，不返回任务载荷或出站消息正文",
         "tags": [
           "任务与主动行为"
         ]

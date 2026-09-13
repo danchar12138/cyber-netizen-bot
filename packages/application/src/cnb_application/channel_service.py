@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from secrets import compare_digest
-from typing import Literal, Protocol
+from typing import Literal, Protocol, cast
 from uuid import UUID, uuid4
 
 from cnb_adapters import (
@@ -22,10 +22,14 @@ from cnb_adapters import (
 )
 from cnb_application.configuration_service import SecretStore
 from cnb_domain import (
+    AlertSeverity,
+    ChannelAlert,
     ChannelCapabilities,
     ChannelDiagnosticEvent,
+    ChannelErrorMetrics,
     ChannelEventDirection,
     ChannelEventStatus,
+    ChannelHealthSnapshot,
     ChannelHealthStatus,
     ChannelInstance,
     ChannelInstanceStatus,
@@ -179,6 +183,31 @@ class ChannelRepository(Protocol):
         window_started_at: datetime,
         window_ended_at: datetime,
     ) -> tuple[ChannelOperationMetrics, ...]: ...
+
+    async def get_error_metrics(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+    ) -> tuple[ChannelErrorMetrics, ...]: ...
+
+    async def record_health_snapshot(
+        self, snapshot: ChannelHealthSnapshot
+    ) -> ChannelHealthSnapshot: ...
+
+    async def list_health_snapshots(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+        limit: int,
+    ) -> tuple[ChannelHealthSnapshot, ...]: ...
 
     async def reserve_rate_limit(
         self,
@@ -472,6 +501,14 @@ class ChannelService:
                 occurred_at=checked_at,
             )
         )
+        await self._record_health_snapshot(
+            instance=stored,
+            status=health_status,
+            configured=(health_status is not ChannelHealthStatus.NOT_CONFIGURED),
+            pending_update_count=0,
+            remote_error_present=(health_status is ChannelHealthStatus.DEGRADED),
+            sampled_at=checked_at,
+        )
         return await self._view(stored)
 
     def simulate(
@@ -724,7 +761,7 @@ class ChannelService:
             raise ChannelNotFoundError(f"Telegram Webhook 不适用于渠道：{channel_id}")
         checked_at = datetime.now(UTC)
         if instance.status is ChannelInstanceStatus.DISABLED:
-            return TelegramWebhookStatus(
+            result = TelegramWebhookStatus(
                 channel_id=channel_id,
                 status=ChannelHealthStatus.DISABLED,
                 configured=False,
@@ -734,9 +771,18 @@ class ChannelService:
                 allowed_updates=(),
                 checked_at=checked_at,
             )
+            await self._record_health_snapshot(
+                instance=instance,
+                status=result.status,
+                configured=result.configured,
+                pending_update_count=result.pending_update_count,
+                remote_error_present=result.last_error_present,
+                sampled_at=result.checked_at,
+            )
+            return result
         credential = await self._resolve_credential(instance)
         if credential is None:
-            return TelegramWebhookStatus(
+            result = TelegramWebhookStatus(
                 channel_id=channel_id,
                 status=ChannelHealthStatus.NOT_CONFIGURED,
                 configured=False,
@@ -746,10 +792,28 @@ class ChannelService:
                 allowed_updates=(),
                 checked_at=checked_at,
             )
+            await self._record_health_snapshot(
+                instance=instance,
+                status=result.status,
+                configured=result.configured,
+                pending_update_count=result.pending_update_count,
+                remote_error_present=result.last_error_present,
+                sampled_at=result.checked_at,
+            )
+            return result
         info = await self._adapters.get(ChannelPlatform.TELEGRAM).get_webhook_info(
             credential=credential
         )
-        return self._webhook_status(channel_id, info)
+        result = self._webhook_status(channel_id, info)
+        await self._record_health_snapshot(
+            instance=instance,
+            status=result.status,
+            configured=result.configured,
+            pending_update_count=result.pending_update_count,
+            remote_error_present=result.last_error_present,
+            sampled_at=result.checked_at,
+        )
+        return result
 
     async def register_telegram_webhook(
         self,
@@ -912,6 +976,194 @@ class ChannelService:
             window_ended_at=ended_at,
         )
 
+    async def error_metrics(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        window_minutes: int,
+        now: datetime | None = None,
+    ) -> tuple[ChannelErrorMetrics, ...]:
+        if not 5 <= window_minutes <= 1_440:
+            raise ChannelValidationError("错误指标时间窗必须位于 5 到 1440 分钟之间")
+        ended_at = (now or datetime.now(UTC)).astimezone(UTC)
+        started_at = ended_at - timedelta(minutes=window_minutes)
+        if channel_id is not None:
+            await self._required(tenant_id=tenant_id, agent_id=agent_id, channel_id=channel_id)
+        return await self._repository.get_error_metrics(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+            window_started_at=started_at,
+            window_ended_at=ended_at,
+        )
+
+    async def health_trend(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        window_minutes: int,
+        limit: int = 500,
+        now: datetime | None = None,
+    ) -> tuple[ChannelHealthSnapshot, ...]:
+        if not 5 <= window_minutes <= 10_080:
+            raise ChannelValidationError("健康趋势时间窗必须位于 5 到 10080 分钟之间")
+        if not 1 <= limit <= 2_000:
+            raise ChannelValidationError("健康快照数量必须位于 1 到 2000 之间")
+        ended_at = (now or datetime.now(UTC)).astimezone(UTC)
+        started_at = ended_at - timedelta(minutes=window_minutes)
+        if channel_id is not None:
+            await self._required(tenant_id=tenant_id, agent_id=agent_id, channel_id=channel_id)
+        return await self._repository.list_health_snapshots(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+            window_started_at=started_at,
+            window_ended_at=ended_at,
+            limit=limit,
+        )
+
+    async def alerts(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        values: Mapping[str, JsonValue],
+        window_minutes: int,
+        now: datetime | None = None,
+    ) -> tuple[ChannelAlert, ...]:
+        """按已发布策略生成去重的渠道活动告警，不读取事件正文。"""
+        if not self._boolean(values["alerts.channel.enabled"], "alerts.channel.enabled"):
+            return ()
+        ended_at = (now or datetime.now(UTC)).astimezone(UTC)
+        enabled_codes = self._string_list(
+            values["alerts.channel.enabled_error_codes"],
+            "alerts.channel.enabled_error_codes",
+        )
+        minimum_severity = AlertSeverity(
+            self._string(
+                values["alerts.channel.minimum_severity"],
+                "alerts.channel.minimum_severity",
+            )
+        )
+        cooldown_minutes = self._integer(
+            values["alerts.channel.cooldown_minutes"], "alerts.channel.cooldown_minutes"
+        )
+        failure_rate_threshold = self._number(
+            values["alerts.channel.failure_rate_percent"],
+            "alerts.channel.failure_rate_percent",
+        )
+        degraded_minutes = self._integer(
+            values["alerts.channel.health_degraded_minutes"],
+            "alerts.channel.health_degraded_minutes",
+        )
+        operation_metrics = await self.operation_metrics(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+            window_minutes=window_minutes,
+            now=ended_at,
+        )
+        error_metrics = await self.error_metrics(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+            window_minutes=window_minutes,
+            now=ended_at,
+        )
+        snapshots = await self.health_trend(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+            window_minutes=window_minutes,
+            limit=2_000,
+            now=ended_at,
+        )
+        operations_by_channel = {item.channel_id: item for item in operation_metrics}
+        alerts: list[ChannelAlert] = []
+        for metric in error_metrics:
+            operation = operations_by_channel.get(metric.channel_id)
+            failure_rate = operation.outbound_failure_rate_percent if operation else 0.0
+            if failure_rate < failure_rate_threshold or (
+                "*" not in enabled_codes and metric.error_code not in enabled_codes
+            ):
+                continue
+            severity = (
+                AlertSeverity.CRITICAL
+                if failure_rate >= min(100.0, failure_rate_threshold * 2)
+                else AlertSeverity.WARNING
+            )
+            if not self._severity_enabled(severity, minimum_severity):
+                continue
+            alerts.append(
+                ChannelAlert(
+                    channel_id=metric.channel_id,
+                    code="channel_error_rate",
+                    error_code=metric.error_code,
+                    severity=severity,
+                    title="渠道出站失败率过高",
+                    summary="当前窗口内该安全错误码对应的出站失败率达到告警阈值。",
+                    occurrences=metric.occurrences,
+                    current_value=failure_rate,
+                    threshold_value=failure_rate_threshold,
+                    unit="%",
+                    last_occurred_at=metric.last_occurred_at,
+                    cooldown_until=metric.last_occurred_at + timedelta(minutes=cooldown_minutes),
+                )
+            )
+        snapshots_by_channel: dict[UUID, list[ChannelHealthSnapshot]] = {}
+        for snapshot in snapshots:
+            snapshots_by_channel.setdefault(snapshot.channel_id, []).append(snapshot)
+        for snapshot_channel_id, channel_snapshots in snapshots_by_channel.items():
+            newest = channel_snapshots[0]
+            if newest.status is not ChannelHealthStatus.DEGRADED:
+                continue
+            consecutive: list[ChannelHealthSnapshot] = []
+            for snapshot in channel_snapshots:
+                if snapshot.status is not ChannelHealthStatus.DEGRADED:
+                    break
+                consecutive.append(snapshot)
+            degraded_for = max(
+                0.0,
+                (ended_at - consecutive[-1].sampled_at).total_seconds() / 60,
+            )
+            if degraded_for < degraded_minutes:
+                continue
+            severity = (
+                AlertSeverity.CRITICAL
+                if degraded_for >= max(degraded_minutes * 2, degraded_minutes + 1)
+                else AlertSeverity.WARNING
+            )
+            if not self._severity_enabled(severity, minimum_severity):
+                continue
+            alerts.append(
+                ChannelAlert(
+                    channel_id=snapshot_channel_id,
+                    code="channel_health_degraded",
+                    error_code=None,
+                    severity=severity,
+                    title="渠道健康持续降级",
+                    summary="最近的连续安全健康快照均为降级状态。",
+                    occurrences=len(consecutive),
+                    current_value=round(degraded_for, 4),
+                    threshold_value=float(degraded_minutes),
+                    unit="minutes",
+                    last_occurred_at=newest.sampled_at,
+                    cooldown_until=newest.sampled_at + timedelta(minutes=cooldown_minutes),
+                )
+            )
+        return tuple(
+            sorted(
+                alerts,
+                key=lambda item: (item.last_occurred_at, str(item.channel_id), item.code),
+                reverse=True,
+            )
+        )
+
     @staticmethod
     def _webhook_status(channel_id: UUID, info: WebhookInfo) -> TelegramWebhookStatus:
         if not info.configured:
@@ -969,6 +1221,69 @@ class ChannelService:
                 occurred_at=datetime.now(UTC),
             )
         )
+
+    async def _record_health_snapshot(
+        self,
+        *,
+        instance: ChannelInstance,
+        status: ChannelHealthStatus,
+        configured: bool,
+        pending_update_count: int,
+        remote_error_present: bool,
+        sampled_at: datetime,
+    ) -> None:
+        await self._repository.record_health_snapshot(
+            ChannelHealthSnapshot(
+                id=uuid4(),
+                tenant_id=instance.tenant_id,
+                agent_id=instance.agent_id,
+                channel_id=instance.id,
+                platform=instance.platform,
+                status=status,
+                configured=configured,
+                pending_update_count=max(0, pending_update_count),
+                remote_error_present=remote_error_present,
+                sampled_at=sampled_at,
+            )
+        )
+
+    @staticmethod
+    def _boolean(value: object, key: str) -> bool:
+        if not isinstance(value, bool):
+            raise TypeError(f"生效配置 {key} 必须是布尔值")
+        return value
+
+    @staticmethod
+    def _integer(value: object, key: str) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise TypeError(f"生效配置 {key} 必须是整数")
+        return value
+
+    @staticmethod
+    def _number(value: object, key: str) -> float:
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise TypeError(f"生效配置 {key} 必须是数值")
+        return float(value)
+
+    @staticmethod
+    def _string(value: object, key: str) -> str:
+        if not isinstance(value, str):
+            raise TypeError(f"生效配置 {key} 必须是字符串")
+        return value
+
+    @staticmethod
+    def _string_list(value: object, key: str) -> tuple[str, ...]:
+        if not isinstance(value, list):
+            raise TypeError(f"生效配置 {key} 必须是字符串列表")
+        items = cast(list[object], value)
+        if not all(isinstance(item, str) for item in items):
+            raise TypeError(f"生效配置 {key} 必须是字符串列表")
+        return tuple(cast(str, item) for item in items)
+
+    @staticmethod
+    def _severity_enabled(severity: AlertSeverity, minimum: AlertSeverity) -> bool:
+        order = {AlertSeverity.WARNING: 0, AlertSeverity.CRITICAL: 1}
+        return order[severity] >= order[minimum]
 
     async def _required(
         self,

@@ -6,6 +6,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from cnb_domain.configuration import JsonValue
+from cnb_domain.observability import AlertSeverity
 
 
 class ChannelPlatform(StrEnum):
@@ -169,3 +170,47 @@ class ChannelOperationMetrics:
             if attempts
             else 0.0
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelErrorMetrics:
+    """按安全错误码聚合的渠道失败指标，不包含远端错误正文。"""
+
+    channel_id: UUID
+    error_code: str
+    occurrences: int
+    last_occurred_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelHealthSnapshot:
+    """Telegram/Webhook 健康趋势快照，仅保留可运营的状态摘要。"""
+
+    id: UUID
+    tenant_id: UUID
+    agent_id: UUID
+    channel_id: UUID
+    platform: ChannelPlatform
+    status: ChannelHealthStatus
+    configured: bool
+    pending_update_count: int
+    remote_error_present: bool
+    sampled_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelAlert:
+    """由渠道聚合指标确定性生成的安全活动告警。"""
+
+    channel_id: UUID
+    code: str
+    error_code: str | None
+    severity: AlertSeverity
+    title: str
+    summary: str
+    occurrences: int
+    current_value: float
+    threshold_value: float
+    unit: str
+    last_occurred_at: datetime
+    cooldown_until: datetime

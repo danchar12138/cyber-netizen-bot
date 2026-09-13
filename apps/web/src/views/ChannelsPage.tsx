@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, Cable, CheckCircle2, FlaskConical, KeyRound, Plus, RadioTower, RefreshCw, Send, ShieldCheck, TriangleAlert, Unplug } from 'lucide-react'
+import { Activity, BellRing, Cable, CheckCircle2, FlaskConical, HeartPulse, KeyRound, Plus, RadioTower, RefreshCw, Send, ShieldCheck, TriangleAlert, Unplug } from 'lucide-react'
 import { useCallback, useMemo, useState, type FormEvent } from 'react'
 
 import {
@@ -9,6 +9,9 @@ import {
   getAdminSession,
   getChannelCatalog,
   getChannelEvents,
+  getChannelAlerts,
+  getChannelErrorMetrics,
+  getChannelHealthTrend,
   getChannelInstances,
   getChannelOperationMetrics,
   getModelCapabilities,
@@ -20,6 +23,9 @@ import {
   testChannelConnection,
   updateChannelInstance,
   type ChannelDiagnosticEvent,
+  type ChannelAlert,
+  type ChannelErrorMetric,
+  type ChannelHealthSnapshot,
   type ChannelInstance,
   type ChannelOperationMetrics,
   type ChannelPlatform,
@@ -62,6 +68,14 @@ function modelInputs(profile: ModelCapabilityProfile) {
 function formatMetricTime(value: string | null) {
   return value ? new Date(value).toLocaleString('zh-CN') : '无'
 }
+
+const alertSeverityLabels = { warning: '警告', critical: '严重' } as const
+const healthSnapshotLabels = {
+  healthy: '健康',
+  degraded: '降级',
+  not_configured: '未配置',
+  disabled: '已停用',
+} as const
 
 export function ChannelsPage() {
   const selectedAgentId = useSelectedAgentId()
@@ -116,6 +130,18 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     queryKey: ['channel-operation-metrics', selectedAgentId, metricsWindow],
     queryFn: () => getChannelOperationMetrics(undefined, metricsWindow),
   })
+  const errorMetrics = useQuery({
+    queryKey: ['channel-error-metrics', selectedAgentId, metricsWindow],
+    queryFn: () => getChannelErrorMetrics(undefined, metricsWindow),
+  })
+  const healthTrend = useQuery({
+    queryKey: ['channel-health-trend', selectedAgentId, metricsWindow],
+    queryFn: () => getChannelHealthTrend(undefined, metricsWindow, 200),
+  })
+  const alerts = useQuery({
+    queryKey: ['channel-alerts', selectedAgentId, metricsWindow],
+    queryFn: () => getChannelAlerts(undefined, metricsWindow),
+  })
   const canWrite = session.data?.permissions.includes('channel:write') ?? false
   const canSend = session.data?.permissions.includes('channel:send') ?? false
   const canManageCredential = session.data?.permissions.includes('channel_credential:manage') ?? false
@@ -126,6 +152,9 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       invalidateAcrossTabs(queryClient, ['channel-instances', selectedAgentId]),
       invalidateAcrossTabs(queryClient, ['channel-events', selectedAgentId]),
       invalidateAcrossTabs(queryClient, ['channel-operation-metrics', selectedAgentId, metricsWindow]),
+      invalidateAcrossTabs(queryClient, ['channel-error-metrics', selectedAgentId, metricsWindow]),
+      invalidateAcrossTabs(queryClient, ['channel-health-trend', selectedAgentId, metricsWindow]),
+      invalidateAcrossTabs(queryClient, ['channel-alerts', selectedAgentId, metricsWindow]),
       ...(selectedTelegramChannelId
         ? [invalidateAcrossTabs(queryClient, ['telegram-webhook', selectedTelegramChannelId])]
         : []),
@@ -261,6 +290,37 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     { key: 'failure-rate', label: '失败率', render: (row) => `${row.outbound_failure_rate_percent.toFixed(2)}%` },
     { key: 'last-failure', label: '最近失败', render: (row) => formatMetricTime(row.last_failure_at) },
   ], [instanceNames])
+  const errorMetricColumns = useMemo<Array<AdminTableColumn<ChannelErrorMetric>>>(() => [
+    {
+      key: 'channel', label: '渠道实例',
+      render: (row) => <div className="table-primary"><strong>{instanceNames.get(row.channel_id) ?? '未知渠道'}</strong><code>{row.channel_id}</code></div>,
+    },
+    { key: 'error-code', label: '安全错误码', render: (row) => <code>{row.error_code}</code> },
+    { key: 'occurrences', label: '发生次数', render: (row) => row.occurrences.toLocaleString('zh-CN') },
+    { key: 'last-occurred', label: '最近发生', render: (row) => new Date(row.last_occurred_at).toLocaleString('zh-CN') },
+  ], [instanceNames])
+  const healthSnapshotColumns = useMemo<Array<AdminTableColumn<ChannelHealthSnapshot>>>(() => [
+    {
+      key: 'channel', label: '渠道实例',
+      render: (row) => <div className="table-primary"><strong>{instanceNames.get(row.channel_id) ?? '未知渠道'}</strong><code>{row.platform} · {row.channel_id}</code></div>,
+    },
+    { key: 'status', label: '健康状态', render: (row) => <span className={`entity-status task-${row.status}`}>{healthSnapshotLabels[row.status]}</span> },
+    { key: 'configured', label: '配置', render: (row) => row.configured ? '已配置' : '未配置' },
+    { key: 'pending', label: '待处理更新', render: (row) => row.pending_update_count.toLocaleString('zh-CN') },
+    { key: 'remote-error', label: '远端错误', render: (row) => row.remote_error_present ? '有记录' : '无记录' },
+    { key: 'sampled', label: '采样时间', render: (row) => new Date(row.sampled_at).toLocaleString('zh-CN') },
+  ], [instanceNames])
+  const alertColumns = useMemo<Array<AdminTableColumn<ChannelAlert>>>(() => [
+    {
+      key: 'alert', label: '告警',
+      render: (row) => <div className="table-primary"><strong>{row.title}</strong><code>{instanceNames.get(row.channel_id) ?? row.channel_id}</code><span className="audit-detail">{row.summary}</span></div>,
+    },
+    { key: 'severity', label: '级别', render: (row) => <span className={`entity-status task-${row.severity}`}>{alertSeverityLabels[row.severity]}</span> },
+    { key: 'code', label: '规则 / 错误码', render: (row) => <span><code>{row.code}</code>{row.error_code ? ` · ${row.error_code}` : ''}</span> },
+    { key: 'value', label: '当前 / 阈值', render: (row) => `${row.current_value.toFixed(2)} / ${row.threshold_value.toFixed(2)} ${row.unit}` },
+    { key: 'occurrences', label: '聚合次数', render: (row) => row.occurrences.toLocaleString('zh-CN') },
+    { key: 'cooldown', label: '冷却至', render: (row) => new Date(row.cooldown_until).toLocaleString('zh-CN') },
+  ], [instanceNames])
   const metricTotals = useMemo(() => {
     const totals = (operationMetrics.data?.items ?? []).reduce(
       (result, row) => ({
@@ -307,7 +367,7 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
         <span className="phase-tag">Telegram 入站已接通</span>
       </section>
 
-      {(catalog.isError || models.isError || instances.isError || events.isError || operationMetrics.isError) && <div className="notice error">渠道数据读取失败，请检查 API 与迁移状态。</div>}
+      {(catalog.isError || models.isError || instances.isError || events.isError || operationMetrics.isError || errorMetrics.isError || healthTrend.isError || alerts.isError) && <div className="notice error">渠道数据读取失败，请检查 API 与迁移状态。</div>}
       {(formError || operationError) && <div className="notice error">{formError || operationError?.message}</div>}
       <div className="notice info"><ShieldCheck size={17} /><div><strong>凭证只写入信封加密存储</strong><span>API、页面、诊断事件和审计记录只展示是否已配置；能力降级会明确列出，不会静默丢弃图片、文件、线程或流式语义。</span></div></div>
       <div className="notice info"><RadioTower size={17} /><div><strong>渠道严格归属当前智能体</strong><span>创建、凭证、连接测试、收发模拟和诊断事件均按全局选择隔离；当前标识：{selectedAgentId ?? '默认智能体'}。</span></div></div>
@@ -384,6 +444,21 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
           <div className="panel-heading task-panel-heading"><div><span>{operationMetrics.data ? `${new Date(operationMetrics.data.window_started_at).toLocaleString('zh-CN')} 至 ${new Date(operationMetrics.data.window_ended_at).toLocaleString('zh-CN')}` : '等待查询'}</span><h2>按渠道明细</h2></div><small>{operationMetrics.data?.items.length ?? 0} 个渠道</small></div>
           <AdminDataTable rows={operationMetrics.data?.items ?? []} columns={operationMetricColumns} rowKey={(row) => row.channel_id} searchableText={(row) => `${instanceNames.get(row.channel_id) ?? ''} ${row.channel_id}`} searchPlaceholder="搜索渠道实例" emptyMessage={operationMetrics.isLoading ? '正在读取运营指标…' : '当前窗口暂无渠道指标'} />
         </div>
+      </section>
+
+      <section className="panel table-panel" aria-label="渠道告警">
+        <div className="panel-heading task-panel-heading"><div><span>策略聚合 · 不含远端错误正文</span><h2><BellRing size={18} />活动告警</h2></div><small>{alerts.data?.items.length ?? 0} 条</small></div>
+        <AdminDataTable rows={alerts.data?.items ?? []} columns={alertColumns} rowKey={(row) => `${row.channel_id}:${row.code}:${row.error_code ?? ''}`} searchableText={(row) => `${row.title} ${row.code} ${row.error_code ?? ''} ${row.severity}`} searchPlaceholder="搜索告警规则、错误码或级别" emptyMessage={alerts.isLoading ? '正在读取告警…' : '当前窗口没有活动告警'} />
+      </section>
+
+      <section className="panel table-panel" aria-label="渠道错误指标">
+        <div className="panel-heading task-panel-heading"><div><span>错误码聚合 · 时间窗包含边界</span><h2><TriangleAlert size={18} />错误码指标</h2></div><small>{errorMetrics.data?.items.length ?? 0} 个错误码</small></div>
+        <AdminDataTable rows={errorMetrics.data?.items ?? []} columns={errorMetricColumns} rowKey={(row) => `${row.channel_id}:${row.error_code}`} searchableText={(row) => `${instanceNames.get(row.channel_id) ?? ''} ${row.channel_id} ${row.error_code}`} searchPlaceholder="搜索渠道或安全错误码" emptyMessage={errorMetrics.isLoading ? '正在读取错误指标…' : '当前窗口暂无错误码指标'} />
+      </section>
+
+      <section className="panel table-panel" aria-label="渠道健康趋势">
+        <div className="panel-heading task-panel-heading"><div><span>安全快照 · 不含 URL、凭证或错误原文</span><h2><HeartPulse size={18} />健康趋势</h2></div><small>{healthTrend.data?.items.length ?? 0} 条快照</small></div>
+        <AdminDataTable rows={healthTrend.data?.items ?? []} columns={healthSnapshotColumns} rowKey={(row) => row.id} searchableText={(row) => `${instanceNames.get(row.channel_id) ?? ''} ${row.channel_id} ${row.platform} ${row.status}`} searchPlaceholder="搜索渠道、平台或健康状态" emptyMessage={healthTrend.isLoading ? '正在读取健康快照…' : '当前窗口暂无健康快照'} />
       </section>
 
       <section className="channel-lab-grid">

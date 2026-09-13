@@ -66,6 +66,24 @@ class BackgroundJobDetailResponse(BaseModel):
     attempts: tuple[JobAttemptResponse, ...]
 
 
+class BackgroundJobReplayChainItem(BaseModel):
+    """重放来源链中的安全任务摘要。"""
+
+    id: UUID
+    status: BackgroundJobStatus
+    kind: BackgroundJobKind
+    created_at: datetime
+    completed_at: datetime | None
+    last_error_code: str | None
+    replayed_from_id: UUID | None
+
+
+class BackgroundJobReplayChainResponse(BaseModel):
+    """从最早来源到当前任务的重放链。"""
+
+    items: tuple[BackgroundJobReplayChainItem, ...]
+
+
 class BackgroundJobListResponse(BaseModel):
     """任务列表。"""
 

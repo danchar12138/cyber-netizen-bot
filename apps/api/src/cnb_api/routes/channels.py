@@ -8,17 +8,28 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from cnb_adapters import ChannelAdapterError, ChannelCapabilityError, ChannelNotConfiguredError
-from cnb_api.dependencies import get_channel_service, get_request_identity, require_permission
+from cnb_api.dependencies import (
+    get_channel_service,
+    get_configuration_service,
+    get_request_identity,
+    require_permission,
+)
 from cnb_application import (
+    ChannelAlert,
     ChannelConflictError,
+    ChannelErrorMetrics,
+    ChannelHealthSnapshot,
     ChannelInstanceView,
     ChannelNotFoundError,
     ChannelOperationMetrics,
     ChannelService,
     ChannelValidationError,
+    ConfigurationService,
     TelegramWebhookStatus,
 )
 from cnb_contracts import (
+    ChannelAlertListResponse,
+    ChannelAlertResponse,
     ChannelCapabilitiesResponse,
     ChannelCatalogListResponse,
     ChannelCatalogResponse,
@@ -28,6 +39,10 @@ from cnb_contracts import (
     ChannelDeliveryResponse,
     ChannelDiagnosticEventListResponse,
     ChannelDiagnosticEventResponse,
+    ChannelErrorMetricListResponse,
+    ChannelErrorMetricResponse,
+    ChannelHealthSnapshotResponse,
+    ChannelHealthTrendResponse,
     ChannelInboundResponse,
     ChannelInboundSimulationCommand,
     ChannelInstanceCreate,
@@ -142,6 +157,32 @@ def _operation_metrics_response(value: ChannelOperationMetrics) -> ChannelOperat
     )
 
 
+def _error_metric_response(value: ChannelErrorMetrics) -> ChannelErrorMetricResponse:
+    return ChannelErrorMetricResponse(
+        channel_id=value.channel_id,
+        error_code=value.error_code,
+        occurrences=value.occurrences,
+        last_occurred_at=value.last_occurred_at,
+    )
+
+
+def _health_snapshot_response(value: ChannelHealthSnapshot) -> ChannelHealthSnapshotResponse:
+    return ChannelHealthSnapshotResponse(
+        id=value.id,
+        channel_id=value.channel_id,
+        platform=value.platform,
+        status=value.status,
+        configured=value.configured,
+        pending_update_count=value.pending_update_count,
+        remote_error_present=value.remote_error_present,
+        sampled_at=value.sampled_at,
+    )
+
+
+def _alert_response(value: ChannelAlert) -> ChannelAlertResponse:
+    return ChannelAlertResponse.model_validate(value, from_attributes=True)
+
+
 @router.get(
     "/catalog",
     response_model=ChannelCatalogListResponse,
@@ -231,12 +272,14 @@ async def operation_metrics(
     channel_id: Annotated[UUID | None, Query()] = None,
     window_minutes: Annotated[int, Query(ge=5, le=1_440)] = 60,
 ) -> ChannelOperationMetricsListResponse:
+    ended_at = datetime.now(UTC)
     try:
         metrics = await service.operation_metrics(
             tenant_id=principal.tenant_id,
             agent_id=identity.agent_id,
             channel_id=channel_id,
             window_minutes=window_minutes,
+            now=ended_at,
         )
     except ChannelNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
@@ -248,12 +291,119 @@ async def operation_metrics(
         window_started_at = metrics[0].window_started_at
         window_ended_at = metrics[0].window_ended_at
     else:
-        window_ended_at = datetime.now(UTC)
-        window_started_at = window_ended_at - timedelta(minutes=window_minutes)
+        window_ended_at = ended_at
+        window_started_at = ended_at - timedelta(minutes=window_minutes)
     return ChannelOperationMetricsListResponse(
         window_started_at=window_started_at,
         window_ended_at=window_ended_at,
         items=tuple(_operation_metrics_response(item) for item in metrics),
+    )
+
+
+@router.get(
+    "/operations/errors",
+    response_model=ChannelErrorMetricListResponse,
+    dependencies=[Depends(require_permission(AdminPermission.CHANNEL_READ))],
+)
+async def error_metrics(
+    principal: Annotated[AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_READ))],
+    service: Annotated[ChannelService, Depends(get_channel_service)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    channel_id: Annotated[UUID | None, Query()] = None,
+    window_minutes: Annotated[int, Query(ge=5, le=1_440)] = 60,
+) -> ChannelErrorMetricListResponse:
+    ended_at = datetime.now(UTC)
+    try:
+        metrics = await service.error_metrics(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            channel_id=channel_id,
+            window_minutes=window_minutes,
+            now=ended_at,
+        )
+    except ChannelNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except ChannelValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return ChannelErrorMetricListResponse(
+        window_started_at=ended_at - timedelta(minutes=window_minutes),
+        window_ended_at=ended_at,
+        items=tuple(_error_metric_response(item) for item in metrics),
+    )
+
+
+@router.get(
+    "/health/trend",
+    response_model=ChannelHealthTrendResponse,
+    dependencies=[Depends(require_permission(AdminPermission.CHANNEL_READ))],
+)
+async def health_trend(
+    principal: Annotated[AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_READ))],
+    service: Annotated[ChannelService, Depends(get_channel_service)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    channel_id: Annotated[UUID | None, Query()] = None,
+    window_minutes: Annotated[int, Query(ge=5, le=10_080)] = 1_440,
+    limit: Annotated[int, Query(ge=1, le=2_000)] = 500,
+) -> ChannelHealthTrendResponse:
+    ended_at = datetime.now(UTC)
+    try:
+        snapshots = await service.health_trend(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            channel_id=channel_id,
+            window_minutes=window_minutes,
+            limit=limit,
+            now=ended_at,
+        )
+    except ChannelNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except ChannelValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return ChannelHealthTrendResponse(
+        window_started_at=ended_at - timedelta(minutes=window_minutes),
+        window_ended_at=ended_at,
+        items=tuple(_health_snapshot_response(item) for item in snapshots),
+    )
+
+
+@router.get(
+    "/operations/alerts",
+    response_model=ChannelAlertListResponse,
+    dependencies=[Depends(require_permission(AdminPermission.CHANNEL_READ))],
+)
+async def channel_alerts(
+    principal: Annotated[AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_READ))],
+    service: Annotated[ChannelService, Depends(get_channel_service)],
+    configuration: Annotated[ConfigurationService, Depends(get_configuration_service)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    channel_id: Annotated[UUID | None, Query()] = None,
+    window_minutes: Annotated[int, Query(ge=5, le=1_440)] = 60,
+) -> ChannelAlertListResponse:
+    effective = await configuration.resolve_effective(tenant_id=principal.tenant_id)
+    ended_at = datetime.now(UTC)
+    try:
+        alerts = await service.alerts(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            channel_id=channel_id,
+            values=effective.values,
+            window_minutes=window_minutes,
+            now=ended_at,
+        )
+    except ChannelNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except (ChannelValidationError, ValueError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return ChannelAlertListResponse(
+        window_started_at=ended_at - timedelta(minutes=window_minutes),
+        window_ended_at=ended_at,
+        items=tuple(_alert_response(item) for item in alerts),
     )
 
 

@@ -7,6 +7,7 @@ from uuid import UUID
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -2228,6 +2229,7 @@ class ChannelDiagnosticEventModel(Base):
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
+
     channel_id: Mapped[UUID] = mapped_column(
         ForeignKey("channel_instances.id", ondelete="CASCADE"), nullable=False
     )
@@ -2267,6 +2269,39 @@ class ChannelDiagnosticEventModel(Base):
             "channel_id",
             "occurred_at",
         ),
+    )
+
+
+class ChannelHealthSnapshotModel(Base):
+    """渠道健康趋势的安全采样，不保存 URL、凭证或远端错误正文。"""
+
+    __tablename__ = "channel_health_snapshots"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    channel_id: Mapped[UUID] = mapped_column(
+        ForeignKey("channel_instances.id", ondelete="CASCADE"), nullable=False
+    )
+    platform: Mapped[str] = mapped_column(String(24), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    configured: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    pending_update_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    remote_error_present: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    sampled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('healthy', 'degraded', 'not_configured', 'disabled')",
+            name="ck_channel_health_snapshots_status",
+        ),
+        CheckConstraint("pending_update_count >= 0", name="ck_channel_health_snapshots_pending"),
+        Index("ix_channel_health_snapshots_tenant_time", "tenant_id", "sampled_at"),
+        Index("ix_channel_health_snapshots_channel_time", "channel_id", "sampled_at"),
     )
 
 

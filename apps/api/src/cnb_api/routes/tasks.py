@@ -25,6 +25,8 @@ from cnb_application import (
 from cnb_contracts import (
     BackgroundJobDetailResponse,
     BackgroundJobListResponse,
+    BackgroundJobReplayChainItem,
+    BackgroundJobReplayChainResponse,
     BackgroundJobResponse,
     JobAttemptResponse,
     ScheduledActionCreate,
@@ -205,6 +207,36 @@ async def get_job(
     return BackgroundJobDetailResponse(
         job=_job_response(item),
         attempts=tuple(_attempt_response(attempt) for attempt in attempts),
+    )
+
+
+@router.get(
+    "/jobs/{job_id}/replay-chain",
+    response_model=BackgroundJobReplayChainResponse,
+)
+async def replay_chain(
+    job_id: UUID,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[BackgroundTaskService, Depends(get_task_service)],
+) -> BackgroundJobReplayChainResponse:
+    """返回重放任务的来源链，不返回任务载荷或出站消息正文。"""
+    try:
+        chain = await service.replay_chain(tenant_id=principal.tenant_id, job_id=job_id)
+    except TaskNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    return BackgroundJobReplayChainResponse(
+        items=tuple(
+            BackgroundJobReplayChainItem(
+                id=item.id,
+                status=item.status,
+                kind=item.kind,
+                created_at=item.created_at,
+                completed_at=item.completed_at,
+                last_error_code=item.last_error_code,
+                replayed_from_id=item.replayed_from_id,
+            )
+            for item in chain
+        )
     )
 
 

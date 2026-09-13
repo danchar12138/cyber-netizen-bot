@@ -380,6 +380,28 @@ class BackgroundTaskService:
             raise TaskNotFoundError(f"任务不存在：{job_id}")
         return item
 
+    async def replay_chain(
+        self, *, tenant_id: UUID, job_id: UUID, max_depth: int = 20
+    ) -> tuple[BackgroundJob, ...]:
+        """返回从最早来源到当前任务的安全重放链，遇到循环或深度上限即截断。"""
+        if not 1 <= max_depth <= 20:
+            raise TaskValidationError("重放来源链深度必须位于 1 到 20 之间")
+        current = await self.get_job(tenant_id=tenant_id, job_id=job_id)
+        chain = [current]
+        seen = {current.id}
+        while len(chain) < max_depth and current.replayed_from_id is not None:
+            source_id = current.replayed_from_id
+            if source_id in seen:
+                break
+            source = await self._repository.get_job(tenant_id=tenant_id, job_id=source_id)
+            if source is None:
+                break
+            chain.append(source)
+            seen.add(source.id)
+            current = source
+        chain.reverse()
+        return tuple(chain)
+
     async def get_inbox_by_id(self, *, tenant_id: UUID, inbox_id: UUID) -> InboxEvent:
         item = await self._repository.get_inbox_event(
             tenant_id=tenant_id,

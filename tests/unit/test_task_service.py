@@ -1,6 +1,7 @@
 """可靠异步任务、反思与主动行为策略测试。"""
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -214,6 +215,116 @@ async def test_failure_enters_dead_letter_and_replay_preserves_original() -> Non
     assert replayed.replayed_from_id == failed.id
     assert replayed.status is BackgroundJobStatus.PENDING
     assert repository.jobs[failed.id].status is BackgroundJobStatus.DEAD_LETTER
+
+
+async def test_replay_chain_returns_oldest_source_first() -> None:
+    repository = InMemoryTaskRepository()
+    service = BackgroundTaskService(repository)
+    tenant_id = uuid4()
+    actor_id = uuid4()
+    original = await service.enqueue(
+        tenant_id=tenant_id,
+        kind=BackgroundJobKind.MEMORY_EXTRACTION,
+        payload={"source_id": "safe-source"},
+        deduplication_key="replay-chain:original",
+        created_by=actor_id,
+    )
+    repository.jobs[original.job.id] = replace(original.job, status=BackgroundJobStatus.DEAD_LETTER)
+    first_replay = await service.replay(
+        tenant_id=tenant_id,
+        job_id=original.job.id,
+        actor_id=actor_id,
+        confirmed=True,
+        reason="第一次重放",
+    )
+    repository.jobs[first_replay.id] = replace(first_replay, status=BackgroundJobStatus.DEAD_LETTER)
+    second_replay = await service.replay(
+        tenant_id=tenant_id,
+        job_id=first_replay.id,
+        actor_id=actor_id,
+        confirmed=True,
+        reason="第二次重放",
+    )
+
+    chain = await service.replay_chain(tenant_id=tenant_id, job_id=second_replay.id)
+
+    assert [item.id for item in chain] == [original.job.id, first_replay.id, second_replay.id]
+
+
+async def test_replay_chain_does_not_follow_cross_tenant_source() -> None:
+    repository = InMemoryTaskRepository()
+    service = BackgroundTaskService(repository)
+    source_tenant, current_tenant = uuid4(), uuid4()
+    source = await service.enqueue(
+        tenant_id=source_tenant,
+        kind=BackgroundJobKind.REFLECTION,
+        payload={},
+        deduplication_key="replay-chain:foreign-source",
+        created_by=None,
+    )
+    current = await service.enqueue(
+        tenant_id=current_tenant,
+        kind=BackgroundJobKind.REFLECTION,
+        payload={},
+        deduplication_key="replay-chain:current",
+        created_by=None,
+    )
+    repository.jobs[current.job.id] = replace(current.job, replayed_from_id=source.job.id)
+
+    chain = await service.replay_chain(tenant_id=current_tenant, job_id=current.job.id)
+
+    assert [item.id for item in chain] == [current.job.id]
+
+
+async def test_replay_chain_stops_on_cycles() -> None:
+    repository = InMemoryTaskRepository()
+    service = BackgroundTaskService(repository)
+    tenant_id = uuid4()
+    first = await service.enqueue(
+        tenant_id=tenant_id,
+        kind=BackgroundJobKind.REFLECTION,
+        payload={},
+        deduplication_key="replay-chain:cycle-a",
+        created_by=None,
+    )
+    second = await service.enqueue(
+        tenant_id=tenant_id,
+        kind=BackgroundJobKind.REFLECTION,
+        payload={},
+        deduplication_key="replay-chain:cycle-b",
+        created_by=None,
+    )
+    repository.jobs[first.job.id] = replace(first.job, replayed_from_id=second.job.id)
+    repository.jobs[second.job.id] = replace(second.job, replayed_from_id=first.job.id)
+
+    chain = await service.replay_chain(tenant_id=tenant_id, job_id=first.job.id)
+
+    assert [item.id for item in chain] == [second.job.id, first.job.id]
+
+
+async def test_replay_chain_is_limited_to_twenty_levels() -> None:
+    repository = InMemoryTaskRepository()
+    service = BackgroundTaskService(repository)
+    tenant_id = uuid4()
+    jobs: list[BackgroundJob] = []
+    previous_id = None
+    for index in range(21):
+        result = await service.enqueue(
+            tenant_id=tenant_id,
+            kind=BackgroundJobKind.REFLECTION,
+            payload={},
+            deduplication_key=f"replay-chain:depth:{index}",
+            created_by=None,
+        )
+        job = replace(result.job, replayed_from_id=previous_id)
+        repository.jobs[job.id] = job
+        jobs.append(job)
+        previous_id = job.id
+
+    chain = await service.replay_chain(tenant_id=tenant_id, job_id=jobs[-1].id)
+
+    assert len(chain) == 20
+    assert [item.id for item in chain] == [item.id for item in jobs[1:]]
 
 
 async def test_expired_worker_lease_is_recovered_without_concurrent_claim() -> None:

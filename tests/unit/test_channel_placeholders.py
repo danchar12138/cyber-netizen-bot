@@ -1,7 +1,7 @@
 """多模态能力协商和渠道控制平面测试。"""
 
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import httpx
@@ -24,14 +24,18 @@ from cnb_adapters import (
 )
 from cnb_application import ChannelNotFoundError, ChannelService, ChannelValidationError
 from cnb_domain import (
+    AlertSeverity,
     ChannelDiagnosticEvent,
     ChannelEventDirection,
     ChannelEventStatus,
+    ChannelHealthSnapshot,
+    ChannelHealthStatus,
     ChannelInstanceStatus,
     ChannelPlatform,
     ConfigScope,
     ContentBlockKind,
     ExternalConversationKind,
+    JsonValue,
     MultimodalContentBlock,
 )
 from cnb_infrastructure import MemoryChannelRepository, MemorySecretStore
@@ -1096,3 +1100,139 @@ async def test_channel_operation_metrics_are_windowed_and_agent_isolated() -> No
             window_minutes=4,
             now=ended_at,
         )
+
+
+async def test_channel_error_metrics_include_window_boundaries_and_isolate_agents() -> None:
+    tenant_id = uuid4()
+    agent_id, other_agent_id = uuid4(), uuid4()
+    repository = MemoryChannelRepository()
+    service = ChannelService(repository, build_default_channel_registry(), MemorySecretStore())
+    current = await service.create(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        name="错误指标 Web",
+        platform=ChannelPlatform.WEB,
+        status=ChannelInstanceStatus.ENABLED,
+        rate_limit_per_minute=60,
+        settings={},
+        credential=None,
+        actor_id=uuid4(),
+    )
+    other = await service.create(
+        tenant_id=tenant_id,
+        agent_id=other_agent_id,
+        name="错误指标 Web",
+        platform=ChannelPlatform.WEB,
+        status=ChannelInstanceStatus.ENABLED,
+        rate_limit_per_minute=60,
+        settings={},
+        credential=None,
+        actor_id=uuid4(),
+    )
+    ended_at = datetime(2026, 9, 13, 12, 0, tzinfo=UTC)
+    started_at = ended_at - timedelta(hours=1)
+    for channel_id, key, occurred_at in (
+        (current.instance.id, "telegram_http_429", started_at),
+        (current.instance.id, "telegram_http_429", ended_at),
+        (current.instance.id, "telegram_http_500", ended_at),
+        (other.instance.id, "telegram_http_429", ended_at),
+    ):
+        await repository.record_event(
+            ChannelDiagnosticEvent(
+                id=uuid4(),
+                tenant_id=tenant_id,
+                channel_id=channel_id,
+                direction=ChannelEventDirection.OUTBOUND,
+                event_type="error-metric.test",
+                status=ChannelEventStatus.FAILED,
+                external_event_id=None,
+                idempotency_key=key + str(uuid4()),
+                external_message_id=None,
+                payload_summary={},
+                error_code=key,
+                degradations=(),
+                occurred_at=occurred_at,
+            )
+        )
+
+    metrics = await service.error_metrics(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        channel_id=None,
+        window_minutes=60,
+        now=ended_at,
+    )
+    assert [(item.error_code, item.occurrences) for item in metrics] == [
+        ("telegram_http_500", 1),
+        ("telegram_http_429", 2),
+    ]
+    assert all(item.channel_id == current.instance.id for item in metrics)
+
+
+async def test_channel_alerts_apply_error_code_severity_and_degraded_thresholds() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    repository = MemoryChannelRepository()
+    service = ChannelService(repository, build_default_channel_registry(), MemorySecretStore())
+    channel = await service.create(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        name="告警 Web",
+        platform=ChannelPlatform.WEB,
+        status=ChannelInstanceStatus.ENABLED,
+        rate_limit_per_minute=60,
+        settings={},
+        credential=None,
+        actor_id=uuid4(),
+    )
+    ended_at = datetime(2026, 9, 13, 12, 0, tzinfo=UTC)
+    for index in range(3):
+        await repository.record_health_snapshot(
+            ChannelHealthSnapshot(
+                id=uuid4(),
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                channel_id=channel.instance.id,
+                platform=ChannelPlatform.WEB,
+                status=ChannelHealthStatus.DEGRADED,
+                configured=True,
+                pending_update_count=0,
+                remote_error_present=True,
+                sampled_at=ended_at - timedelta(minutes=10 * (2 - index)),
+            )
+        )
+    await repository.record_event(
+        ChannelDiagnosticEvent(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            channel_id=channel.instance.id,
+            direction=ChannelEventDirection.OUTBOUND,
+            event_type="alert.test",
+            status=ChannelEventStatus.FAILED,
+            external_event_id=None,
+            idempotency_key="alert-error",
+            external_message_id=None,
+            payload_summary={},
+            error_code="telegram_http_429",
+            degradations=(),
+            occurred_at=ended_at,
+        )
+    )
+    values: dict[str, JsonValue] = {
+        "alerts.channel.enabled": True,
+        "alerts.channel.enabled_error_codes": ["telegram_http_429"],
+        "alerts.channel.minimum_severity": "warning",
+        "alerts.channel.cooldown_minutes": 30,
+        "alerts.channel.failure_rate_percent": 1,
+        "alerts.channel.health_degraded_minutes": 15,
+    }
+    alerts = await service.alerts(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        channel_id=None,
+        values=values,
+        window_minutes=60,
+        now=ended_at,
+    )
+    assert {item.code for item in alerts} == {"channel_error_rate", "channel_health_degraded"}
+    assert all(item.severity in {AlertSeverity.WARNING, AlertSeverity.CRITICAL} for item in alerts)
+    assert all(item.channel_id == channel.instance.id for item in alerts)
