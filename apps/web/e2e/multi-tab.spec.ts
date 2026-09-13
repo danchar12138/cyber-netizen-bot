@@ -5,7 +5,7 @@ const userId = '22222222-2222-4222-8222-222222222222'
 const agentId = '33333333-3333-4333-8333-333333333333'
 const timestamp = '2026-09-09T08:00:00Z'
 
-test('一个标签页修改 Agent 后其他标签页自动刷新', async ({ context }) => {
+test('一个标签页修改智能体后其他标签页自动刷新', async ({ context }) => {
   let agentStatus: 'active' | 'disabled' = 'active'
   await context.route('**/api/v1/administration/session', async (route) => {
     await route.fulfill({

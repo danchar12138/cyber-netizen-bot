@@ -43,8 +43,8 @@ test('可以预览并发布配置差异以及安全写入密钥', async ({ page 
           {
             key: 'model.chat.provider',
             section: 'model',
-            label: '对话模型 Provider',
-            description: '对话运行使用的模型 Provider。',
+            label: '对话模型服务',
+            description: '对话运行使用的模型服务。',
             value_kind: 'string',
             default: 'development',
             scopes: ['system', 'tenant', 'agent', 'channel'],
@@ -224,7 +224,7 @@ test('可以预览并发布配置差异以及安全写入密钥', async ({ page 
   await page.goto('/configuration')
   await expect(page.getByText('文本', { exact: true })).toBeVisible()
   await page.locator('.definition-row')
-    .filter({ hasText: '对话模型 Provider' })
+    .filter({ hasText: '对话模型服务' })
     .locator('select')
     .selectOption('openai')
   await page.getByPlaceholder('本次修改说明（可选）').fill('切换正式模型')

@@ -42,10 +42,10 @@ const primaryNavigation: NavigationItem[] = [
   { label: '运行总览', path: '/', icon: CircleGauge },
   { label: '内部对话', path: '/chat', icon: MessageCircleMore },
   { label: '会话与消息', path: '/conversations', icon: MessagesSquare },
-  { label: 'Agent 管理', path: '/agents', icon: Bot },
+  { label: '智能体管理', path: '/agents', icon: Bot },
   { label: '人格版本', path: '/personas', icon: Sparkles },
   { label: '模型与路由', path: '/models', icon: BrainCircuit },
-  { label: 'Prompt 与上下文', path: '/prompts', icon: SlidersHorizontal },
+  { label: '提示词与上下文', path: '/prompts', icon: SlidersHorizontal },
   { label: '记忆与关系', path: '/memories', icon: MemoryStick },
 ]
 
@@ -54,7 +54,7 @@ const operationsNavigation: NavigationItem[] = [
   { label: '访问控制', path: '/access', icon: LockKeyhole },
   { label: '工具与策略', path: '/tools', icon: Wrench },
   { label: '渠道与适配器', path: '/channels', icon: Cable },
-  { label: '外部身份与 Inbox', path: '/integrations', icon: Fingerprint },
+  { label: '外部身份与入站箱', path: '/integrations', icon: Fingerprint },
   { label: '任务与主动行为', path: '/tasks', icon: ListChecks },
   { label: '评测实验室', path: '/evaluations', icon: FlaskConical },
   { label: '可观测性', path: '/observability', icon: Activity },
@@ -170,14 +170,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
           <div className="topbar-actions">
             <label className="agent-switcher">
               <Bot size={14} />
-              <span>当前 Agent</span>
+              <span>当前智能体</span>
               <select
-                aria-label="当前 Agent"
+                aria-label="当前智能体"
                 value={selectedAgentId ?? ''}
                 disabled={agents.isLoading || activeAgents.length === 0}
                 onChange={(event) => changeAgent(event.target.value)}
               >
-                {activeAgents.length === 0 && <option value="">暂无启用 Agent</option>}
+                {activeAgents.length === 0 && <option value="">暂无启用智能体</option>}
                 {activeAgents.map((agent) => (
                   <option key={agent.id} value={agent.id}>{agent.name}</option>
                 ))}

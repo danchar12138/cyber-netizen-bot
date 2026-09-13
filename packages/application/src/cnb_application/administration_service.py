@@ -279,7 +279,7 @@ class AdministrationService:
     async def get_agent(self, *, tenant_id: UUID, agent_id: UUID) -> ManagedAgent:
         agent = await self._repository.get_agent(tenant_id=tenant_id, agent_id=agent_id)
         if agent is None:
-            raise AdministrationNotFoundError("Agent 不存在")
+            raise AdministrationNotFoundError("智能体不存在")
         return agent
 
     async def create_agent(
@@ -347,13 +347,13 @@ class AdministrationService:
             AgentLifecycleStatus.DISABLED,
         }
         if not can_archive:
-            blockers.append("只有已启用或已停用的 Agent 可以归档")
+            blockers.append("只有已启用或已停用的智能体可以归档")
         if can_archive and active_replacement_count < 1:
             can_archive = False
-            blockers.append("归档前必须保留至少一个其他已启用 Agent")
+            blockers.append("归档前必须保留至少一个其他已启用智能体")
         can_delete = agent.status is AgentLifecycleStatus.ARCHIVED
         if not can_delete:
-            blockers.append("只有已归档的 Agent 可以进入软删除保留期")
+            blockers.append("只有已归档的智能体可以进入软删除保留期")
         return AgentLifecycleImpact(
             agent=agent,
             counts=counts,

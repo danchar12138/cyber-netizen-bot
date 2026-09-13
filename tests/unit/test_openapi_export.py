@@ -1,6 +1,7 @@
 """OpenAPI 契约导出的确定性与生成前置条件测试。"""
 
 import json
+import re
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -62,3 +63,29 @@ def test_production_openapi_operation_ids_are_unique_and_path_stable() -> None:
         ]["schema"]["$ref"]
         == "#/components/schemas/ApiErrorResponse"
     )
+
+
+def test_production_openapi_uses_chinese_product_copy() -> None:
+    from cnb_api.main import app
+
+    document = app.openapi()
+    operations = [
+        operation
+        for path_item in document["paths"].values()
+        for method, operation in path_item.items()
+        if method in {"get", "post", "put", "patch", "delete"}
+    ]
+    tag_names = {item["name"] for item in document["tags"]}
+    operation_tags = {tag for operation in operations for tag in operation["tags"]}
+
+    assert document["info"]["title"] == "赛博网友机器人 API"
+    assert len(operations) == 133
+    assert all(re.search(r"[\u3400-\u9fff]", operation["summary"]) for operation in operations)
+    assert all(
+        response["description"] != "Successful Response"
+        for operation in operations
+        for response in operation["responses"].values()
+    )
+    assert operation_tags <= tag_names
+    assert "渠道与适配器" in operation_tags
+    assert "内部对话" in operation_tags

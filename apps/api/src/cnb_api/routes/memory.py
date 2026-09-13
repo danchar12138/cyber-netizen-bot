@@ -83,7 +83,7 @@ async def list_memories(
     query: str | None = Query(default=None, max_length=8000),
     limit: int = Query(default=100, ge=1, le=200),
 ) -> MemoryListResponse:
-    """按当前租户和 Agent 搜索长期记忆。"""
+    """按当前租户和智能体搜索长期记忆。"""
     items = await service.list_memories(
         tenant_id=principal.tenant_id,
         agent_id=_agent_id(request),
@@ -345,7 +345,7 @@ async def list_episodes(
     user_id: UUID | None = None,
     limit: int = Query(default=100, ge=1, le=200),
 ) -> EpisodeListResponse:
-    """列出当前 Agent 的 Episode。"""
+    """列出当前智能体的情景记录。"""
     items = await service.list_episodes(
         tenant_id=principal.tenant_id,
         agent_id=_agent_id(request),
@@ -423,7 +423,7 @@ async def get_relationship(
     service: Annotated[MemoryService, Depends(get_memory_service)],
     user_id: UUID,
 ) -> RelationshipDetailResponse:
-    """查看当前 Agent 与指定用户的关系快照和事件。"""
+    """查看当前智能体与指定用户的关系快照和事件。"""
     detail = await service.get_relationship(
         tenant_id=principal.tenant_id,
         agent_id=_agent_id(request),
@@ -504,7 +504,7 @@ async def rebuild_index(
     tasks: Annotated[BackgroundTaskService, Depends(get_task_service)],
     configuration: Annotated[ConfigurationService, Depends(get_configuration_service)],
 ) -> MemoryIndexJobResponse:
-    """建立索引进度和 Outbox 任务，由 Dramatiq Worker 异步执行。"""
+    """建立索引进度和事务发件箱任务，由 Dramatiq 任务进程异步执行。"""
     if not command.confirmed:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

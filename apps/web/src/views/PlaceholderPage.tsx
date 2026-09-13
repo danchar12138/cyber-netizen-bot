@@ -1,9 +1,9 @@
 import { Construction, MoveRight } from 'lucide-react'
 
 const names: Record<string, string> = {
-  agents: 'Agent 与人格',
+  agents: '智能体与人格',
   models: '模型与路由',
-  prompts: 'Prompt 与上下文',
+  prompts: '提示词与上下文',
   memories: '记忆与关系',
   users: '用户与身份',
   tools: '工具与策略',

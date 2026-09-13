@@ -13,14 +13,14 @@ class ChannelAdapterRegistry:
         self._adapters: dict[ChannelPlatform, ChannelAdapter] = {}
         for adapter in adapters:
             if adapter.platform in self._adapters:
-                raise ValueError(f"重复注册渠道 Adapter：{adapter.platform.value}")
+                raise ValueError(f"重复注册渠道适配器：{adapter.platform.value}")
             self._adapters[adapter.platform] = adapter
 
     def get(self, platform: ChannelPlatform) -> ChannelAdapter:
         try:
             return self._adapters[platform]
         except KeyError as error:
-            raise LookupError(f"渠道 Adapter 不存在：{platform.value}") from error
+            raise LookupError(f"渠道适配器不存在：{platform.value}") from error
 
     def all(self) -> tuple[ChannelAdapter, ...]:
         return tuple(

@@ -111,7 +111,7 @@ def _event_response(value: ChannelDiagnosticEvent) -> ChannelDiagnosticEventResp
 async def list_catalog(
     service: Annotated[ChannelService, Depends(get_channel_service)],
 ) -> ChannelCatalogListResponse:
-    """列出正式 Web/Telegram Adapter 与其余 IM 占位能力。"""
+    """列出正式 Web/Telegram 适配器与其余即时通讯占位能力。"""
     return ChannelCatalogListResponse(
         items=tuple(
             ChannelCatalogResponse(
@@ -132,7 +132,7 @@ async def list_catalog(
     dependencies=[Depends(require_permission(AdminPermission.CHANNEL_READ))],
 )
 async def model_capabilities() -> ModelCapabilityMatrixResponse:
-    """返回当前内置模型 Provider 的稳定能力矩阵。"""
+    """返回当前内置模型服务的稳定能力矩阵。"""
     return ModelCapabilityMatrixResponse(
         items=(
             ModelCapabilityResponse(

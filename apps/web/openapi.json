@@ -10039,15 +10039,16 @@
     }
   },
   "info": {
+    "description": "面向管理后台、内部对话和渠道集成的版本化应用接口。",
     "summary": "赛博网友管理与消息网关",
-    "title": "Cyber Netizen Bot API",
+    "title": "赛博网友机器人 API",
     "version": "0.1.0"
   },
   "openapi": "3.1.0",
   "paths": {
     "/api/v1/administration/agents": {
       "get": {
-        "description": "按租户、状态与搜索词返回 Agent 键集分页列表。",
+        "description": "按租户、状态与搜索词返回智能体键集分页列表。",
         "operationId": "get_api_v1_administration_agents",
         "parameters": [
           {
@@ -10121,7 +10122,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -10214,13 +10215,13 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Agents",
+        "summary": "按租户、状态与搜索词返回智能体键集分页列表",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       },
       "post": {
-        "description": "创建一个启用状态且可独立配置认知资源的 Agent。",
+        "description": "创建一个启用状态且可独立配置认知资源的智能体。",
         "operationId": "post_api_v1_administration_agents",
         "requestBody": {
           "content": {
@@ -10241,7 +10242,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -10334,15 +10335,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Create Agent",
+        "summary": "创建一个启用状态且可独立配置认知资源的智能体",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
     "/api/v1/administration/agents/status": {
       "post": {
-        "description": "经明确确认后批量启停当前租户的 Agent。",
+        "description": "经明确确认后批量启停当前租户的智能体。",
         "operationId": "post_api_v1_administration_agents_status",
         "requestBody": {
           "content": {
@@ -10363,7 +10364,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -10456,15 +10457,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Update Agent Status",
+        "summary": "经明确确认后批量启停当前租户的智能体",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
     "/api/v1/administration/agents/{agent_id}": {
       "patch": {
-        "description": "修改当前租户内未删除 Agent 的显示名称。",
+        "description": "修改当前租户内未删除智能体的显示名称。",
         "operationId": "patch_api_v1_administration_agents_by_agent_id",
         "parameters": [
           {
@@ -10497,7 +10498,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -10590,15 +10591,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Rename Agent",
+        "summary": "修改当前租户内未删除智能体的显示名称",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
     "/api/v1/administration/agents/{agent_id}/archive": {
       "post": {
-        "description": "经逐字确认后归档 Agent，停止新运行、渠道和主动行为。",
+        "description": "经逐字确认后归档智能体，停止新运行、渠道和主动行为。",
         "operationId": "post_api_v1_administration_agents_by_agent_id_archive",
         "parameters": [
           {
@@ -10631,7 +10632,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -10724,15 +10725,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Archive Agent",
+        "summary": "经逐字确认后归档智能体，停止新运行、渠道和主动行为",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
     "/api/v1/administration/agents/{agent_id}/copy": {
       "post": {
-        "description": "复制 Agent 及其已发布认知资源，新版本从 1 独立演进。",
+        "description": "复制智能体及其已发布认知资源，新版本从 1 独立演进。",
         "operationId": "post_api_v1_administration_agents_by_agent_id_copy",
         "parameters": [
           {
@@ -10765,7 +10766,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -10858,15 +10859,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Copy Agent",
+        "summary": "复制智能体及其已发布认知资源，新版本从 1 独立演进",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
     "/api/v1/administration/agents/{agent_id}/delete": {
       "post": {
-        "description": "经逐字确认后软删除已归档 Agent，并登记最早物理清理时间。",
+        "description": "经逐字确认后软删除已归档智能体，并登记最早物理清理时间。",
         "operationId": "post_api_v1_administration_agents_by_agent_id_delete",
         "parameters": [
           {
@@ -10899,7 +10900,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -10992,15 +10993,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Soft Delete Agent",
+        "summary": "经逐字确认后软删除已归档智能体，并登记最早物理清理时间",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
     "/api/v1/administration/agents/{agent_id}/impact": {
       "get": {
-        "description": "预览归档或软删除 Agent 会影响的安全计数与阻断条件。",
+        "description": "预览归档或软删除智能体会影响的安全计数与阻断条件。",
         "operationId": "get_api_v1_administration_agents_by_agent_id_impact",
         "parameters": [
           {
@@ -11023,7 +11024,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -11116,9 +11117,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Get Agent Impact",
+        "summary": "预览归档或软删除智能体会影响的安全计数与阻断条件",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
@@ -11199,7 +11200,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -11292,9 +11293,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Audit Records",
+        "summary": "查询当前租户和系统级只追加审计记录",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
@@ -11311,7 +11312,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -11404,9 +11405,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Admin Roles",
+        "summary": "返回首期不可变角色矩阵，供管理后台解释最小权限",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
@@ -11423,7 +11424,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -11516,9 +11517,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Get Admin Session",
+        "summary": "返回服务端实际使用的当前管理主体和权限",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
@@ -11598,7 +11599,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -11691,9 +11692,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Users",
+        "summary": "按租户、状态与搜索词返回用户键集分页列表",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
@@ -11720,7 +11721,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -11813,9 +11814,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Update User Status",
+        "summary": "经明确确认后批量启停当前租户的用户",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
@@ -11844,7 +11845,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -11937,9 +11938,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Get User Detail",
+        "summary": "返回当前租户内不含凭证与令牌摘要的用户身份治理详情",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
@@ -11978,7 +11979,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -12071,9 +12072,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Update User Access Policy",
+        "summary": "经逐字确认更新用户限流与临时停用策略",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
@@ -12112,7 +12113,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -12205,9 +12206,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Set User Role Override",
+        "summary": "仅管理员可显式覆盖用户角色，且保留可信身份源角色",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
@@ -12246,7 +12247,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -12339,9 +12340,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Revoke User Role Override",
+        "summary": "仅管理员可撤销手工角色覆盖并恢复可信基线",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
@@ -12390,7 +12391,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -12483,9 +12484,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Revoke User Admin Session",
+        "summary": "逐字确认并审计地撤销当前租户内的指定管理会话",
         "tags": [
-          "administration"
+          "管理与权限"
         ]
       }
     },
@@ -12502,7 +12503,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -12595,9 +12596,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Authentication Config",
+        "summary": "告诉 SPA 使用开发身份或 OIDC Authorization Code + PKCE",
         "tags": [
-          "authentication"
+          "身份认证"
         ]
       }
     },
@@ -12613,7 +12614,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -12706,9 +12707,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Instances",
+        "summary": "列出渠道实例",
         "tags": [
-          "channels"
+          "渠道与适配器"
         ]
       },
       "post": {
@@ -12732,7 +12733,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -12825,15 +12826,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Create Instance",
+        "summary": "创建渠道实例",
         "tags": [
-          "channels"
+          "渠道与适配器"
         ]
       }
     },
     "/api/v1/channels/catalog": {
       "get": {
-        "description": "列出正式 Web/Telegram Adapter 与其余 IM 占位能力。",
+        "description": "列出正式 Web/Telegram 适配器与其余即时通讯占位能力。",
         "operationId": "get_api_v1_channels_catalog",
         "responses": {
           "200": {
@@ -12844,7 +12845,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -12937,9 +12938,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Catalog",
+        "summary": "列出正式 Web/Telegram 适配器与其余即时通讯占位能力",
         "tags": [
-          "channels"
+          "渠道与适配器"
         ]
       }
     },
@@ -12986,7 +12987,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -13079,15 +13080,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Events",
+        "summary": "列出渠道诊断事件",
         "tags": [
-          "channels"
+          "渠道与适配器"
         ]
       }
     },
     "/api/v1/channels/model-capabilities": {
       "get": {
-        "description": "返回当前内置模型 Provider 的稳定能力矩阵。",
+        "description": "返回当前内置模型服务的稳定能力矩阵。",
         "operationId": "get_api_v1_channels_model_capabilities",
         "responses": {
           "200": {
@@ -13098,7 +13099,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -13191,9 +13192,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Model Capabilities",
+        "summary": "返回当前内置模型服务的稳定能力矩阵",
         "tags": [
-          "channels"
+          "渠道与适配器"
         ]
       }
     },
@@ -13219,7 +13220,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -13312,9 +13313,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Simulate",
+        "summary": "模拟渠道能力协商",
         "tags": [
-          "channels"
+          "渠道与适配器"
         ]
       }
     },
@@ -13343,7 +13344,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -13436,9 +13437,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Get Instance",
+        "summary": "读取当前租户的单个渠道实例和安全凭证状态",
         "tags": [
-          "channels"
+          "渠道与适配器"
         ]
       },
       "patch": {
@@ -13474,7 +13475,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -13567,9 +13568,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Update Instance",
+        "summary": "更新渠道实例",
         "tags": [
-          "channels"
+          "渠道与适配器"
         ]
       }
     },
@@ -13597,7 +13598,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -13690,9 +13691,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Test Connection",
+        "summary": "测试渠道连接",
         "tags": [
-          "channels"
+          "渠道与适配器"
         ]
       }
     },
@@ -13730,7 +13731,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -13823,9 +13824,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Set Credential",
+        "summary": "写入渠道凭证",
         "tags": [
-          "channels"
+          "渠道与适配器"
         ]
       }
     },
@@ -13863,7 +13864,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -13956,9 +13957,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Clear Credential",
+        "summary": "清除渠道凭证",
         "tags": [
-          "channels"
+          "渠道与适配器"
         ]
       }
     },
@@ -13996,7 +13997,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -14089,9 +14090,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Deliver",
+        "summary": "发送渠道消息",
         "tags": [
-          "channels"
+          "渠道与适配器"
         ]
       }
     },
@@ -14129,7 +14130,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -14222,9 +14223,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Simulate Inbound",
+        "summary": "模拟渠道入站事件",
         "tags": [
-          "channels"
+          "渠道与适配器"
         ]
       }
     },
@@ -14251,7 +14252,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -14344,9 +14345,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Reserve Attachment",
+        "summary": "校验声明并为单个对象签发短期直传授权",
         "tags": [
-          "internal-chat-attachments"
+          "内部对话附件"
         ]
       }
     },
@@ -14375,7 +14376,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -14468,9 +14469,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Delete Attachment",
+        "summary": "删除尚未随消息发送的对象并保留软删除元数据",
         "tags": [
-          "internal-chat-attachments"
+          "内部对话附件"
         ]
       }
     },
@@ -14499,7 +14500,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -14592,9 +14593,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Complete Attachment",
+        "summary": "依据对象存储可信元数据完成大小、类型和摘要复核",
         "tags": [
-          "internal-chat-attachments"
+          "内部对话附件"
         ]
       }
     },
@@ -14623,7 +14624,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -14716,9 +14717,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Preview Attachment",
+        "summary": "签发五分钟有效的私有对象预览地址",
         "tags": [
-          "internal-chat-attachments"
+          "内部对话附件"
         ]
       }
     },
@@ -14798,7 +14799,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -14891,13 +14892,13 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Conversations",
+        "summary": "按最近更新顺序分页返回当前用户的会话",
         "tags": [
-          "internal-chat"
+          "内部对话"
         ]
       },
       "post": {
-        "description": "创建一个绑定当前开发用户与 Agent 的会话。",
+        "description": "创建一个绑定当前开发用户与智能体的会话。",
         "operationId": "post_api_v1_chat_conversations",
         "requestBody": {
           "content": {
@@ -14918,7 +14919,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -15011,9 +15012,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Create Conversation",
+        "summary": "创建一个绑定当前开发用户与智能体的会话",
         "tags": [
-          "internal-chat"
+          "内部对话"
         ]
       }
     },
@@ -15042,7 +15043,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -15135,9 +15136,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Delete Conversation",
+        "summary": "软删除会话，保留后续审计与保留期清理依据",
         "tags": [
-          "internal-chat"
+          "内部对话"
         ]
       },
       "patch": {
@@ -15174,7 +15175,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -15267,9 +15268,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Update Conversation",
+        "summary": "重命名、归档或置顶当前用户的会话",
         "tags": [
-          "internal-chat"
+          "内部对话"
         ]
       }
     },
@@ -15298,7 +15299,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -15391,9 +15392,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Attachments",
+        "summary": "列出当前用户在目标会话内可见的附件",
         "tags": [
-          "internal-chat-attachments"
+          "内部对话附件"
         ]
       }
     },
@@ -15422,7 +15423,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -15515,9 +15516,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Feedback",
+        "summary": "返回当前用户在会话中的消息反馈",
         "tags": [
-          "internal-chat"
+          "内部对话"
         ]
       }
     },
@@ -15574,7 +15575,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -15667,13 +15668,13 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Messages",
+        "summary": "以时间正序返回一页消息，下一页游标指向更早历史",
         "tags": [
-          "internal-chat"
+          "内部对话"
         ]
       },
       "post": {
-        "description": "原子接收幂等消息并异步启动 Agent Run。",
+        "description": "原子接收幂等消息并异步启动智能体运行。",
         "operationId": "post_api_v1_chat_conversations_by_conversation_id_messages",
         "parameters": [
           {
@@ -15706,7 +15707,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -15799,9 +15800,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Send Message",
+        "summary": "原子接收幂等消息并异步启动智能体运行",
         "tags": [
-          "internal-chat"
+          "内部对话"
         ]
       }
     },
@@ -15818,7 +15819,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -15911,9 +15912,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Get Development Identity",
+        "summary": "返回当前开发模式身份，并确保其已在仓储中建立",
         "tags": [
-          "internal-chat"
+          "内部对话"
         ]
       }
     },
@@ -15972,7 +15973,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -16065,9 +16066,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Search Messages",
+        "summary": "在当前用户可访问的未删除会话中搜索消息正文",
         "tags": [
-          "internal-chat"
+          "内部对话"
         ]
       }
     },
@@ -16106,7 +16107,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -16199,9 +16200,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Edit Message",
+        "summary": "编辑用户消息，在独立会话分支中启动新 Run",
         "tags": [
-          "internal-chat"
+          "内部对话"
         ]
       }
     },
@@ -16223,7 +16224,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -16316,13 +16317,13 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Delete Feedback",
+        "summary": "幂等删除当前用户对消息的反馈",
         "tags": [
-          "internal-chat"
+          "内部对话"
         ]
       },
       "put": {
-        "description": "新增或更新当前用户对一条 Agent 回复的反馈。",
+        "description": "新增或更新当前用户对一条智能体回复的反馈。",
         "operationId": "put_api_v1_chat_messages_by_message_id_feedback",
         "parameters": [
           {
@@ -16355,7 +16356,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -16448,9 +16449,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Set Feedback",
+        "summary": "新增或更新当前用户对一条智能体回复的反馈",
         "tags": [
-          "internal-chat"
+          "内部对话"
         ]
       }
     },
@@ -16489,7 +16490,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -16582,15 +16583,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Regenerate Message",
+        "summary": "保留原回复，并以同一触发消息创建可幂等重试的新 Run",
         "tags": [
-          "internal-chat"
+          "内部对话"
         ]
       }
     },
     "/api/v1/chat/runs/{run_id}/cancel": {
       "post": {
-        "description": "幂等取消排队中或运行中的 Agent Run。",
+        "description": "幂等取消排队中或运行中的智能体运行。",
         "operationId": "post_api_v1_chat_runs_by_run_id_cancel",
         "parameters": [
           {
@@ -16613,7 +16614,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -16706,9 +16707,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Cancel Run",
+        "summary": "幂等取消排队中或运行中的智能体运行",
         "tags": [
-          "internal-chat"
+          "内部对话"
         ]
       }
     },
@@ -16725,7 +16726,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -16818,15 +16819,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Run Evaluation Suite",
+        "summary": "运行不产生外部调用的中文拟人行为回放集",
         "tags": [
-          "cognition"
+          "认知内核"
         ]
       }
     },
     "/api/v1/cognition/resources": {
       "get": {
-        "description": "列出当前 Agent 的全部认知资源版本。",
+        "description": "列出当前智能体的全部认知资源版本。",
         "operationId": "get_api_v1_cognition_resources",
         "parameters": [
           {
@@ -16855,7 +16856,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -16948,9 +16949,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Resources",
+        "summary": "列出当前智能体的全部认知资源版本",
         "tags": [
-          "cognition"
+          "认知内核"
         ]
       },
       "post": {
@@ -16975,7 +16976,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -17068,9 +17069,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Create Resource Draft",
+        "summary": "校验并创建一个新的不可变认知资源草稿",
         "tags": [
-          "cognition"
+          "认知内核"
         ]
       }
     },
@@ -17097,7 +17098,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -17190,9 +17191,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Test Resource Payload",
+        "summary": "在保存前执行确定性结构与安全边界测试",
         "tags": [
-          "cognition"
+          "认知内核"
         ]
       }
     },
@@ -17221,7 +17222,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -17314,9 +17315,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Publish Resource",
+        "summary": "发布草稿，并原子替代同资源键的旧发布版本",
         "tags": [
-          "cognition"
+          "认知内核"
         ]
       }
     },
@@ -17345,7 +17346,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -17438,9 +17439,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Rollback Resource",
+        "summary": "从任意历史版本复制并立即发布一个新的回滚版本",
         "tags": [
-          "cognition"
+          "认知内核"
         ]
       }
     },
@@ -17469,7 +17470,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -17562,9 +17563,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Get Run Trace",
+        "summary": "返回安全阶段摘要、行动候选、情绪快照和模型调用",
         "tags": [
-          "cognition"
+          "认知内核"
         ]
       }
     },
@@ -17581,7 +17582,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -17674,9 +17675,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Definitions",
+        "summary": "公开安全的 Schema 与默认值，绝不包含密钥内容",
         "tags": [
-          "configuration"
+          "配置中心"
         ]
       }
     },
@@ -17703,7 +17704,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -17796,9 +17797,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Create Draft",
+        "summary": "校验并保存一个新的不可变配置草稿",
         "tags": [
-          "configuration"
+          "配置中心"
         ]
       }
     },
@@ -17895,7 +17896,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -17988,9 +17989,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Get Effective Configuration",
+        "summary": "返回指定上下文中的最终值及逐项来源",
         "tags": [
-          "configuration"
+          "配置中心"
         ]
       }
     },
@@ -18017,7 +18018,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -18110,9 +18111,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Import Configuration Package",
+        "summary": "将配置包校验为新草稿",
         "tags": [
-          "configuration"
+          "配置中心"
         ]
       }
     },
@@ -18129,7 +18130,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -18222,9 +18223,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Secrets",
+        "summary": "仅列出密钥掩码和管理状态",
         "tags": [
-          "configuration"
+          "配置中心"
         ]
       },
       "post": {
@@ -18249,7 +18250,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -18342,9 +18343,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Set Secret",
+        "summary": "新增或覆盖一个作用域密钥，响应不包含明文",
         "tags": [
-          "configuration"
+          "配置中心"
         ]
       }
     },
@@ -18366,7 +18367,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -18459,9 +18460,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Clear Secret",
+        "summary": "清除一个密钥引用及其加密材料",
         "tags": [
-          "configuration"
+          "配置中心"
         ]
       }
     },
@@ -18500,7 +18501,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -18593,9 +18594,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Rotate Secret",
+        "summary": "以新材料轮换现有密钥引用",
         "tags": [
-          "configuration"
+          "配置中心"
         ]
       }
     },
@@ -18624,7 +18625,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -18717,9 +18718,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Test Secret Integrity",
+        "summary": "在服务端解密并验证完整性，不调用外部模型 API",
         "tags": [
-          "configuration"
+          "配置中心"
         ]
       }
     },
@@ -18736,7 +18737,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -18829,9 +18830,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Versions",
+        "summary": "按从新到旧的顺序返回不可变配置历史",
         "tags": [
-          "configuration"
+          "配置中心"
         ]
       }
     },
@@ -18860,7 +18861,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -18953,9 +18954,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Get Version",
+        "summary": "返回一个不含密钥明文的配置版本",
         "tags": [
-          "configuration"
+          "配置中心"
         ]
       }
     },
@@ -19001,7 +19002,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -19094,9 +19095,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Preview Version Diff",
+        "summary": "返回相对当前发布版本或指定基线的安全差异",
         "tags": [
-          "configuration"
+          "配置中心"
         ]
       }
     },
@@ -19125,7 +19126,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -19218,9 +19219,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Export Version",
+        "summary": "导出可移植的非密钥配置包，文件中不包含内部资源 ID",
         "tags": [
-          "configuration"
+          "配置中心"
         ]
       }
     },
@@ -19249,7 +19250,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -19342,9 +19343,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Publish Version",
+        "summary": "原子发布草稿，并将其设为唯一生效版本",
         "tags": [
-          "configuration"
+          "配置中心"
         ]
       }
     },
@@ -19373,7 +19374,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -19466,9 +19467,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Rollback Version",
+        "summary": "复制历史快照并发布为新的不可变版本",
         "tags": [
-          "configuration"
+          "配置中心"
         ]
       }
     },
@@ -19495,7 +19496,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -19588,9 +19589,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Record Backup Restore Drill",
+        "summary": "登记隔离恢复后的清单摘要、计数与三项完整性证据",
         "tags": [
-          "data-lifecycle"
+          "数据生命周期"
         ]
       }
     },
@@ -19610,7 +19611,7 @@
         },
         "responses": {
           "200": {
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -19703,9 +19704,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Export User Data",
+        "summary": "生成一次性 JSON 下载",
         "tags": [
-          "data-lifecycle"
+          "数据生命周期"
         ]
       }
     },
@@ -19732,7 +19733,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -19825,9 +19826,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Forget User Data",
+        "summary": "清除用户正文、来源、向量、关系、会话副本和身份绑定",
         "tags": [
-          "data-lifecycle"
+          "数据生命周期"
         ]
       }
     },
@@ -19853,7 +19854,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -19946,9 +19947,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Orphan Cleanup",
+        "summary": "清理 MinIO 孤儿对象",
         "tags": [
-          "data-lifecycle"
+          "数据生命周期"
         ]
       }
     },
@@ -19965,7 +19966,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -20058,9 +20059,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Lifecycle Overview",
+        "summary": "返回生效保留策略和最近安全运行证据",
         "tags": [
-          "data-lifecycle"
+          "数据生命周期"
         ]
       }
     },
@@ -20086,7 +20087,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -20179,9 +20180,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Retention Cleanup",
+        "summary": "执行保留期清理",
         "tags": [
-          "data-lifecycle"
+          "数据生命周期"
         ]
       }
     },
@@ -20215,7 +20216,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -20308,9 +20309,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Lifecycle Runs",
+        "summary": "列出数据生命周期运行记录",
         "tags": [
-          "data-lifecycle"
+          "数据生命周期"
         ]
       }
     },
@@ -20345,7 +20346,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -20438,9 +20439,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Claim Blind Review",
+        "summary": "领取稳定的随机 A/B 任务",
         "tags": [
-          "evaluations"
+          "评测实验室"
         ]
       }
     },
@@ -20479,7 +20480,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -20572,9 +20573,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Submit Blind Review",
+        "summary": "提交双侧独立评分，由服务端映射并保存候选/参考结论",
         "tags": [
-          "evaluations"
+          "评测实验室"
         ]
       }
     },
@@ -20591,7 +20592,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -20684,9 +20685,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Evaluation Comparison Targets",
+        "summary": "列出当前发布路由允许用于同源回放的模型档案",
         "tags": [
-          "evaluations"
+          "评测实验室"
         ]
       }
     },
@@ -20717,7 +20718,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -20810,9 +20811,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Evaluation Comparisons",
+        "summary": "列出不携带回答正文的最近多模型对比摘要",
         "tags": [
-          "evaluations"
+          "评测实验室"
         ]
       },
       "post": {
@@ -20837,7 +20838,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -20930,9 +20931,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Run Evaluation Comparison",
+        "summary": "在同一冻结资源快照上运行多个已发布模型档案",
         "tags": [
-          "evaluations"
+          "评测实验室"
         ]
       }
     },
@@ -20961,7 +20962,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -21054,9 +21055,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Get Evaluation Comparison",
+        "summary": "读取受权限保护的多模型对比及逐用例完整回答",
         "tags": [
-          "evaluations"
+          "评测实验室"
         ]
       }
     },
@@ -21073,7 +21074,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -21166,9 +21167,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Get Evaluation Report",
+        "summary": "聚合自动门禁和团队盲评结果，并给出当前评审剩余数量",
         "tags": [
-          "evaluations"
+          "评测实验室"
         ]
       }
     },
@@ -21199,7 +21200,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -21292,9 +21293,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Evaluation Runs",
+        "summary": "列出最近自动回放的轻量摘要",
         "tags": [
-          "evaluations"
+          "评测实验室"
         ]
       },
       "post": {
@@ -21319,7 +21320,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -21412,9 +21413,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Run Evaluation",
+        "summary": "运行内置基线或指定已发布评测集并冻结版本、回答与成本",
         "tags": [
-          "evaluations"
+          "评测实验室"
         ]
       }
     },
@@ -21443,7 +21444,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -21536,15 +21537,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Get Evaluation Run",
+        "summary": "读取自动质量门、冻结输出和全部确定性检查",
         "tags": [
-          "evaluations"
+          "评测实验室"
         ]
       }
     },
     "/api/v1/evaluations/suites": {
       "get": {
-        "description": "列出当前 Agent 的全部评测集版本。",
+        "description": "列出当前智能体的全部评测集版本。",
         "operationId": "get_api_v1_evaluations_suites",
         "responses": {
           "200": {
@@ -21555,7 +21556,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -21648,9 +21649,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Evaluation Suites",
+        "summary": "列出当前智能体的全部评测集版本",
         "tags": [
-          "evaluations"
+          "评测实验室"
         ]
       },
       "post": {
@@ -21675,7 +21676,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -21768,9 +21769,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Create Evaluation Suite",
+        "summary": "一次性创建包含完整用例快照的不可变评测集草稿",
         "tags": [
-          "evaluations"
+          "评测实验室"
         ]
       }
     },
@@ -21799,7 +21800,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -21892,9 +21893,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Publish Evaluation Suite",
+        "summary": "发布草稿并原子替代同键的上一发布版本",
         "tags": [
-          "evaluations"
+          "评测实验室"
         ]
       }
     },
@@ -21957,7 +21958,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -22050,9 +22051,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Conversation Mappings",
+        "summary": "列出外部会话映射",
         "tags": [
-          "integrations"
+          "外部身份与入站"
         ]
       },
       "post": {
@@ -22076,7 +22077,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -22169,9 +22170,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Create Conversation Mapping",
+        "summary": "创建外部会话映射",
         "tags": [
-          "integrations"
+          "外部身份与入站"
         ]
       }
     },
@@ -22209,7 +22210,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -22302,9 +22303,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Update Conversation Mapping Status",
+        "summary": "更新外部会话映射状态",
         "tags": [
-          "integrations"
+          "外部身份与入站"
         ]
       }
     },
@@ -22367,7 +22368,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -22460,9 +22461,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Identity Mappings",
+        "summary": "列出外部身份映射",
         "tags": [
-          "integrations"
+          "外部身份与入站"
         ]
       },
       "post": {
@@ -22486,7 +22487,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -22579,9 +22580,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Create Identity Mapping",
+        "summary": "创建外部身份映射",
         "tags": [
-          "integrations"
+          "外部身份与入站"
         ]
       }
     },
@@ -22619,7 +22620,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -22712,15 +22713,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Update Identity Mapping Status",
+        "summary": "更新外部身份映射状态",
         "tags": [
-          "integrations"
+          "外部身份与入站"
         ]
       }
     },
     "/api/v1/integrations/inbound/{channel_id}/simulate": {
       "post": {
-        "description": "从内部 Web Adapter 模拟已验签事件，不接收真实 IM Webhook。",
+        "description": "从内部 Web 适配器模拟已验签事件，不接收真实即时通讯 Webhook。",
         "operationId": "post_api_v1_integrations_inbound_by_channel_id_simulate",
         "parameters": [
           {
@@ -22753,7 +22754,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -22846,9 +22847,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Simulate Inbound Acceptance",
+        "summary": "从内部 Web 适配器模拟已验签事件，不接收真实即时通讯 Webhook",
         "tags": [
-          "integrations"
+          "外部身份与入站"
         ]
       }
     },
@@ -22911,7 +22912,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -23004,9 +23005,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Inbox Events",
+        "summary": "列出入站箱事件",
         "tags": [
-          "integrations"
+          "外部身份与入站"
         ]
       }
     },
@@ -23044,7 +23045,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -23137,15 +23138,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Replay Inbox Event",
+        "summary": "安全重放入站箱事件",
         "tags": [
-          "integrations"
+          "外部身份与入站"
         ]
       }
     },
     "/api/v1/memory/episodes": {
       "get": {
-        "description": "列出当前 Agent 的 Episode。",
+        "description": "列出当前智能体的情景记录。",
         "operationId": "get_api_v1_memory_episodes",
         "parameters": [
           {
@@ -23187,7 +23188,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -23280,9 +23281,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Episodes",
+        "summary": "列出当前智能体的情景记录",
         "tags": [
-          "memory"
+          "记忆与关系"
         ]
       },
       "post": {
@@ -23307,7 +23308,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -23400,9 +23401,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Create Episode",
+        "summary": "创建带来源消息列表的 Episode",
         "tags": [
-          "memory"
+          "记忆与关系"
         ]
       }
     },
@@ -23441,7 +23442,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -23534,9 +23535,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Close Episode",
+        "summary": "关闭 Episode 或标记为已巩固",
         "tags": [
-          "memory"
+          "记忆与关系"
         ]
       }
     },
@@ -23567,7 +23568,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -23660,13 +23661,13 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Index Jobs",
+        "summary": "查看可审计的 embedding 重建任务进度",
         "tags": [
-          "memory"
+          "记忆与关系"
         ]
       },
       "post": {
-        "description": "建立索引进度和 Outbox 任务，由 Dramatiq Worker 异步执行。",
+        "description": "建立索引进度和事务发件箱任务，由 Dramatiq 任务进程异步执行。",
         "operationId": "post_api_v1_memory_index_jobs",
         "requestBody": {
           "content": {
@@ -23687,7 +23688,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -23780,15 +23781,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Rebuild Index",
+        "summary": "建立索引进度和事务发件箱任务，由 Dramatiq 任务进程异步执行",
         "tags": [
-          "memory"
+          "记忆与关系"
         ]
       }
     },
     "/api/v1/memory/memories": {
       "get": {
-        "description": "按当前租户和 Agent 搜索长期记忆。",
+        "description": "按当前租户和智能体搜索长期记忆。",
         "operationId": "get_api_v1_memory_memories",
         "parameters": [
           {
@@ -23879,7 +23880,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -23972,9 +23973,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Memories",
+        "summary": "按当前租户和智能体搜索长期记忆",
         "tags": [
-          "memory"
+          "记忆与关系"
         ]
       },
       "post": {
@@ -23999,7 +24000,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -24092,9 +24093,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Create Memory",
+        "summary": "创建具有显式来源和治理属性的长期记忆",
         "tags": [
-          "memory"
+          "记忆与关系"
         ]
       }
     },
@@ -24123,7 +24124,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -24216,9 +24217,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Get Memory",
+        "summary": "查看一条记忆及其来源、冲突和替代链",
         "tags": [
-          "memory"
+          "记忆与关系"
         ]
       }
     },
@@ -24257,7 +24258,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -24350,9 +24351,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Set Memory Confirmation",
+        "summary": "确认记忆或标记争议，并同步调整置信度",
         "tags": [
-          "memory"
+          "记忆与关系"
         ]
       }
     },
@@ -24391,7 +24392,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -24484,9 +24485,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Create Memory Conflict",
+        "summary": "显式登记两条记忆的冲突，不静默覆盖其中任意一条",
         "tags": [
-          "memory"
+          "记忆与关系"
         ]
       }
     },
@@ -24525,7 +24526,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -24618,9 +24619,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Correct Memory",
+        "summary": "创建纠正版本，不覆盖或删除原始审计事实",
         "tags": [
-          "memory"
+          "记忆与关系"
         ]
       }
     },
@@ -24659,7 +24660,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -24752,9 +24753,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Forget Memory",
+        "summary": "清除正文、来源摘录和向量，同时保留最小审计骨架",
         "tags": [
-          "memory"
+          "记忆与关系"
         ]
       }
     },
@@ -24781,7 +24782,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -24874,15 +24875,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Recall Memories",
+        "summary": "按发布配置执行全文、语义、时间、重要性和关系混合召回",
         "tags": [
-          "memory"
+          "记忆与关系"
         ]
       }
     },
     "/api/v1/memory/relationship": {
       "get": {
-        "description": "查看当前 Agent 与指定用户的关系快照和事件。",
+        "description": "查看当前智能体与指定用户的关系快照和事件。",
         "operationId": "get_api_v1_memory_relationship",
         "parameters": [
           {
@@ -24905,7 +24906,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -24998,9 +24999,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Get Relationship",
+        "summary": "查看当前智能体与指定用户的关系快照和事件",
         "tags": [
-          "memory"
+          "记忆与关系"
         ]
       }
     },
@@ -25027,7 +25028,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -25120,9 +25121,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Create Relationship Event",
+        "summary": "追加关系事件并确定性推进关系阶段",
         "tags": [
-          "memory"
+          "记忆与关系"
         ]
       }
     },
@@ -25139,7 +25140,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -25232,9 +25233,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Dashboard",
+        "summary": "返回当前租户的聚合指标、冻结成本和确定性活动告警",
         "tags": [
-          "observability"
+          "可观测性"
         ]
       }
     },
@@ -25251,7 +25252,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -25344,9 +25345,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Overview",
+        "summary": "返回管理总览所需的安全聚合数据和可选真实依赖状态",
         "tags": [
-          "system"
+          "系统管理"
         ]
       }
     },
@@ -25363,7 +25364,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -25456,15 +25457,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Bootstrap Settings",
+        "summary": "展示安全的启动设置摘要，不返回数据库、Redis、MinIO 或主密钥明文",
         "tags": [
-          "system"
+          "系统管理"
         ]
       }
     },
     "/api/v1/system/tasks/status": {
       "get": {
-        "description": "返回 PostgreSQL 任务真相计数和可验证的 Worker 心跳。",
+        "description": "返回 PostgreSQL 任务真相计数和可验证的任务进程心跳。",
         "operationId": "get_api_v1_system_tasks_status",
         "responses": {
           "200": {
@@ -25475,7 +25476,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -25568,15 +25569,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Task Status",
+        "summary": "返回 PostgreSQL 任务真相计数和可验证的任务进程心跳",
         "tags": [
-          "system"
+          "系统管理"
         ]
       }
     },
     "/api/v1/tasks/dashboard": {
       "get": {
-        "description": "返回任务真相计数和仍处于新鲜时间窗内的 Worker。",
+        "description": "返回任务真相计数和仍处于新鲜时间窗内的任务进程。",
         "operationId": "get_api_v1_tasks_dashboard",
         "responses": {
           "200": {
@@ -25587,7 +25588,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -25680,9 +25681,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Dashboard",
+        "summary": "返回任务真相计数和仍处于新鲜时间窗内的任务进程",
         "tags": [
-          "tasks"
+          "任务与主动行为"
         ]
       }
     },
@@ -25713,7 +25714,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -25806,9 +25807,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Dead Letters",
+        "summary": "仅返回可由管理员检查和安全重放的死信任务",
         "tags": [
-          "tasks"
+          "任务与主动行为"
         ]
       }
     },
@@ -25871,7 +25872,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -25964,9 +25965,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Jobs",
+        "summary": "按创建时间倒序查询当前租户任务",
         "tags": [
-          "tasks"
+          "任务与主动行为"
         ]
       }
     },
@@ -25995,7 +25996,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -26088,9 +26089,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Get Job",
+        "summary": "返回任务及其全部尝试，但不返回原始业务载荷",
         "tags": [
-          "tasks"
+          "任务与主动行为"
         ]
       }
     },
@@ -26129,7 +26130,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -26222,9 +26223,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Cancel Job",
+        "summary": "取消未开始任务，或给运行中任务设置协作式取消标记",
         "tags": [
-          "tasks"
+          "任务与主动行为"
         ]
       }
     },
@@ -26263,7 +26264,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -26356,15 +26357,15 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Replay Job",
+        "summary": "复制失败任务为全新审计实体，不复活或改写原任务",
         "tags": [
-          "tasks"
+          "任务与主动行为"
         ]
       }
     },
     "/api/v1/tasks/maintenance/recover": {
       "post": {
-        "description": "立即恢复因 Worker/API 重启而过期的执行和发布租约。",
+        "description": "立即恢复因任务进程或 API 重启而过期的执行和发布租约。",
         "operationId": "post_api_v1_tasks_maintenance_recover",
         "responses": {
           "200": {
@@ -26379,7 +26380,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -26472,9 +26473,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Recover Expired Leases",
+        "summary": "立即恢复因任务进程或 API 重启而过期的执行和发布租约",
         "tags": [
-          "tasks"
+          "任务与主动行为"
         ]
       }
     },
@@ -26521,7 +26522,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -26614,9 +26615,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "List Scheduled Actions",
+        "summary": "查看待评估、已抑制和已分发的定时行为",
         "tags": [
-          "tasks"
+          "任务与主动行为"
         ]
       },
       "post": {
@@ -26641,7 +26642,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -26734,9 +26735,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Create Scheduled Action",
+        "summary": "创建带 PostgreSQL 真相任务的主动行为候选",
         "tags": [
-          "tasks"
+          "任务与主动行为"
         ]
       }
     },
@@ -26775,7 +26776,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -26868,9 +26869,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Cancel Scheduled Action",
+        "summary": "原子取消行为和它尚未执行的后台任务",
         "tags": [
-          "tasks"
+          "任务与主动行为"
         ]
       }
     },
@@ -26887,7 +26888,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -26980,9 +26981,9 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Live",
+        "summary": "报告 API 进程是否能够处理请求",
         "tags": [
-          "health"
+          "系统健康"
         ]
       }
     },
@@ -26999,7 +27000,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "请求成功"
           },
           "400": {
             "content": {
@@ -27092,11 +27093,73 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "Ready",
+        "summary": "执行有超时边界的依赖探测，或明确说明深度检查未启用",
         "tags": [
-          "health"
+          "系统健康"
         ]
       }
     }
-  }
+  },
+  "tags": [
+    {
+      "description": "应用存活与基础设施就绪状态。",
+      "name": "系统健康"
+    },
+    {
+      "description": "管理后台身份认证与登录配置。",
+      "name": "身份认证"
+    },
+    {
+      "description": "系统总览、启动设置与任务状态。",
+      "name": "系统管理"
+    },
+    {
+      "description": "智能体、用户、角色和审计管理。",
+      "name": "管理与权限"
+    },
+    {
+      "description": "运行配置、版本发布与密钥管理。",
+      "name": "配置中心"
+    },
+    {
+      "description": "认知资源、运行轨迹与确定性回放。",
+      "name": "认知内核"
+    },
+    {
+      "description": "评测集、模型对比与匿名盲评。",
+      "name": "评测实验室"
+    },
+    {
+      "description": "渠道实例、能力协商与安全出站。",
+      "name": "渠道与适配器"
+    },
+    {
+      "description": "外部身份映射、入站箱与安全重放。",
+      "name": "外部身份与入站"
+    },
+    {
+      "description": "长期记忆、情景记录、关系与索引任务。",
+      "name": "记忆与关系"
+    },
+    {
+      "description": "服务指标、模型成本、告警与运行轨迹。",
+      "name": "可观测性"
+    },
+    {
+      "description": "后台任务、死信、定时行为与任务进程。",
+      "name": "任务与主动行为"
+    },
+    {
+      "description": "MinIO 附件上传、校验、预览与清理。",
+      "name": "内部对话附件"
+    },
+    {
+      "description": "会话、消息、反馈与流式运行。",
+      "name": "内部对话"
+    },
+    {
+      "description": "数据导出、遗忘、保留与恢复演练。",
+      "name": "数据生命周期"
+    }
+  ]
 }

@@ -510,7 +510,7 @@ async def test_create_and_copy_agent_clones_only_published_cognition_resources()
     assert resources[0].version == 1
     assert resources[0].payload == {"template": "自然回应"}
 
-    with pytest.raises(AdministrationConflictError, match="同名 Agent"):
+    with pytest.raises(AdministrationConflictError, match="同名智能体"):
         await service.create_agent(
             tenant_id=identity.tenant_id,
             name="人格副本",
@@ -529,7 +529,7 @@ async def test_agent_lifecycle_requires_preview_replacement_and_exact_confirmati
 
     assert initial_impact.can_archive is False
     assert initial_impact.active_replacement_count == 0
-    assert "至少一个其他已启用 Agent" in initial_impact.blockers[0]
+    assert "至少一个其他已启用智能体" in initial_impact.blockers[0]
 
     replacement = await service.create_agent(
         tenant_id=identity.tenant_id,
@@ -567,7 +567,7 @@ async def test_agent_lifecycle_requires_preview_replacement_and_exact_confirmati
     assert impact.can_archive is True
     assert impact.can_delete is False
     assert impact.deleted_agent_retention_days == 30
-    assert impact.archive_confirmation == f"确认归档 Agent {identity.agent_id}"
+    assert impact.archive_confirmation == f"确认归档智能体 {identity.agent_id}"
 
     with pytest.raises(AdministrationValidationError, match="必须准确输入"):
         await service.archive_agent(
@@ -618,15 +618,15 @@ async def test_agent_lifecycle_rejects_last_agent_and_cross_tenant_target() -> N
     identity = _identity()
     service = _service(MemoryAdministrationRepository(identity))
 
-    with pytest.raises(AdministrationConflictError, match="至少一个其他已启用 Agent"):
+    with pytest.raises(AdministrationConflictError, match="至少一个其他已启用智能体"):
         await service.archive_agent(
             tenant_id=identity.tenant_id,
             agent_id=identity.agent_id,
             actor_id=identity.user_id,
-            confirmation=f"确认归档 Agent {identity.agent_id}",
+            confirmation=f"确认归档智能体 {identity.agent_id}",
         )
 
-    with pytest.raises(AdministrationNotFoundError, match="Agent 不存在"):
+    with pytest.raises(AdministrationNotFoundError, match="智能体不存在"):
         await service.get_agent_impact(tenant_id=uuid4(), agent_id=identity.agent_id)
 
 

@@ -70,7 +70,7 @@ async def list_evaluation_suites(
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
     service: Annotated[EvaluationService, Depends(get_evaluation_service)],
 ) -> EvaluationSuiteListResponse:
-    """列出当前 Agent 的全部评测集版本。"""
+    """列出当前智能体的全部评测集版本。"""
     items = await service.list_suites(tenant_id=principal.tenant_id)
     return EvaluationSuiteListResponse(
         items=tuple(

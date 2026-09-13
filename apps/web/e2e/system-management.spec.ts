@@ -52,7 +52,7 @@ test('运行总览聚合健康、质量、任务、渠道与告警', async ({ pa
       retrying_jobs: 1,
       dead_letter_jobs: 1,
       scheduled_actions: 3,
-      worker: { name: 'worker', status: 'healthy', detail: '2 个 Worker 心跳正常。' },
+      worker: { name: 'worker', status: 'healthy', detail: '2 个任务进程心跳正常。' },
     } })
   })
   await page.route('**/api/v1/observability/dashboard', async (route) => {
@@ -116,7 +116,7 @@ test('运行总览聚合健康、质量、任务、渠道与告警', async ({ pa
         accepted_content_types: [],
       },
       health_status: 'healthy',
-      health_detail: '内部 Web Adapter 已就绪。',
+      health_detail: '内部 Web 适配器已就绪。',
       last_checked_at: timestamp,
       created_by: userId,
       created_at: timestamp,
@@ -130,7 +130,7 @@ test('运行总览聚合健康、质量、任务、渠道与告警', async ({ pa
   await expect(page.getByText('10,500 Token · 租户聚合', { exact: true })).toBeVisible()
   await expect(page.getByText('API 错误率偏高', { exact: true })).toBeVisible()
   await expect(page.getByText('ConnectionError', { exact: true })).toBeVisible()
-  await expect(page.getByText('2 个 Worker 心跳正常。', { exact: true })).toBeVisible()
+  await expect(page.getByText('2 个任务进程心跳正常。', { exact: true })).toBeVisible()
   await expect(page.getByRole('group', { name: '渠道健康摘要' })).toContainText('健康')
   await expect.poll(() => channelRequestAgents).toContain(agentId)
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
@@ -186,7 +186,7 @@ test('可以查看安全启动设置和真实任务基础状态', async ({ page 
         worker: {
           name: 'worker',
           status: 'not_checked',
-          detail: '尚未建立 Worker 心跳。',
+          detail: '尚未建立任务进程心跳。',
         },
       },
     })

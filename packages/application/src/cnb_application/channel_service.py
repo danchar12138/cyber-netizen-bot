@@ -201,7 +201,7 @@ class ChannelService:
         normalized_settings = self._settings(settings)
         if credential is not None:
             if platform is ChannelPlatform.WEB:
-                raise ChannelValidationError("内部 Web Adapter 不使用外部凭证")
+                raise ChannelValidationError("内部 Web 适配器不使用外部凭证")
             self._validate_credential(platform, credential)
         instance = ChannelInstance(
             id=uuid4(),
@@ -317,7 +317,7 @@ class ChannelService:
             channel_id=channel_id,
         )
         if instance.platform is ChannelPlatform.WEB:
-            raise ChannelConflictError("内部 Web Adapter 不使用外部凭证")
+            raise ChannelConflictError("内部 Web 适配器不使用外部凭证")
         if not plaintext:
             raise ChannelValidationError("渠道凭证不能为空")
         self._validate_credential(instance.platform, plaintext)
@@ -348,7 +348,7 @@ class ChannelService:
         )
         key = _CREDENTIAL_KEYS.get(instance.platform)
         if key is None:
-            raise ChannelConflictError("内部 Web Adapter 没有可清除凭证")
+            raise ChannelConflictError("内部 Web 适配器没有可清除凭证")
         metadata = await self._secret_store.list_metadata()
         match = next(
             (

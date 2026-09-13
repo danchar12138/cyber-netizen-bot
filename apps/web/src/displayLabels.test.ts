@@ -8,6 +8,7 @@ import {
   channelDegradationLabels,
   cognitiveActionLabels,
   cognitiveStageLabels,
+  configScopeLabels,
   configurationOptionLabel,
   displayLabel,
   formatEnvironment,
@@ -16,6 +17,7 @@ import {
   memoryKindLabels,
   memorySensitivityLabels,
   memorySourceKindLabels,
+  memoryVisibilityLabels,
   relationshipStageLabels,
   secretIntegrityLabels,
 } from './displayLabels'
@@ -29,6 +31,9 @@ describe('管理后台中文显示文案', () => {
     expect(auditActionLabels['admin_session.revoked']).toBe('撤销管理会话')
     expect(auditActionLabels['user.role_override_expired']).toBe('用户角色覆盖到期')
     expect(auditResourceLabels.admin_session).toBe('管理会话')
+    expect(configScopeLabels.agent).toBe('智能体')
+    expect(auditActionLabels['agent.created']).toBe('创建智能体')
+    expect(auditResourceLabels.prompt).toBe('提示词版本')
   })
 
   it('覆盖拟人认知与长期记忆协议值', () => {
@@ -37,6 +42,7 @@ describe('管理后台中文显示文案', () => {
     expect(memoryKindLabels.episodic).toBe('情景')
     expect(memorySensitivityLabels.restricted).toBe('受限')
     expect(memorySourceKindLabels.admin_correction).toBe('管理员纠正')
+    expect(memoryVisibilityLabels.agent).toBe('智能体共享')
     expect(relationshipStageLabels.trusted).toBe('信任')
   })
 

@@ -36,14 +36,14 @@ export function ObservabilityPage() {
 
   return (
     <div className="page">
-      <section className="page-heading compact"><div><p className="eyebrow">SLO、成本与可回放运行</p><h1>可观测性与运行轨迹</h1><p>聚合 API、Agent、模型和队列健康，按已发布阈值形成告警，并保留安全认知回放。</p></div></section>
-      <div className="notice info"><ShieldCheck size={17} /><div><strong>安全可观测边界</strong><span>指标与 Trace 不保存消息正文、完整 Prompt、隐藏推理、密钥、访问令牌或对象键。</span></div></div>
+      <section className="page-heading compact"><div><p className="eyebrow">SLO、成本与可回放运行</p><h1>可观测性与运行轨迹</h1><p>聚合 API、智能体、模型和队列健康，按已发布阈值形成告警，并保留安全认知回放。</p></div></section>
+      <div className="notice info"><ShieldCheck size={17} /><div><strong>安全可观测边界</strong><span>指标与链路追踪不保存消息正文、完整提示词、隐藏推理、密钥、访问令牌或对象键。</span></div></div>
 
       {dashboard.isError && <div className="notice error" role="alert">无法读取可观测聚合，请检查 API、数据库和当前权限。</div>}
       <section className="metric-grid" aria-label="服务等级与成本指标">
         <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>API 错误率</p><strong>{data ? `${data.api.error_rate_percent.toFixed(2)}%` : '—'}</strong><span>{data?.api.requests ?? 0} 次请求 · {data?.api.server_errors ?? 0} 次 5xx</span></article>
         <article className="metric-card"><div className="metric-icon"><Clock3 size={18} /></div><p>API P95 / P99</p><strong>{data ? `${data.api.latency.p95_ms} / ${data.api.latency.p99_ms} ms` : '—'}</strong><span>P50 {data?.api.latency.p50_ms ?? '—'} ms</span></article>
-        <article className="metric-card"><div className="metric-icon"><ShieldCheck size={18} /></div><p>Agent 运行成功率</p><strong>{data ? `${data.agent_runs.success_rate_percent.toFixed(2)}%` : '—'}</strong><span>{data?.agent_runs.completed_runs ?? 0} 成功 · {data?.agent_runs.unsuccessful_runs ?? 0} 未成功</span></article>
+        <article className="metric-card"><div className="metric-icon"><ShieldCheck size={18} /></div><p>智能体运行成功率</p><strong>{data ? `${data.agent_runs.success_rate_percent.toFixed(2)}%` : '—'}</strong><span>{data?.agent_runs.completed_runs ?? 0} 成功 · {data?.agent_runs.unsuccessful_runs ?? 0} 未成功</span></article>
         <article className="metric-card"><div className="metric-icon"><CircleDollarSign size={18} /></div><p>模型冻结估算成本</p><strong>{data ? formatUsd(data.total_estimated_cost_microusd) : '—'}</strong><span>{data?.models.reduce((sum, item) => sum + item.input_tokens + item.output_tokens, 0) ?? 0} Token</span></article>
       </section>
 
@@ -55,17 +55,17 @@ export function ObservabilityPage() {
         </section>
         <section className="panel queue-panel">
           <div className="panel-heading"><div><p className="eyebrow">PostgreSQL 真相源</p><h2>队列状态</h2></div></div>
-          <dl className="settings-list"><div><dt>待处理 / 重试</dt><dd>{data?.queue.backlog ?? '—'} 项</dd></div><div><dt>最老任务等待</dt><dd>{data?.queue.oldest_wait_seconds ?? '—'} 秒</dd></div><div><dt>Agent P95 / P99</dt><dd>{data ? `${data.agent_runs.latency.p95_ms} / ${data.agent_runs.latency.p99_ms} ms` : '—'}</dd></div><div><dt>聚合窗口开始</dt><dd>{data ? new Date(data.window_started_at).toLocaleString('zh-CN') : '—'}</dd></div></dl>
+          <dl className="settings-list"><div><dt>待处理 / 重试</dt><dd>{data?.queue.backlog ?? '—'} 项</dd></div><div><dt>最老任务等待</dt><dd>{data?.queue.oldest_wait_seconds ?? '—'} 秒</dd></div><div><dt>智能体 P95 / P99</dt><dd>{data ? `${data.agent_runs.latency.p95_ms} / ${data.agent_runs.latency.p99_ms} ms` : '—'}</dd></div><div><dt>聚合窗口开始</dt><dd>{data ? new Date(data.window_started_at).toLocaleString('zh-CN') : '—'}</dd></div></dl>
         </section>
       </div>
 
       <section className="panel model-cost-panel">
-        <div className="panel-heading"><div><p className="eyebrow">调用时价格快照</p><h2>模型用量与成本</h2></div><span className="subtle">按 Provider / 模型分组</span></div>
+        <div className="panel-heading"><div><p className="eyebrow">调用时价格快照</p><h2>模型用量与成本</h2></div><span className="subtle">按模型服务与模型分组</span></div>
         {!data?.models.length && <div className="empty-state">当前窗口没有模型调用。</div>}
         <div className="model-cost-list">{data?.models.map((item) => <article key={`${item.provider}/${item.model}`}><div><strong>{item.provider} / {item.model}</strong><span>{item.invocations} 次调用 · {item.failed_invocations} 次失败</span></div><div><strong>{formatUsd(item.estimated_cost_microusd)}</strong><span>输入 {item.input_tokens} · 输出 {item.output_tokens} Token</span></div><div><strong>{item.latency.p95_ms} ms</strong><span>P95 · P99 {item.latency.p99_ms} ms</span></div></article>)}</div>
       </section>
 
-      <section className="panel trace-search"><label><Activity size={16} /><input aria-label="Agent 运行 ID" value={runId} onChange={(event) => setRunId(event.target.value)} placeholder="输入 Agent 运行 UUID" /></label><button className="primary-button" disabled={!canRead || !runId.trim() || trace.isPending} onClick={() => trace.mutate(runId.trim())}><Search size={14} /> 查询轨迹</button></section>
+      <section className="panel trace-search"><label><Activity size={16} /><input aria-label="智能体运行 ID" value={runId} onChange={(event) => setRunId(event.target.value)} placeholder="输入智能体运行 UUID" /></label><button className="primary-button" disabled={!canRead || !runId.trim() || trace.isPending} onClick={() => trace.mutate(runId.trim())}><Search size={14} /> 查询轨迹</button></section>
       {trace.error && <div className="notice error" role="alert">{trace.error.message}</div>}
       {trace.data && <div className="trace-grid">
         <section className="panel"><div className="panel-heading"><h2>认知阶段</h2><span className="subtle">{trace.data.steps.length} 步</span></div><div className="trace-list">{trace.data.steps.map((step) => <article key={step.sequence}><span>{step.sequence}</span><div><strong>{displayLabel(cognitiveStageLabels, step.stage)}</strong><p>{step.summary}</p><code>{formatMetadataEntries(step.detail)}</code></div></article>)}</div></section>

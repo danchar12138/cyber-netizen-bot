@@ -127,7 +127,7 @@ export function IntegrationsPage() {
     { key: 'digests', label: '安全标识摘要', render: (row) => <div className="digest-stack"><code title={row.external_subject_digest}>主体 {shortDigest(row.external_subject_digest)}</code><code title={row.external_conversation_digest}>会话 {shortDigest(row.external_conversation_digest)}</code><code title={row.external_message_digest}>消息 {shortDigest(row.external_message_digest)}</code></div> },
     { key: 'content', label: '内容元数据', render: (row) => `${row.content_block_count} 块 · ${row.content_kinds.join('、') || '无'}` },
     { key: 'status', label: '状态', render: (row) => <div className="channel-status-stack"><span className={`entity-status task-${row.status}`}>{inboxStatusLabels[row.status]}</span><small>{row.job_status ? backgroundJobStatusLabels[row.job_status] : '任务不可用'}</small></div> },
-    { key: 'agent-run', label: 'Agent Run', render: (row) => row.run_id ? <div className="table-primary"><strong>{row.run_status ? runStatusLabels[row.run_status] : '状态待同步'}</strong><code title={row.run_id}>{row.run_id}</code><small>{row.idempotent_replay ? '幂等重放' : '首次处理'}</small></div> : <span>尚未创建</span> },
+    { key: 'agent-run', label: '智能体运行', render: (row) => row.run_id ? <div className="table-primary"><strong>{row.run_status ? runStatusLabels[row.run_status] : '状态待同步'}</strong><code title={row.run_id}>{row.run_id}</code><small>{row.idempotent_replay ? '幂等重放' : '首次处理'}</small></div> : <span>尚未创建</span> },
     { key: 'received', label: '接收时间', render: (row) => new Date(row.received_at).toLocaleString('zh-CN') },
     { key: 'actions', label: '操作', render: (row) => <button disabled={!canReplay || !['dead_letter', 'canceled'].includes(row.status)} onClick={() => window.confirm('确认从已净化 Envelope 安全重放？') && replay.mutate(row.id)}><ListRestart size={12} />重放</button> },
   ], [canReplay, replay])
@@ -140,7 +140,7 @@ export function IntegrationsPage() {
 
   return <div className="page">
     <section className="page-heading compact">
-      <div><p className="eyebrow">真实 IM 接入前的稳定路由边界</p><h1>外部身份与 Inbox</h1><p>用不可变平台 ID 映射本地身份与会话；入站事件完成验签、净化和幂等落库后，由 Worker 接入真实 Conversation 与 Agent Run。</p></div>
+      <div><p className="eyebrow">真实即时通讯接入前的稳定路由边界</p><h1>外部身份与入站箱</h1><p>用不可变平台 ID 映射本地身份与会话；入站事件完成验签、净化和幂等落库后，由任务进程接入真实会话与智能体运行。</p></div>
       <span className="phase-tag">Envelope v1</span>
     </section>
     {loadingError && <div className="notice error">外部接入数据读取失败，请检查 API 与迁移状态。</div>}
@@ -173,6 +173,6 @@ export function IntegrationsPage() {
 
     <section className="panel table-panel"><div className="panel-heading"><div><span>平台主体</span><h2>外部身份映射</h2></div><small>{identities.data?.items.length ?? 0} 条</small></div><AdminDataTable rows={identities.data?.items ?? []} columns={identityColumns} rowKey={(row) => row.id} searchableText={(row) => `${row.external_subject_id} ${row.user_id} ${row.platform}`} searchPlaceholder="搜索主体 ID、用户或平台" emptyMessage={identities.isLoading ? '正在读取身份映射…' : '尚无身份映射'} /></section>
     <section className="panel table-panel"><div className="panel-heading"><div><span>稳定线程</span><h2>会话路由映射</h2></div><small>{routes.data?.items.length ?? 0} 条</small></div><AdminDataTable rows={routes.data?.items ?? []} columns={routeColumns} rowKey={(row) => row.id} searchableText={(row) => `${row.external_conversation_id} ${row.external_thread_id ?? ''} ${row.conversation_id}`} searchPlaceholder="搜索外部会话、线程或内部会话" emptyMessage={routes.isLoading ? '正在读取会话映射…' : '尚无会话映射'} /></section>
-    <section className="panel table-panel"><div className="panel-heading"><div><span>每 15 秒刷新</span><h2><MessageSquareLock size={17} />Inbox 安全诊断</h2></div><small>{inbox.data?.items.length ?? 0} 条</small></div><AdminDataTable rows={inbox.data?.items ?? []} columns={inboxColumns} rowKey={(row) => row.id} searchableText={(row) => `${row.id} ${row.event_type} ${row.status} ${row.external_event_digest}`} searchPlaceholder="搜索 Inbox ID、类型、状态或摘要" emptyMessage={inbox.isLoading ? '正在读取 Inbox…' : '尚无入站事件'} /></section>
+    <section className="panel table-panel"><div className="panel-heading"><div><span>每 15 秒刷新</span><h2><MessageSquareLock size={17} />入站箱安全诊断</h2></div><small>{inbox.data?.items.length ?? 0} 条</small></div><AdminDataTable rows={inbox.data?.items ?? []} columns={inboxColumns} rowKey={(row) => row.id} searchableText={(row) => `${row.id} ${row.event_type} ${row.status} ${row.external_event_digest}`} searchPlaceholder="搜索入站箱 ID、类型、状态或摘要" emptyMessage={inbox.isLoading ? '正在读取入站箱…' : '尚无入站事件'} /></section>
   </div>
 }

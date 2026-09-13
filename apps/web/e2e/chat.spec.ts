@@ -258,7 +258,7 @@ test('可以创建会话并发送一条持久化消息', async ({ page }) => {
   })
 
   await page.goto('/chat')
-  await expect(page.getByLabel('当前 Agent')).toHaveValue(agentId)
+  await expect(page.getByLabel('当前智能体')).toHaveValue(agentId)
   await page.getByRole('button', { name: '新建会话' }).click()
   await expect(page.getByText('从一句真心话开始吧')).toBeVisible()
 

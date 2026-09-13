@@ -1,4 +1,4 @@
-"""外部身份、线程路由与可重放 Inbox 管理接口。"""
+"""外部身份、线程路由与可重放入站箱管理接口。"""
 
 from collections.abc import Mapping
 from dataclasses import asdict
@@ -279,7 +279,7 @@ async def simulate_inbound_acceptance(
     channels: Annotated[ChannelService, Depends(get_channel_service)],
     service: Annotated[InboundGatewayService, Depends(get_inbound_service)],
 ) -> InboundAcceptanceResponse:
-    """从内部 Web Adapter 模拟已验签事件，不接收真实 IM Webhook。"""
+    """从内部 Web 适配器模拟已验签事件，不接收真实即时通讯 Webhook。"""
     if not command.signature_valid:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

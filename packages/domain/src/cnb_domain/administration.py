@@ -8,8 +8,8 @@ from uuid import UUID
 from cnb_domain.configuration import JsonValue
 from cnb_domain.conversation import ConversationStatus, EntityStatus
 
-AGENT_ARCHIVE_CONFIRMATION_PREFIX = "确认归档 Agent "
-AGENT_DELETE_CONFIRMATION_PREFIX = "确认删除 Agent "
+AGENT_ARCHIVE_CONFIRMATION_PREFIX = "确认归档智能体 "
+AGENT_DELETE_CONFIRMATION_PREFIX = "确认删除智能体 "
 USER_SESSION_REVOKE_CONFIRMATION_PREFIX = "确认撤销管理会话 "
 USER_ACCESS_POLICY_CONFIRMATION_PREFIX = "确认更新用户访问策略 "
 USER_ROLE_OVERRIDE_CONFIRMATION_PREFIX = "确认覆盖用户角色 "

@@ -31,7 +31,7 @@ const capabilities = {
   accepted_content_types: ['image/png', 'application/pdf'],
 }
 
-test('可以管理外部映射、查看 Inbox 摘要并按 Agent 隔离', async ({ page }) => {
+test('可以管理外部映射、查看入站箱摘要并按智能体隔离', async ({ page }) => {
   const scopedAgents: Array<string | undefined> = []
   const identityMappings: Array<Record<string, unknown>> = []
   const conversationMappings: Array<Record<string, unknown>> = []
@@ -218,7 +218,7 @@ test('可以管理外部映射、查看 Inbox 摘要并按 Agent 隔离', async 
   })
 
   await page.goto('/integrations')
-  await expect(page.getByRole('heading', { name: '外部身份与 Inbox' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '外部身份与入站箱' })).toBeVisible()
   await expect(page.getByText('诊断页不展示消息正文、凭证、对象键或远端响应')).toBeVisible()
   await expect(page.getByText('2 块 · text、image')).toBeVisible()
 
@@ -240,7 +240,7 @@ test('可以管理外部映射、查看 Inbox 摘要并按 Agent 隔离', async 
   await page.getByRole('button', { name: '重放' }).click()
   await expect.poll(() => replayed).toBe(true)
 
-  await page.getByLabel('当前 Agent').selectOption(otherAgentId)
+  await page.getByLabel('当前智能体').selectOption(otherAgentId)
   await expect(page.getByText('尚无身份映射')).toBeVisible()
   await expect(page.getByText('尚无会话映射')).toBeVisible()
   await expect(page.getByText('尚无入站事件')).toBeVisible()
@@ -249,7 +249,7 @@ test('可以管理外部映射、查看 Inbox 摘要并按 Agent 隔离', async 
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
 })
 
-test('只读权限不允许修改映射或重放 Inbox', async ({ page }) => {
+test('只读权限不允许修改映射或重放入站箱', async ({ page }) => {
   await page.route('**/api/v1/administration/session', async (route) => {
     await route.fulfill({ json: {
       tenant_id: tenantId,

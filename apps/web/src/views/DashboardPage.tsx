@@ -88,7 +88,7 @@ export function DashboardPage() {
 
   const metrics = [
     {
-      label: '租户 Agent Run 成功率',
+      label: '租户智能体运行成功率',
       value: telemetry ? `${telemetry.agent_runs.success_rate_percent.toFixed(2)}%` : '—',
       detail: canReadObservability
         ? `${telemetry?.agent_runs.completed_runs ?? 0} 成功 · ${telemetry?.agent_runs.unsuccessful_runs ?? 0} 未成功`
@@ -125,9 +125,9 @@ export function DashboardPage() {
         <div>
           <p className="eyebrow">运营控制面</p>
           <h1>系统状态、运行质量与风险，一页掌握。</h1>
-          <p>租户级运行指标与当前 Agent 的渠道状态会自动刷新；切换 Agent 后渠道视图同步更新。</p>
+          <p>租户级运行指标与当前智能体的渠道状态会自动刷新；切换智能体后渠道视图同步更新。</p>
         </div>
-        <Link to="/agents" className="primary-button">管理 Agent <ArrowUpRight size={16} /></Link>
+        <Link to="/agents" className="primary-button">管理智能体 <ArrowUpRight size={16} /></Link>
       </section>
 
       {hasPartialError && (
@@ -171,7 +171,7 @@ export function DashboardPage() {
             ))}
           </div>
           <dl className="overview-counts" aria-label="租户资产摘要">
-            <div><dt>活跃 Agent</dt><dd>{systemData?.active_agents ?? '—'}</dd></div>
+            <div><dt>活跃智能体</dt><dd>{systemData?.active_agents ?? '—'}</dd></div>
             <div><dt>活跃会话</dt><dd>{systemData?.active_conversations ?? '—'}</dd></div>
             <div><dt>配置定义</dt><dd>{systemData?.configuration_definitions ?? '—'}</dd></div>
             <div><dt>运行环境</dt><dd>{systemData?.environment ?? '—'}</dd></div>
@@ -205,7 +205,7 @@ export function DashboardPage() {
       <section className="dashboard-grid operational-grid">
         <article className="panel channel-overview">
           <div className="panel-heading">
-            <div><p className="eyebrow">当前 Agent</p><h2>渠道状态</h2></div>
+            <div><p className="eyebrow">当前智能体</p><h2>渠道状态</h2></div>
             {canReadChannels
               ? <Link to="/channels" className="panel-link">管理渠道 <ArrowUpRight size={13} /></Link>
               : <span className="subtle">权限受限</span>}
@@ -219,7 +219,7 @@ export function DashboardPage() {
             </div>
           )}
           {!canReadChannels && <div className="empty-state">当前角色不能查看渠道实例。</div>}
-          {canReadChannels && channelItems.length === 0 && <div className="empty-state">当前 Agent 尚未配置渠道实例。</div>}
+          {canReadChannels && channelItems.length === 0 && <div className="empty-state">当前智能体尚未配置渠道实例。</div>}
           <div className="component-list">
             {channelItems.slice(0, 5).map((channel) => (
               <div className="component-row" key={channel.id}>
@@ -233,7 +233,7 @@ export function DashboardPage() {
 
         <article className="panel task-overview">
           <div className="panel-heading">
-            <div><p className="eyebrow">异步执行</p><h2>任务与 Worker</h2></div>
+            <div><p className="eyebrow">异步执行</p><h2>任务与任务进程</h2></div>
             <Link to="/tasks" className="panel-link">任务控制台 <ArrowUpRight size={13} /></Link>
           </div>
           <div className="component-list">
@@ -250,7 +250,7 @@ export function DashboardPage() {
             <div><span>死信</span><strong>{taskData?.dead_letter_jobs ?? '—'}</strong></div>
             <div><span>计划行为</span><strong>{taskData?.scheduled_actions ?? '—'}</strong></div>
           </div>
-          <div className="task-footnote"><Settings2 size={14} /><span>队列积压以 PostgreSQL 为真相源，Worker 心跳每 15 秒刷新。</span></div>
+          <div className="task-footnote"><Settings2 size={14} /><span>队列积压以 PostgreSQL 为真相源，任务进程心跳每 15 秒刷新。</span></div>
         </article>
       </section>
     </div>

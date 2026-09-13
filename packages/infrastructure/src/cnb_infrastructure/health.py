@@ -13,6 +13,12 @@ from cnb_infrastructure.settings import Settings
 
 DependencyProbe = Callable[[Settings], Awaitable[tuple[ComponentHealth, ...]]]
 
+_DEPENDENCY_FAILURE_DETAILS = {
+    "postgresql": "PostgreSQL 数据库暂不可用。",
+    "redis": "Redis 任务服务暂不可用。",
+    "object_storage": "MinIO 对象存储暂不可用。",
+}
+
 
 async def probe_dependencies(settings: Settings) -> tuple[ComponentHealth, ...]:
     """并发探测各项独立依赖，并为每项探针设置超时。"""
@@ -28,8 +34,12 @@ async def _safe_probe(name: str, probe: Callable[[], Awaitable[None]]) -> Compon
     try:
         async with asyncio.timeout(2.5):
             await probe()
-    except Exception as error:  # 就绪检查应报告服务降级，不能导致 API 崩溃。
-        return ComponentHealth(name=name, status="degraded", detail=type(error).__name__)
+    except Exception:  # 就绪检查应报告服务降级，不能导致 API 崩溃或暴露底层异常。
+        return ComponentHealth(
+            name=name,
+            status="degraded",
+            detail=_DEPENDENCY_FAILURE_DETAILS.get(name, "依赖服务暂不可用。"),
+        )
     return ComponentHealth(name=name, status="healthy")
 
 

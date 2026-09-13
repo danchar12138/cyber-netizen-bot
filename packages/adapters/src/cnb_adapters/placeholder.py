@@ -44,7 +44,7 @@ class PlaceholderAdapter:
         del credential
         return AdapterHealth(
             status=ChannelHealthStatus.NOT_CONFIGURED,
-            detail=f"{self.display_name} Adapter 当前为占位实现，未访问外部 API。",
+            detail=f"{self.display_name} 适配器当前为占位实现，未访问外部 API。",
             checked_at=datetime.now(UTC),
         )
 
@@ -57,7 +57,7 @@ class PlaceholderAdapter:
     ) -> AdapterDeliveryResult:
         del command, negotiation, credential
         raise ChannelNotConfiguredError(
-            f"{self.display_name} Adapter 当前为占位实现，未发送任何外部消息"
+            f"{self.display_name} 适配器当前为占位实现，未发送任何外部消息"
         )
 
     async def normalize_inbound(
@@ -66,7 +66,7 @@ class PlaceholderAdapter:
     ) -> ChannelInboundEvent:
         del payload
         raise ChannelNotConfiguredError(
-            f"{self.display_name} Adapter 当前为占位实现，未消费任何外部事件"
+            f"{self.display_name} 适配器当前为占位实现，未消费任何外部事件"
         )
 
     async def aclose(self) -> None:

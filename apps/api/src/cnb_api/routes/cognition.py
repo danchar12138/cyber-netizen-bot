@@ -40,7 +40,7 @@ async def list_resources(
     service: Annotated[CognitionService, Depends(get_cognition_service)],
     kind: CognitionResourceKind | None = None,
 ) -> CognitionResourceListResponse:
-    """列出当前 Agent 的全部认知资源版本。"""
+    """列出当前智能体的全部认知资源版本。"""
     items = await service.list_resources(
         tenant_id=principal.tenant_id,
         agent_id=_agent_id(service),
@@ -202,5 +202,5 @@ async def run_evaluation_suite(
 
 
 def _agent_id(service: CognitionService) -> UUID:
-    """从请求级服务获取组合根固定的当前 Agent。"""
+    """从请求级服务获取组合根固定的当前智能体。"""
     return service.agent_id

@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from cnb_adapters import ChannelAdapterRegistry, build_default_channel_registry
 from cnb_api import __version__
 from cnb_api.errors import RequestIdMiddleware, SecurityHeadersMiddleware, install_error_handlers
-from cnb_api.openapi import stable_operation_id
+from cnb_api.openapi import OPENAPI_TAGS, localize_openapi_routes, stable_operation_id
 from cnb_api.routes import (
     administration,
     attachment,
@@ -149,13 +149,15 @@ def create_app(
         }.items()
     }
     application = FastAPI(
-        title="Cyber Netizen Bot API",
+        title="赛博网友机器人 API",
         summary="赛博网友管理与消息网关",
+        description="面向管理后台、内部对话和渠道集成的版本化应用接口。",
         version=__version__,
         docs_url="/docs" if resolved_settings.environment != "production" else None,
         redoc_url=None,
         generate_unique_id_function=stable_operation_id,
         responses=error_responses,
+        openapi_tags=OPENAPI_TAGS,
         lifespan=lifespan,
     )
     application.state.settings = resolved_settings
@@ -330,6 +332,25 @@ def create_app(
             "X-Export-Run-ID",
         ],
     )
+    for api_router in (
+        health.router,
+        authentication.router,
+        system.router,
+        administration.router,
+        configuration.router,
+        cognition.router,
+        evaluations.router,
+        channels.router,
+        inbound.router,
+        memory.router,
+        observability.router,
+        tasks.router,
+        attachment.router,
+        conversation.router,
+        data_lifecycle.router,
+    ):
+        localize_openapi_routes(api_router)
+
     application.include_router(health.router)
     application.include_router(authentication.router, prefix="/api/v1")
     application.include_router(system.router, prefix="/api/v1")

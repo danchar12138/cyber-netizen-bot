@@ -926,7 +926,7 @@ async def test_agent_rename_preview_archive_and_soft_delete_flow() -> None:
         source_agent_id = (await client.get("/api/v1/chat/identity")).json()["agent_id"]
         blocked_archive = await client.post(
             f"/api/v1/administration/agents/{source_agent_id}/archive",
-            json={"confirmation": f"确认归档 Agent {source_agent_id}"},
+            json={"confirmation": f"确认归档智能体 {source_agent_id}"},
         )
         replacement = await client.post(
             "/api/v1/administration/agents",

@@ -122,7 +122,7 @@ export function TaskStatusPage() {
     { key: 'status', label: '策略状态', render: (row) => <span className={`entity-status task-${row.status}`}>{scheduledActionStatusLabels[row.status]}</span> },
     { key: 'time', label: '计划时间', render: (row) => new Date(row.scheduled_for).toLocaleString('zh-CN') },
     { key: 'score', label: '评分 / 预算', render: (row) => `${row.score?.toFixed(3) ?? '待评估'} / ${row.social_cost}` },
-    { key: 'decision', label: '决策依据', render: (row) => row.decision_reasons.join('、') || '等待 Worker 评估' },
+    { key: 'decision', label: '决策依据', render: (row) => row.decision_reasons.join('、') || '等待任务进程评估' },
     {
       key: 'actions', label: '操作',
       render: (row) => <div className="table-actions"><button disabled={!canManageProactive || row.status !== 'pending'} onClick={() => window.confirm('确认取消该定时行为？') && cancelAction.mutate(row.id)}><XCircle size={12} />取消</button></div>,
@@ -150,7 +150,7 @@ export function TaskStatusPage() {
         <article className="metric-card"><div className="metric-icon"><ListTodo size={18} /></div><p>待处理 / 重试</p><strong>{data ? `${data.pending} / ${data.retrying}` : '—'}</strong><span>由 Outbox 恢复投递</span></article>
         <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>执行中</p><strong>{data?.running ?? '—'}</strong><span>受数据库租约保护</span></article>
         <article className="metric-card"><div className="metric-icon"><ShieldAlert size={18} /></div><p>死信</p><strong>{data?.dead_letters ?? '—'}</strong><span>可审计安全重放</span></article>
-        <article className="metric-card"><div className="metric-icon"><ServerCog size={18} /></div><p>在线 Worker</p><strong>{data?.workers.length ?? '—'}</strong><span>{data?.workers[0]?.worker_id ?? '最近 45 秒无心跳'}</span></article>
+        <article className="metric-card"><div className="metric-icon"><ServerCog size={18} /></div><p>在线任务进程</p><strong>{data?.workers.length ?? '—'}</strong><span>{data?.workers[0]?.worker_id ?? '最近 45 秒无心跳'}</span></article>
       </section>
 
       <div className="notice info"><Clock3 size={17} /><div><strong>主动消息默认关闭，当前只分发到安全边界</strong><span>执行时会重新检查最新配置、安静时段、用户活跃度、关系边界、评分阈值与每日社交预算，再交给统一渠道适配器发送。</span></div></div>

@@ -292,7 +292,7 @@ export function EvaluationsPage() {
             <FlaskConical size={14} /> {runComparison.isPending ? '对比中…' : '运行同源对比'}
           </button>
         </div>
-        {comparisonTargets.data && comparisonTargets.data.items.length < 2 && <div className="empty-state compact">当前 Agent 的已发布 chat.realizer 路由不足两个模型档案，请先在认知资源中发布完整路由。</div>}
+        {comparisonTargets.data && comparisonTargets.data.items.length < 2 && <div className="empty-state compact">当前智能体的已发布 chat.realizer 路由不足两个模型档案，请先在认知资源中发布完整路由。</div>}
         <div className="comparison-targets" role="group" aria-label="对比模型候选">
           {comparisonTargets.data?.items.map((target) => <label className={selectedProfileKeys.includes(target.profile_key) ? 'selected' : ''} key={target.profile_key}>
             <input

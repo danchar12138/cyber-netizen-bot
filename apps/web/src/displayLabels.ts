@@ -88,7 +88,7 @@ export const componentHealthLabels: Readonly<Record<string, string>> = {
 export const configScopeLabels = {
   system: '系统',
   tenant: '租户',
-  agent: 'Agent',
+  agent: '智能体',
   channel: '渠道',
   user: '用户',
 } satisfies Labels<ConfigScope>
@@ -272,7 +272,7 @@ export const memoryKindLabels = {
 
 export const memoryVisibilityLabels = {
   user: '用户私有',
-  agent: 'Agent 共享',
+  agent: '智能体共享',
   tenant: '租户共享',
 } satisfies Labels<MemoryVisibility>
 
@@ -344,12 +344,12 @@ export const memoryIndexJobStatusLabels = {
 } satisfies Labels<MemoryIndexJob['status']>
 
 export const auditActionLabels: Readonly<Record<string, string>> = {
-  'agent.created': '创建 Agent',
-  'agent.copied': '复制 Agent',
-  'agent.renamed': '重命名 Agent',
-  'agent.status_updated': '更新 Agent 状态',
-  'agent.archived': '归档 Agent',
-  'agent.soft_deleted': '软删除 Agent',
+  'agent.created': '创建智能体',
+  'agent.copied': '复制智能体',
+  'agent.renamed': '重命名智能体',
+  'agent.status_updated': '更新智能体状态',
+  'agent.archived': '归档智能体',
+  'agent.soft_deleted': '软删除智能体',
   'user.status_updated': '更新用户状态',
   'user.access_policy_updated': '更新用户访问策略',
   'user.role_overridden': '覆盖用户角色',
@@ -395,7 +395,7 @@ export const auditActionLabels: Readonly<Record<string, string>> = {
 }
 
 export const auditResourceLabels: Readonly<Record<string, string>> = {
-  agent: 'Agent',
+  agent: '智能体',
   user: '用户',
   admin_session: '管理会话',
   configuration_version: '配置版本',
@@ -405,7 +405,7 @@ export const auditResourceLabels: Readonly<Record<string, string>> = {
   external_conversation_mapping: '外部会话映射',
   evaluation: '评测',
   persona: '人格版本',
-  prompt: 'Prompt 版本',
+  prompt: '提示词版本',
   model_profile: '模型档案',
   model_route: '模型路由',
   tool: '工具定义',
@@ -425,8 +425,8 @@ export const metadataKeyLabels: Readonly<Record<string, string>> = {
   name: '名称',
   previous_name: '原名称',
   previous_status: '原状态',
-  source_agent_id: '来源 Agent ID',
-  agent_id: 'Agent ID',
+  source_agent_id: '来源智能体 ID',
+  agent_id: '智能体 ID',
   channel_id: '渠道实例 ID',
   user_id: '用户 ID',
   conversation_id: '会话 ID',
@@ -496,15 +496,15 @@ export const metadataKeyLabels: Readonly<Record<string, string>> = {
   manifest_sha256: '备份清单 SHA-256',
   cutoff: '清理截止时间',
   conversation_cutoff: '会话清理截止时间',
-  agent_purge_before: 'Agent 清理截止时间',
+  agent_purge_before: '智能体清理截止时间',
   grace_cutoff: '宽限截止时间',
   records: '记录数',
   bytes: '字节数',
   candidates: '候选会话数',
   candidates_failed: '候选处理失败数',
-  agent_candidates: '候选 Agent 数',
-  agent_candidates_failed: 'Agent 候选处理失败数',
-  agents_purged: '已物理清理 Agent 数',
+  agent_candidates: '候选智能体数',
+  agent_candidates_failed: '智能体候选处理失败数',
+  agents_purged: '已物理清理智能体数',
   users_redacted: '已脱敏用户数',
   conversations: '会话数',
   conversations_redacted: '已脱敏会话数',

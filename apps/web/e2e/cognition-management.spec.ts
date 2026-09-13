@@ -392,7 +392,7 @@ test('可以按 Run ID 查看安全认知轨迹', async ({ page }) => {
   })
 
   await page.goto('/observability')
-  await page.getByRole('textbox', { name: 'Agent 运行 ID' }).fill(runId)
+  await page.getByRole('textbox', { name: '智能体运行 ID' }).fill(runId)
   await page.getByRole('button', { name: '查询轨迹' }).click()
   await expect(page.getByText('7 步')).toBeVisible()
   await expect(page.getByText('记忆召回', { exact: true })).toBeVisible()
@@ -402,6 +402,6 @@ test('可以按 Run ID 查看安全认知轨迹', async ({ page }) => {
   await expect(page.getByText('策略已选')).toBeVisible()
   await expect(page.getByText('development / friendly-echo-v1').last()).toBeVisible()
   await expect(page.getByText('API 错误率')).toBeVisible()
-  await expect(page.getByText('消息正文、完整 Prompt、隐藏推理')).toBeVisible()
+  await expect(page.getByText('消息正文、完整提示词、隐藏推理')).toBeVisible()
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
 })

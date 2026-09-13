@@ -285,7 +285,7 @@ class MemoryAdministrationRepository:
         async with self._lock:
             source = self._agents.get(source_agent_id)
             if source is None or source.tenant_id != tenant_id:
-                raise AdministrationNotFoundError("要复制的 Agent 不存在")
+                raise AdministrationNotFoundError("要复制的智能体不存在")
             self._ensure_unique_agent_name(tenant_id, name)
             agent = ManagedAgent(
                 id=uuid4(),
@@ -335,9 +335,9 @@ class MemoryAdministrationRepository:
         async with self._lock:
             agent = self._agents.get(agent_id)
             if agent is None or agent.tenant_id != tenant_id:
-                raise AdministrationNotFoundError("Agent 不存在")
+                raise AdministrationNotFoundError("智能体不存在")
             if agent.status is AgentLifecycleStatus.DELETED:
-                raise AdministrationConflictError("已删除的 Agent 不能重命名")
+                raise AdministrationConflictError("已删除的智能体不能重命名")
             self._ensure_unique_agent_name(tenant_id, name, excluding_agent_id=agent_id)
             updated = replace(agent, name=name)
             self._agents[agent_id] = updated
@@ -360,7 +360,7 @@ class MemoryAdministrationRepository:
         async with self._lock:
             agent = self._agents.get(agent_id)
             if agent is None or agent.tenant_id != tenant_id:
-                raise AdministrationNotFoundError("Agent 不存在")
+                raise AdministrationNotFoundError("智能体不存在")
             active_replacements = sum(
                 item.tenant_id == tenant_id
                 and item.id != agent_id
@@ -380,12 +380,12 @@ class MemoryAdministrationRepository:
         async with self._lock:
             agent = self._agents.get(agent_id)
             if agent is None or agent.tenant_id != tenant_id:
-                raise AdministrationNotFoundError("Agent 不存在")
+                raise AdministrationNotFoundError("智能体不存在")
             if agent.status not in {
                 AgentLifecycleStatus.ACTIVE,
                 AgentLifecycleStatus.DISABLED,
             }:
-                raise AdministrationConflictError("只有已启用或已停用的 Agent 可以归档")
+                raise AdministrationConflictError("只有已启用或已停用的智能体可以归档")
             has_replacement = any(
                 item.tenant_id == tenant_id
                 and item.id != agent_id
@@ -393,7 +393,7 @@ class MemoryAdministrationRepository:
                 for item in self._agents.values()
             )
             if not has_replacement:
-                raise AdministrationConflictError("归档前必须保留至少一个其他已启用 Agent")
+                raise AdministrationConflictError("归档前必须保留至少一个其他已启用智能体")
             updated = replace(
                 agent,
                 status=AgentLifecycleStatus.ARCHIVED,
@@ -427,9 +427,9 @@ class MemoryAdministrationRepository:
         async with self._lock:
             agent = self._agents.get(agent_id)
             if agent is None or agent.tenant_id != tenant_id:
-                raise AdministrationNotFoundError("Agent 不存在")
+                raise AdministrationNotFoundError("智能体不存在")
             if agent.status is not AgentLifecycleStatus.ARCHIVED:
-                raise AdministrationConflictError("只有已归档的 Agent 可以进入软删除保留期")
+                raise AdministrationConflictError("只有已归档的智能体可以进入软删除保留期")
             updated = replace(
                 agent,
                 status=AgentLifecycleStatus.DELETED,
@@ -467,12 +467,12 @@ class MemoryAdministrationRepository:
                 if (item := self._agents.get(agent_id)) is not None and item.tenant_id == tenant_id
             )
             if len(targets) != len(agent_ids):
-                raise AdministrationNotFoundError("一个或多个 Agent 不存在")
+                raise AdministrationNotFoundError("一个或多个智能体不存在")
             if any(
                 item.status not in {AgentLifecycleStatus.ACTIVE, AgentLifecycleStatus.DISABLED}
                 for item in targets
             ):
-                raise AdministrationConflictError("已归档或已删除的 Agent 不能变更启停状态")
+                raise AdministrationConflictError("已归档或已删除的智能体不能变更启停状态")
             lifecycle_status = AgentLifecycleStatus(status.value)
             updated = tuple(replace(item, status=lifecycle_status) for item in targets)
             self._agents.update((item.id, item) for item in updated)
@@ -792,7 +792,7 @@ class MemoryAdministrationRepository:
             and item.name.casefold() == name.casefold()
             for item in self._agents.values()
         ):
-            raise AdministrationConflictError("当前租户已存在同名 Agent")
+            raise AdministrationConflictError("当前租户已存在同名智能体")
 
 
 class SqlAlchemyAdministrationRepository:
@@ -990,7 +990,7 @@ class SqlAlchemyAdministrationRepository:
                 await session.flush()
                 return self._agent(row)
         except IntegrityError as error:
-            raise AdministrationConflictError("当前租户已存在同名 Agent") from error
+            raise AdministrationConflictError("当前租户已存在同名智能体") from error
 
     async def rename_agent(
         self,
@@ -1008,9 +1008,9 @@ class SqlAlchemyAdministrationRepository:
                     .with_for_update()
                 )
                 if row is None:
-                    raise AdministrationNotFoundError("Agent 不存在")
+                    raise AdministrationNotFoundError("智能体不存在")
                 if row.status == AgentLifecycleStatus.DELETED.value:
-                    raise AdministrationConflictError("已删除的 Agent 不能重命名")
+                    raise AdministrationConflictError("已删除的智能体不能重命名")
                 await self._ensure_unique_agent_name(
                     session,
                     tenant_id,
@@ -1030,7 +1030,7 @@ class SqlAlchemyAdministrationRepository:
                 await session.flush()
                 return self._agent(row)
         except IntegrityError as error:
-            raise AdministrationConflictError("当前租户已存在同名 Agent") from error
+            raise AdministrationConflictError("当前租户已存在同名智能体") from error
 
     async def get_agent_impact(
         self,
@@ -1043,7 +1043,7 @@ class SqlAlchemyAdministrationRepository:
                 select(Agent.id).where(Agent.tenant_id == tenant_id, Agent.id == agent_id)
             )
             if exists is None:
-                raise AdministrationNotFoundError("Agent 不存在")
+                raise AdministrationNotFoundError("智能体不存在")
 
             counts = AgentImpactCounts(
                 conversations=(
@@ -1173,17 +1173,17 @@ class SqlAlchemyAdministrationRepository:
             ).all()
             row = next((item for item in rows if item.id == agent_id), None)
             if row is None:
-                raise AdministrationNotFoundError("Agent 不存在")
+                raise AdministrationNotFoundError("智能体不存在")
             if row.status not in {
                 AgentLifecycleStatus.ACTIVE.value,
                 AgentLifecycleStatus.DISABLED.value,
             }:
-                raise AdministrationConflictError("只有已启用或已停用的 Agent 可以归档")
+                raise AdministrationConflictError("只有已启用或已停用的智能体可以归档")
             if not any(
                 item.id != agent_id and item.status == AgentLifecycleStatus.ACTIVE.value
                 for item in rows
             ):
-                raise AdministrationConflictError("归档前必须保留至少一个其他已启用 Agent")
+                raise AdministrationConflictError("归档前必须保留至少一个其他已启用智能体")
             previous_status = row.status
             row.status = AgentLifecycleStatus.ARCHIVED.value
             row.archived_at = archived_at
@@ -1196,7 +1196,7 @@ class SqlAlchemyAdministrationRepository:
                 .values(
                     status="disabled",
                     health_status="disabled",
-                    health_detail="所属 Agent 已归档",
+                    health_detail="所属智能体已归档",
                     updated_at=archived_at,
                 )
             )
@@ -1245,9 +1245,9 @@ class SqlAlchemyAdministrationRepository:
                 .with_for_update()
             )
             if row is None:
-                raise AdministrationNotFoundError("Agent 不存在")
+                raise AdministrationNotFoundError("智能体不存在")
             if row.status != AgentLifecycleStatus.ARCHIVED.value:
-                raise AdministrationConflictError("只有已归档的 Agent 可以进入软删除保留期")
+                raise AdministrationConflictError("只有已归档的智能体可以进入软删除保留期")
             row.status = AgentLifecycleStatus.DELETED.value
             row.deleted_at = deleted_at
             row.purge_after = purge_after
@@ -1284,7 +1284,7 @@ class SqlAlchemyAdministrationRepository:
                     )
                 )
                 if source is None:
-                    raise AdministrationNotFoundError("要复制的 Agent 不存在")
+                    raise AdministrationNotFoundError("要复制的智能体不存在")
                 await self._ensure_unique_agent_name(session, tenant_id, name)
                 row = Agent(
                     id=uuid4(),
@@ -1338,7 +1338,7 @@ class SqlAlchemyAdministrationRepository:
                 await session.flush()
                 return self._agent(row)
         except IntegrityError as error:
-            raise AdministrationConflictError("当前租户已存在同名 Agent") from error
+            raise AdministrationConflictError("当前租户已存在同名智能体") from error
 
     async def update_agent_status(
         self,
@@ -1357,13 +1357,13 @@ class SqlAlchemyAdministrationRepository:
                 )
             ).all()
             if len(rows) != len(agent_ids):
-                raise AdministrationNotFoundError("一个或多个 Agent 不存在")
+                raise AdministrationNotFoundError("一个或多个智能体不存在")
             if any(
                 row.status
                 not in {AgentLifecycleStatus.ACTIVE.value, AgentLifecycleStatus.DISABLED.value}
                 for row in rows
             ):
-                raise AdministrationConflictError("已归档或已删除的 Agent 不能变更启停状态")
+                raise AdministrationConflictError("已归档或已删除的智能体不能变更启停状态")
             for row in rows:
                 row.status = status.value
             self._add_audit(
@@ -1877,7 +1877,7 @@ class SqlAlchemyAdministrationRepository:
             statement = statement.where(Agent.id != excluding_agent_id)
         existing = await session.scalar(statement)
         if existing is not None:
-            raise AdministrationConflictError("当前租户已存在同名 Agent")
+            raise AdministrationConflictError("当前租户已存在同名智能体")
 
     @staticmethod
     def _add_agent_audit(

@@ -21,6 +21,10 @@ EXPECTED_MINIO_SETTINGS = {
     "minio_endpoint_url",
     "minio_secret_key",
 }
+EXPECTED_OBJECT_STORAGE_IMPLEMENTATIONS = {
+    "MemoryObjectStorage",
+    "MinioObjectStorage",
+}
 
 
 def _import_roots(source_path: Path) -> set[str]:
@@ -103,3 +107,22 @@ def test_object_storage_bootstrap_settings_use_only_minio_names() -> None:
     }
 
     assert object_storage_fields == EXPECTED_MINIO_SETTINGS
+
+
+def test_infrastructure_exposes_only_minio_and_memory_object_storage_implementations() -> None:
+    infrastructure_root = REPOSITORY_ROOT / "packages/infrastructure/src/cnb_infrastructure"
+    implementations: set[str] = set()
+    forbidden_backend_classes: set[str] = set()
+
+    for source_path in infrastructure_root.rglob("*.py"):
+        tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            if node.name.endswith("ObjectStorage"):
+                implementations.add(node.name)
+            if "aws" in node.name.lower() or "s3" in node.name.lower():
+                forbidden_backend_classes.add(node.name)
+
+    assert implementations == EXPECTED_OBJECT_STORAGE_IMPLEMENTATIONS
+    assert forbidden_backend_classes == set()

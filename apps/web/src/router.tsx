@@ -71,7 +71,7 @@ const agentsRoute = createRoute({
 const personasRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/personas',
-  component: () => <CognitionResourcesPage title="人格版本" kinds={['persona']} description="管理人格宪法、稳定特质、表达风格与关系边界，发布后由新 Agent Run 固定引用。" />,
+  component: () => <CognitionResourcesPage title="人格版本" kinds={['persona']} description="管理人格宪法、稳定特质、表达风格与关系边界，发布后由新的智能体运行固定引用。" />,
 })
 
 const modelsRoute = createRoute({
@@ -83,7 +83,7 @@ const modelsRoute = createRoute({
 const promptsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/prompts',
-  component: () => <CognitionResourcesPage title="Prompt 与上下文" kinds={['prompt']} description="版本化管理表达 Prompt；上下文选择由可回放的来源、优先级和 Token 预算控制。" />,
+  component: () => <CognitionResourcesPage title="提示词与上下文" kinds={['prompt']} description="版本化管理表达提示词（Prompt）；上下文选择由可回放的来源、优先级和 Token 预算控制。" />,
 })
 
 const memoriesRoute = createRoute({

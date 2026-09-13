@@ -166,7 +166,7 @@ export function ConversationsPage() {
               ) ?? []
               return (
                 <article key={message.id}>
-                  <div><strong>{message.sender_type === 'agent' ? 'Agent' : message.sender_type === 'user' ? '用户' : '系统'}</strong><span>{new Date(message.created_at).toLocaleString('zh-CN')} · {messageStatusLabels[message.status]}</span></div>
+                  <div><strong>{message.sender_type === 'agent' ? '智能体' : message.sender_type === 'user' ? '用户' : '系统'}</strong><span>{new Date(message.created_at).toLocaleString('zh-CN')} · {messageStatusLabels[message.status]}</span></div>
                   <p>{message.content}</p>
                   {messageAttachments.map((attachment) => <small key={attachment.id}><FileText size={12} />{attachment.original_name}</small>)}
                 </article>

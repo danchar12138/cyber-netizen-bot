@@ -507,7 +507,7 @@ export function ChatPage() {
                   <div className="message-avatar">{message.sender_type === 'agent' ? <Bot size={15} /> : <UserRound size={15} />}</div>
                   <div className="message-bubble">
                     <div className="message-meta">
-                      <strong>{message.sender_type === 'agent' ? identity.data?.agent_name ?? 'Agent' : '我'}</strong>
+                      <strong>{message.sender_type === 'agent' ? identity.data?.agent_name ?? '智能体' : '我'}</strong>
                       <span>{message.edited_from_id ? '分支消息 · ' : ''}{messageStatusLabels[message.status]}</span>
                     </div>
                     <div className="message-content">

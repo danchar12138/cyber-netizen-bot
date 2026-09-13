@@ -517,7 +517,7 @@ class SqlAlchemyInboundGatewayRepository:
             )
         )
         if channel is None or agent is None:
-            raise ValueError("渠道实例或 Agent 不存在")
+            raise ValueError("渠道实例或智能体不存在")
 
     @staticmethod
     def _identity_model(item: ExternalIdentityMapping) -> ExternalIdentityMappingModel:

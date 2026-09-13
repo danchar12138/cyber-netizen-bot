@@ -67,7 +67,7 @@ class WebChannelAdapter:
         del credential
         return AdapterHealth(
             status=ChannelHealthStatus.HEALTHY,
-            detail="内部 Web Adapter 已就绪，无需外部凭证。",
+            detail="内部 Web 适配器已就绪，无需外部凭证。",
             checked_at=datetime.now(UTC),
         )
 

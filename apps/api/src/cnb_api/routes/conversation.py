@@ -241,7 +241,7 @@ async def create_conversation(
     command: ConversationCreate,
     service: Annotated[ConversationService, Depends(get_conversation_service)],
 ) -> ConversationResponse:
-    """创建一个绑定当前开发用户与 Agent 的会话。"""
+    """创建一个绑定当前开发用户与智能体的会话。"""
     return _conversation_response(await service.create_conversation(title=command.title))
 
 
@@ -337,7 +337,7 @@ async def send_message(
     service: Annotated[ConversationService, Depends(get_conversation_service)],
     attachment_service: Annotated[AttachmentService, Depends(get_attachment_service)],
 ) -> MessageAcceptedResponse:
-    """原子接收幂等消息并异步启动 Agent Run。"""
+    """原子接收幂等消息并异步启动智能体运行。"""
     try:
         attachments = await attachment_service.prepare_message_attachments(
             conversation_id=conversation_id,
@@ -439,7 +439,7 @@ async def set_feedback(
     command: MessageFeedbackSet,
     service: Annotated[ConversationService, Depends(get_conversation_service)],
 ) -> MessageFeedbackResponse:
-    """新增或更新当前用户对一条 Agent 回复的反馈。"""
+    """新增或更新当前用户对一条智能体回复的反馈。"""
     try:
         item = await service.set_message_feedback(
             message_id, rating=command.rating, comment=command.comment
@@ -475,7 +475,7 @@ async def cancel_run(
     request: Request,
     service: Annotated[ConversationService, Depends(get_conversation_service)],
 ) -> AgentRunResponse:
-    """幂等取消排队中或运行中的 Agent Run。"""
+    """幂等取消排队中或运行中的智能体运行。"""
     run_tasks: dict[UUID, asyncio.Task[AgentRun]] = request.app.state.agent_run_tasks
     task = run_tasks.get(run_id)
     if task is not None and not task.done():

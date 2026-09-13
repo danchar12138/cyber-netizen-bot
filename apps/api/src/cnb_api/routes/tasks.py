@@ -131,7 +131,7 @@ async def dashboard(
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
     service: Annotated[BackgroundTaskService, Depends(get_task_service)],
 ) -> TaskDashboardResponse:
-    """返回任务真相计数和仍处于新鲜时间窗内的 Worker。"""
+    """返回任务真相计数和仍处于新鲜时间窗内的任务进程。"""
     counts = await service.counts(tenant_id=principal.tenant_id)
     workers = await service.active_workers()
     return TaskDashboardResponse(
@@ -269,7 +269,7 @@ async def replay_job(
 async def recover_expired_leases(
     service: Annotated[BackgroundTaskService, Depends(get_task_service)],
 ) -> dict[str, int]:
-    """立即恢复因 Worker/API 重启而过期的执行和发布租约。"""
+    """立即恢复因任务进程或 API 重启而过期的执行和发布租约。"""
     return {"recovered": await service.recover_expired()}
 
 

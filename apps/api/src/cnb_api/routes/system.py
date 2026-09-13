@@ -109,7 +109,7 @@ async def task_status(
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
     tasks: Annotated[BackgroundTaskService, Depends(get_task_service)],
 ) -> TaskStatusResponse:
-    """返回 PostgreSQL 任务真相计数和可验证的 Worker 心跳。"""
+    """返回 PostgreSQL 任务真相计数和可验证的任务进程心跳。"""
     counts = await tasks.counts(tenant_id=principal.tenant_id)
     workers = await tasks.active_workers()
     return TaskStatusResponse(
@@ -122,9 +122,9 @@ async def task_status(
             name="worker",
             status="healthy" if workers else "not_checked",
             detail=(
-                f"{len(workers)} 个 Worker 心跳正常。"
+                f"{len(workers)} 个任务进程心跳正常。"
                 if workers
-                else "最近 45 秒没有收到 Worker 心跳。"
+                else "最近 45 秒没有收到任务进程心跳。"
             ),
         ),
     )

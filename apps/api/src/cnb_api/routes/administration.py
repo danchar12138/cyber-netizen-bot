@@ -116,7 +116,7 @@ async def list_agents(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: str | None = None,
 ) -> ManagedAgentListResponse:
-    """按租户、状态与搜索词返回 Agent 键集分页列表。"""
+    """按租户、状态与搜索词返回智能体键集分页列表。"""
     try:
         page = await service.list_agents(
             tenant_id=principal.tenant_id,
@@ -148,7 +148,7 @@ async def create_agent(
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
     service: Annotated[AdministrationService, Depends(get_administration_service)],
 ) -> ManagedAgentResponse:
-    """创建一个启用状态且可独立配置认知资源的 Agent。"""
+    """创建一个启用状态且可独立配置认知资源的智能体。"""
     try:
         item = await service.create_agent(
             tenant_id=principal.tenant_id,
@@ -175,7 +175,7 @@ async def rename_agent(
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
     service: Annotated[AdministrationService, Depends(get_administration_service)],
 ) -> ManagedAgentResponse:
-    """修改当前租户内未删除 Agent 的显示名称。"""
+    """修改当前租户内未删除智能体的显示名称。"""
     try:
         item = await service.rename_agent(
             tenant_id=principal.tenant_id,
@@ -206,7 +206,7 @@ async def copy_agent(
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
     service: Annotated[AdministrationService, Depends(get_administration_service)],
 ) -> ManagedAgentResponse:
-    """复制 Agent 及其已发布认知资源，新版本从 1 独立演进。"""
+    """复制智能体及其已发布认知资源，新版本从 1 独立演进。"""
     try:
         item = await service.copy_agent(
             tenant_id=principal.tenant_id,
@@ -235,7 +235,7 @@ async def get_agent_impact(
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
     service: Annotated[AdministrationService, Depends(get_administration_service)],
 ) -> AgentLifecycleImpactResponse:
-    """预览归档或软删除 Agent 会影响的安全计数与阻断条件。"""
+    """预览归档或软删除智能体会影响的安全计数与阻断条件。"""
     try:
         impact = await service.get_agent_impact(
             tenant_id=principal.tenant_id,
@@ -261,7 +261,7 @@ async def archive_agent(
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
     service: Annotated[AdministrationService, Depends(get_administration_service)],
 ) -> ManagedAgentResponse:
-    """经逐字确认后归档 Agent，停止新运行、渠道和主动行为。"""
+    """经逐字确认后归档智能体，停止新运行、渠道和主动行为。"""
     try:
         item = await service.archive_agent(
             tenant_id=principal.tenant_id,
@@ -291,7 +291,7 @@ async def soft_delete_agent(
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
     service: Annotated[AdministrationService, Depends(get_administration_service)],
 ) -> ManagedAgentResponse:
-    """经逐字确认后软删除已归档 Agent，并登记最早物理清理时间。"""
+    """经逐字确认后软删除已归档智能体，并登记最早物理清理时间。"""
     try:
         item = await service.soft_delete_agent(
             tenant_id=principal.tenant_id,
@@ -320,7 +320,7 @@ async def update_agent_status(
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
     service: Annotated[AdministrationService, Depends(get_administration_service)],
 ) -> ManagedAgentListResponse:
-    """经明确确认后批量启停当前租户的 Agent。"""
+    """经明确确认后批量启停当前租户的智能体。"""
     try:
         items = await service.update_agent_status(
             tenant_id=principal.tenant_id,

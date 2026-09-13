@@ -49,7 +49,7 @@ test('可以管理渠道、运行能力协商并查看安全诊断', async ({ pa
     id: channelId, tenant_id: tenantId, agent_id: agentId, name: '内部 Web', platform: 'web', display_name: '内部 Web',
     implementation_status: 'ready', status: 'enabled', rate_limit_per_minute: 60,
     settings: { audience: 'internal' }, credential_configured: true, capabilities: webCapabilities,
-    health_status: 'healthy', health_detail: '内部 Web Adapter 已就绪，无需外部凭证。',
+    health_status: 'healthy', health_detail: '内部 Web 适配器已就绪，无需外部凭证。',
     last_checked_at: timestamp, created_by: userId, created_at: timestamp, updated_at: timestamp,
   }
   const telegramInstance = {
@@ -125,7 +125,7 @@ test('可以管理渠道、运行能力协商并查看安全诊断', async ({ pa
   await page.getByRole('button', { name: '连接测试' }).first().click()
   await expect(page.getByText('连接测试', { exact: true }).last()).toBeVisible()
   await expect(page.getByText(/系统 · 66666666/)).toBeVisible()
-  await page.getByLabel('当前 Agent').selectOption(otherAgentId)
+  await page.getByLabel('当前智能体').selectOption(otherAgentId)
   await expect(page.getByText(`当前标识：${otherAgentId}。`)).toBeVisible()
   await expect(page.getByText('尚未创建渠道实例')).toBeVisible()
   expect(scopedRequestAgents).toContain(agentId)

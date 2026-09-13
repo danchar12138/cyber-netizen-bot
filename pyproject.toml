@@ -1,7 +1,7 @@
 [project]
 name = "cyber-netizen-bot"
 version = "0.1.0"
-description = "Agent 主导并配备 Web 管理后台的赛博网友机器人"
+description = "自研拟人智能体主导并配备 Web 管理后台的赛博网友机器人"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [

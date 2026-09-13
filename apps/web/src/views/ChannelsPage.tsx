@@ -210,10 +210,10 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       {(catalog.isError || models.isError || instances.isError || events.isError) && <div className="notice error">渠道数据读取失败，请检查 API 与迁移状态。</div>}
       {(formError || operationError) && <div className="notice error">{formError || operationError?.message}</div>}
       <div className="notice info"><ShieldCheck size={17} /><div><strong>凭证只写入信封加密存储</strong><span>API、页面、诊断事件和审计记录只展示是否已配置；能力降级会明确列出，不会静默丢弃图片、文件、线程或流式语义。</span></div></div>
-      <div className="notice info"><RadioTower size={17} /><div><strong>渠道严格归属当前 Agent</strong><span>创建、凭证、连接测试、收发模拟和诊断事件均按全局选择隔离；当前标识：{selectedAgentId ?? '默认 Agent'}。</span></div></div>
+      <div className="notice info"><RadioTower size={17} /><div><strong>渠道严格归属当前智能体</strong><span>创建、凭证、连接测试、收发模拟和诊断事件均按全局选择隔离；当前标识：{selectedAgentId ?? '默认智能体'}。</span></div></div>
       <div className="notice info"><Send size={17} /><div><strong>Telegram 当前只开放安全出站</strong><span>支持纯文本主动消息、Forum 话题和消息编辑；Markdown、流式与附件会透明降级，真实入站将在后续独立阶段接通。</span></div></div>
 
-      <section className="channel-catalog-grid" aria-label="Adapter 能力目录">
+      <section className="channel-catalog-grid" aria-label="渠道适配器能力目录">
         {(catalog.data?.items ?? []).map((item) => <article className="panel channel-catalog-card" key={item.platform}>
           <div className="panel-heading"><div><span>{item.implementation_status === 'ready' ? '正式实现' : '契约占位'}</span><h2>{item.display_name}</h2></div><Cable size={19} /></div>
           <div className="permission-tags">{Object.entries(item.capabilities).filter(([, enabled]) => enabled === true).map(([key]) => <span key={key}>{displayLabel(channelCapabilityLabels, key)}</span>)}</div>

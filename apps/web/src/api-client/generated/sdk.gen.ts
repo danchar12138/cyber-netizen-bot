@@ -19,9 +19,9 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 };
 
 /**
- * List Agents
+ * 按租户、状态与搜索词返回智能体键集分页列表
  *
- * 按租户、状态与搜索词返回 Agent 键集分页列表。
+ * 按租户、状态与搜索词返回智能体键集分页列表。
  */
 export const getApiV1AdministrationAgents = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1AdministrationAgentsData, ThrowOnError>): RequestResult<GetApiV1AdministrationAgentsResponses, GetApiV1AdministrationAgentsErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1AdministrationAgentsResponses, GetApiV1AdministrationAgentsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -30,9 +30,9 @@ export const getApiV1AdministrationAgents = <ThrowOnError extends boolean = true
 });
 
 /**
- * Create Agent
+ * 创建一个启用状态且可独立配置认知资源的智能体
  *
- * 创建一个启用状态且可独立配置认知资源的 Agent。
+ * 创建一个启用状态且可独立配置认知资源的智能体。
  */
 export const postApiV1AdministrationAgents = <ThrowOnError extends boolean = true>(options: Options<PostApiV1AdministrationAgentsData, ThrowOnError>): RequestResult<PostApiV1AdministrationAgentsResponses, PostApiV1AdministrationAgentsErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1AdministrationAgentsResponses, PostApiV1AdministrationAgentsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -45,9 +45,9 @@ export const postApiV1AdministrationAgents = <ThrowOnError extends boolean = tru
 });
 
 /**
- * Update Agent Status
+ * 经明确确认后批量启停当前租户的智能体
  *
- * 经明确确认后批量启停当前租户的 Agent。
+ * 经明确确认后批量启停当前租户的智能体。
  */
 export const postApiV1AdministrationAgentsStatus = <ThrowOnError extends boolean = true>(options: Options<PostApiV1AdministrationAgentsStatusData, ThrowOnError>): RequestResult<PostApiV1AdministrationAgentsStatusResponses, PostApiV1AdministrationAgentsStatusErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1AdministrationAgentsStatusResponses, PostApiV1AdministrationAgentsStatusErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -60,9 +60,9 @@ export const postApiV1AdministrationAgentsStatus = <ThrowOnError extends boolean
 });
 
 /**
- * Rename Agent
+ * 修改当前租户内未删除智能体的显示名称
  *
- * 修改当前租户内未删除 Agent 的显示名称。
+ * 修改当前租户内未删除智能体的显示名称。
  */
 export const patchApiV1AdministrationAgentsByAgentId = <ThrowOnError extends boolean = true>(options: Options<PatchApiV1AdministrationAgentsByAgentIdData, ThrowOnError>): RequestResult<PatchApiV1AdministrationAgentsByAgentIdResponses, PatchApiV1AdministrationAgentsByAgentIdErrors, ThrowOnError, 'data'> => (options.client ?? client).patch<PatchApiV1AdministrationAgentsByAgentIdResponses, PatchApiV1AdministrationAgentsByAgentIdErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -75,9 +75,9 @@ export const patchApiV1AdministrationAgentsByAgentId = <ThrowOnError extends boo
 });
 
 /**
- * Archive Agent
+ * 经逐字确认后归档智能体，停止新运行、渠道和主动行为
  *
- * 经逐字确认后归档 Agent，停止新运行、渠道和主动行为。
+ * 经逐字确认后归档智能体，停止新运行、渠道和主动行为。
  */
 export const postApiV1AdministrationAgentsByAgentIdArchive = <ThrowOnError extends boolean = true>(options: Options<PostApiV1AdministrationAgentsByAgentIdArchiveData, ThrowOnError>): RequestResult<PostApiV1AdministrationAgentsByAgentIdArchiveResponses, PostApiV1AdministrationAgentsByAgentIdArchiveErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1AdministrationAgentsByAgentIdArchiveResponses, PostApiV1AdministrationAgentsByAgentIdArchiveErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -90,9 +90,9 @@ export const postApiV1AdministrationAgentsByAgentIdArchive = <ThrowOnError exten
 });
 
 /**
- * Copy Agent
+ * 复制智能体及其已发布认知资源，新版本从 1 独立演进
  *
- * 复制 Agent 及其已发布认知资源，新版本从 1 独立演进。
+ * 复制智能体及其已发布认知资源，新版本从 1 独立演进。
  */
 export const postApiV1AdministrationAgentsByAgentIdCopy = <ThrowOnError extends boolean = true>(options: Options<PostApiV1AdministrationAgentsByAgentIdCopyData, ThrowOnError>): RequestResult<PostApiV1AdministrationAgentsByAgentIdCopyResponses, PostApiV1AdministrationAgentsByAgentIdCopyErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1AdministrationAgentsByAgentIdCopyResponses, PostApiV1AdministrationAgentsByAgentIdCopyErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -105,9 +105,9 @@ export const postApiV1AdministrationAgentsByAgentIdCopy = <ThrowOnError extends 
 });
 
 /**
- * Soft Delete Agent
+ * 经逐字确认后软删除已归档智能体，并登记最早物理清理时间
  *
- * 经逐字确认后软删除已归档 Agent，并登记最早物理清理时间。
+ * 经逐字确认后软删除已归档智能体，并登记最早物理清理时间。
  */
 export const postApiV1AdministrationAgentsByAgentIdDelete = <ThrowOnError extends boolean = true>(options: Options<PostApiV1AdministrationAgentsByAgentIdDeleteData, ThrowOnError>): RequestResult<PostApiV1AdministrationAgentsByAgentIdDeleteResponses, PostApiV1AdministrationAgentsByAgentIdDeleteErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1AdministrationAgentsByAgentIdDeleteResponses, PostApiV1AdministrationAgentsByAgentIdDeleteErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -120,9 +120,9 @@ export const postApiV1AdministrationAgentsByAgentIdDelete = <ThrowOnError extend
 });
 
 /**
- * Get Agent Impact
+ * 预览归档或软删除智能体会影响的安全计数与阻断条件
  *
- * 预览归档或软删除 Agent 会影响的安全计数与阻断条件。
+ * 预览归档或软删除智能体会影响的安全计数与阻断条件。
  */
 export const getApiV1AdministrationAgentsByAgentIdImpact = <ThrowOnError extends boolean = true>(options: Options<GetApiV1AdministrationAgentsByAgentIdImpactData, ThrowOnError>): RequestResult<GetApiV1AdministrationAgentsByAgentIdImpactResponses, GetApiV1AdministrationAgentsByAgentIdImpactErrors, ThrowOnError, 'data'> => (options.client ?? client).get<GetApiV1AdministrationAgentsByAgentIdImpactResponses, GetApiV1AdministrationAgentsByAgentIdImpactErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -131,7 +131,7 @@ export const getApiV1AdministrationAgentsByAgentIdImpact = <ThrowOnError extends
 });
 
 /**
- * List Audit Records
+ * 查询当前租户和系统级只追加审计记录
  *
  * 查询当前租户和系统级只追加审计记录。
  */
@@ -142,7 +142,7 @@ export const getApiV1AdministrationAudit = <ThrowOnError extends boolean = true>
 });
 
 /**
- * List Admin Roles
+ * 返回首期不可变角色矩阵，供管理后台解释最小权限
  *
  * 返回首期不可变角色矩阵，供管理后台解释最小权限。
  */
@@ -153,7 +153,7 @@ export const getApiV1AdministrationRoles = <ThrowOnError extends boolean = true>
 });
 
 /**
- * Get Admin Session
+ * 返回服务端实际使用的当前管理主体和权限
  *
  * 返回服务端实际使用的当前管理主体和权限。
  */
@@ -164,7 +164,7 @@ export const getApiV1AdministrationSession = <ThrowOnError extends boolean = tru
 });
 
 /**
- * List Users
+ * 按租户、状态与搜索词返回用户键集分页列表
  *
  * 按租户、状态与搜索词返回用户键集分页列表。
  */
@@ -175,7 +175,7 @@ export const getApiV1AdministrationUsers = <ThrowOnError extends boolean = true>
 });
 
 /**
- * Update User Status
+ * 经明确确认后批量启停当前租户的用户
  *
  * 经明确确认后批量启停当前租户的用户。
  */
@@ -190,7 +190,7 @@ export const postApiV1AdministrationUsersStatus = <ThrowOnError extends boolean 
 });
 
 /**
- * Get User Detail
+ * 返回当前租户内不含凭证与令牌摘要的用户身份治理详情
  *
  * 返回当前租户内不含凭证与令牌摘要的用户身份治理详情。
  */
@@ -201,7 +201,7 @@ export const getApiV1AdministrationUsersByUserId = <ThrowOnError extends boolean
 });
 
 /**
- * Update User Access Policy
+ * 经逐字确认更新用户限流与临时停用策略
  *
  * 经逐字确认更新用户限流与临时停用策略。
  */
@@ -216,7 +216,7 @@ export const patchApiV1AdministrationUsersByUserIdAccessPolicy = <ThrowOnError e
 });
 
 /**
- * Set User Role Override
+ * 仅管理员可显式覆盖用户角色，且保留可信身份源角色
  *
  * 仅管理员可显式覆盖用户角色，且保留可信身份源角色。
  */
@@ -231,7 +231,7 @@ export const putApiV1AdministrationUsersByUserIdRoleOverride = <ThrowOnError ext
 });
 
 /**
- * Revoke User Role Override
+ * 仅管理员可撤销手工角色覆盖并恢复可信基线
  *
  * 仅管理员可撤销手工角色覆盖并恢复可信基线。
  */
@@ -246,7 +246,7 @@ export const postApiV1AdministrationUsersByUserIdRoleOverrideRevoke = <ThrowOnEr
 });
 
 /**
- * Revoke User Admin Session
+ * 逐字确认并审计地撤销当前租户内的指定管理会话
  *
  * 逐字确认并审计地撤销当前租户内的指定管理会话。
  */
@@ -261,7 +261,7 @@ export const postApiV1AdministrationUsersByUserIdSessionsBySessionIdRevoke = <Th
 });
 
 /**
- * Authentication Config
+ * 告诉 SPA 使用开发身份或 OIDC Authorization Code + PKCE
  *
  * 告诉 SPA 使用开发身份或 OIDC Authorization Code + PKCE。
  */
@@ -272,7 +272,7 @@ export const getApiV1AuthConfig = <ThrowOnError extends boolean = true>(options?
 });
 
 /**
- * List Instances
+ * 列出渠道实例
  */
 export const getApiV1Channels = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1ChannelsData, ThrowOnError>): RequestResult<GetApiV1ChannelsResponses, GetApiV1ChannelsErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1ChannelsResponses, GetApiV1ChannelsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -281,7 +281,7 @@ export const getApiV1Channels = <ThrowOnError extends boolean = true>(options?: 
 });
 
 /**
- * Create Instance
+ * 创建渠道实例
  */
 export const postApiV1Channels = <ThrowOnError extends boolean = true>(options: Options<PostApiV1ChannelsData, ThrowOnError>): RequestResult<PostApiV1ChannelsResponses, PostApiV1ChannelsErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1ChannelsResponses, PostApiV1ChannelsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -294,9 +294,9 @@ export const postApiV1Channels = <ThrowOnError extends boolean = true>(options: 
 });
 
 /**
- * List Catalog
+ * 列出正式 Web/Telegram 适配器与其余即时通讯占位能力
  *
- * 列出正式 Web/Telegram Adapter 与其余 IM 占位能力。
+ * 列出正式 Web/Telegram 适配器与其余即时通讯占位能力。
  */
 export const getApiV1ChannelsCatalog = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1ChannelsCatalogData, ThrowOnError>): RequestResult<GetApiV1ChannelsCatalogResponses, GetApiV1ChannelsCatalogErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1ChannelsCatalogResponses, GetApiV1ChannelsCatalogErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -305,7 +305,7 @@ export const getApiV1ChannelsCatalog = <ThrowOnError extends boolean = true>(opt
 });
 
 /**
- * List Events
+ * 列出渠道诊断事件
  */
 export const getApiV1ChannelsDiagnosticsEvents = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1ChannelsDiagnosticsEventsData, ThrowOnError>): RequestResult<GetApiV1ChannelsDiagnosticsEventsResponses, GetApiV1ChannelsDiagnosticsEventsErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1ChannelsDiagnosticsEventsResponses, GetApiV1ChannelsDiagnosticsEventsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -314,9 +314,9 @@ export const getApiV1ChannelsDiagnosticsEvents = <ThrowOnError extends boolean =
 });
 
 /**
- * Model Capabilities
+ * 返回当前内置模型服务的稳定能力矩阵
  *
- * 返回当前内置模型 Provider 的稳定能力矩阵。
+ * 返回当前内置模型服务的稳定能力矩阵。
  */
 export const getApiV1ChannelsModelCapabilities = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1ChannelsModelCapabilitiesData, ThrowOnError>): RequestResult<GetApiV1ChannelsModelCapabilitiesResponses, GetApiV1ChannelsModelCapabilitiesErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1ChannelsModelCapabilitiesResponses, GetApiV1ChannelsModelCapabilitiesErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -325,7 +325,7 @@ export const getApiV1ChannelsModelCapabilities = <ThrowOnError extends boolean =
 });
 
 /**
- * Simulate
+ * 模拟渠道能力协商
  */
 export const postApiV1ChannelsSimulate = <ThrowOnError extends boolean = true>(options: Options<PostApiV1ChannelsSimulateData, ThrowOnError>): RequestResult<PostApiV1ChannelsSimulateResponses, PostApiV1ChannelsSimulateErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1ChannelsSimulateResponses, PostApiV1ChannelsSimulateErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -338,7 +338,7 @@ export const postApiV1ChannelsSimulate = <ThrowOnError extends boolean = true>(o
 });
 
 /**
- * Get Instance
+ * 读取当前租户的单个渠道实例和安全凭证状态
  *
  * 读取当前租户的单个渠道实例和安全凭证状态。
  */
@@ -349,7 +349,7 @@ export const getApiV1ChannelsByChannelId = <ThrowOnError extends boolean = true>
 });
 
 /**
- * Update Instance
+ * 更新渠道实例
  */
 export const patchApiV1ChannelsByChannelId = <ThrowOnError extends boolean = true>(options: Options<PatchApiV1ChannelsByChannelIdData, ThrowOnError>): RequestResult<PatchApiV1ChannelsByChannelIdResponses, PatchApiV1ChannelsByChannelIdErrors, ThrowOnError, 'data'> => (options.client ?? client).patch<PatchApiV1ChannelsByChannelIdResponses, PatchApiV1ChannelsByChannelIdErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -362,7 +362,7 @@ export const patchApiV1ChannelsByChannelId = <ThrowOnError extends boolean = tru
 });
 
 /**
- * Test Connection
+ * 测试渠道连接
  */
 export const postApiV1ChannelsByChannelIdConnectionTest = <ThrowOnError extends boolean = true>(options: Options<PostApiV1ChannelsByChannelIdConnectionTestData, ThrowOnError>): RequestResult<PostApiV1ChannelsByChannelIdConnectionTestResponses, PostApiV1ChannelsByChannelIdConnectionTestErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1ChannelsByChannelIdConnectionTestResponses, PostApiV1ChannelsByChannelIdConnectionTestErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -371,7 +371,7 @@ export const postApiV1ChannelsByChannelIdConnectionTest = <ThrowOnError extends 
 });
 
 /**
- * Set Credential
+ * 写入渠道凭证
  */
 export const putApiV1ChannelsByChannelIdCredential = <ThrowOnError extends boolean = true>(options: Options<PutApiV1ChannelsByChannelIdCredentialData, ThrowOnError>): RequestResult<PutApiV1ChannelsByChannelIdCredentialResponses, PutApiV1ChannelsByChannelIdCredentialErrors, ThrowOnError, 'data'> => (options.client ?? client).put<PutApiV1ChannelsByChannelIdCredentialResponses, PutApiV1ChannelsByChannelIdCredentialErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -384,7 +384,7 @@ export const putApiV1ChannelsByChannelIdCredential = <ThrowOnError extends boole
 });
 
 /**
- * Clear Credential
+ * 清除渠道凭证
  */
 export const postApiV1ChannelsByChannelIdCredentialClear = <ThrowOnError extends boolean = true>(options: Options<PostApiV1ChannelsByChannelIdCredentialClearData, ThrowOnError>): RequestResult<PostApiV1ChannelsByChannelIdCredentialClearResponses, PostApiV1ChannelsByChannelIdCredentialClearErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1ChannelsByChannelIdCredentialClearResponses, PostApiV1ChannelsByChannelIdCredentialClearErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -397,7 +397,7 @@ export const postApiV1ChannelsByChannelIdCredentialClear = <ThrowOnError extends
 });
 
 /**
- * Deliver
+ * 发送渠道消息
  */
 export const postApiV1ChannelsByChannelIdDeliveries = <ThrowOnError extends boolean = true>(options: Options<PostApiV1ChannelsByChannelIdDeliveriesData, ThrowOnError>): RequestResult<PostApiV1ChannelsByChannelIdDeliveriesResponses, PostApiV1ChannelsByChannelIdDeliveriesErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1ChannelsByChannelIdDeliveriesResponses, PostApiV1ChannelsByChannelIdDeliveriesErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -410,7 +410,7 @@ export const postApiV1ChannelsByChannelIdDeliveries = <ThrowOnError extends bool
 });
 
 /**
- * Simulate Inbound
+ * 模拟渠道入站事件
  */
 export const postApiV1ChannelsByChannelIdSimulateInbound = <ThrowOnError extends boolean = true>(options: Options<PostApiV1ChannelsByChannelIdSimulateInboundData, ThrowOnError>): RequestResult<PostApiV1ChannelsByChannelIdSimulateInboundResponses, PostApiV1ChannelsByChannelIdSimulateInboundErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1ChannelsByChannelIdSimulateInboundResponses, PostApiV1ChannelsByChannelIdSimulateInboundErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -423,7 +423,7 @@ export const postApiV1ChannelsByChannelIdSimulateInbound = <ThrowOnError extends
 });
 
 /**
- * Reserve Attachment
+ * 校验声明并为单个对象签发短期直传授权
  *
  * 校验声明并为单个对象签发短期直传授权。
  */
@@ -438,7 +438,7 @@ export const postApiV1ChatAttachmentsReservations = <ThrowOnError extends boolea
 });
 
 /**
- * Delete Attachment
+ * 删除尚未随消息发送的对象并保留软删除元数据
  *
  * 删除尚未随消息发送的对象并保留软删除元数据。
  */
@@ -449,7 +449,7 @@ export const deleteApiV1ChatAttachmentsByAttachmentId = <ThrowOnError extends bo
 });
 
 /**
- * Complete Attachment
+ * 依据对象存储可信元数据完成大小、类型和摘要复核
  *
  * 依据对象存储可信元数据完成大小、类型和摘要复核。
  */
@@ -460,7 +460,7 @@ export const postApiV1ChatAttachmentsByAttachmentIdComplete = <ThrowOnError exte
 });
 
 /**
- * Preview Attachment
+ * 签发五分钟有效的私有对象预览地址
  *
  * 签发五分钟有效的私有对象预览地址。
  */
@@ -471,7 +471,7 @@ export const getApiV1ChatAttachmentsByAttachmentIdPreview = <ThrowOnError extend
 });
 
 /**
- * List Conversations
+ * 按最近更新顺序分页返回当前用户的会话
  *
  * 按最近更新顺序分页返回当前用户的会话。
  */
@@ -482,9 +482,9 @@ export const getApiV1ChatConversations = <ThrowOnError extends boolean = true>(o
 });
 
 /**
- * Create Conversation
+ * 创建一个绑定当前开发用户与智能体的会话
  *
- * 创建一个绑定当前开发用户与 Agent 的会话。
+ * 创建一个绑定当前开发用户与智能体的会话。
  */
 export const postApiV1ChatConversations = <ThrowOnError extends boolean = true>(options: Options<PostApiV1ChatConversationsData, ThrowOnError>): RequestResult<PostApiV1ChatConversationsResponses, PostApiV1ChatConversationsErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1ChatConversationsResponses, PostApiV1ChatConversationsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -497,7 +497,7 @@ export const postApiV1ChatConversations = <ThrowOnError extends boolean = true>(
 });
 
 /**
- * Delete Conversation
+ * 软删除会话，保留后续审计与保留期清理依据
  *
  * 软删除会话，保留后续审计与保留期清理依据。
  */
@@ -508,7 +508,7 @@ export const deleteApiV1ChatConversationsByConversationId = <ThrowOnError extend
 });
 
 /**
- * Update Conversation
+ * 重命名、归档或置顶当前用户的会话
  *
  * 重命名、归档或置顶当前用户的会话。
  */
@@ -523,7 +523,7 @@ export const patchApiV1ChatConversationsByConversationId = <ThrowOnError extends
 });
 
 /**
- * List Attachments
+ * 列出当前用户在目标会话内可见的附件
  *
  * 列出当前用户在目标会话内可见的附件。
  */
@@ -534,7 +534,7 @@ export const getApiV1ChatConversationsByConversationIdAttachments = <ThrowOnErro
 });
 
 /**
- * List Feedback
+ * 返回当前用户在会话中的消息反馈
  *
  * 返回当前用户在会话中的消息反馈。
  */
@@ -545,7 +545,7 @@ export const getApiV1ChatConversationsByConversationIdFeedback = <ThrowOnError e
 });
 
 /**
- * List Messages
+ * 以时间正序返回一页消息，下一页游标指向更早历史
  *
  * 以时间正序返回一页消息，下一页游标指向更早历史。
  */
@@ -556,9 +556,9 @@ export const getApiV1ChatConversationsByConversationIdMessages = <ThrowOnError e
 });
 
 /**
- * Send Message
+ * 原子接收幂等消息并异步启动智能体运行
  *
- * 原子接收幂等消息并异步启动 Agent Run。
+ * 原子接收幂等消息并异步启动智能体运行。
  */
 export const postApiV1ChatConversationsByConversationIdMessages = <ThrowOnError extends boolean = true>(options: Options<PostApiV1ChatConversationsByConversationIdMessagesData, ThrowOnError>): RequestResult<PostApiV1ChatConversationsByConversationIdMessagesResponses, PostApiV1ChatConversationsByConversationIdMessagesErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1ChatConversationsByConversationIdMessagesResponses, PostApiV1ChatConversationsByConversationIdMessagesErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -571,7 +571,7 @@ export const postApiV1ChatConversationsByConversationIdMessages = <ThrowOnError 
 });
 
 /**
- * Get Development Identity
+ * 返回当前开发模式身份，并确保其已在仓储中建立
  *
  * 返回当前开发模式身份，并确保其已在仓储中建立。
  */
@@ -582,7 +582,7 @@ export const getApiV1ChatIdentity = <ThrowOnError extends boolean = true>(option
 });
 
 /**
- * Search Messages
+ * 在当前用户可访问的未删除会话中搜索消息正文
  *
  * 在当前用户可访问的未删除会话中搜索消息正文。
  */
@@ -593,7 +593,7 @@ export const getApiV1ChatMessagesSearch = <ThrowOnError extends boolean = true>(
 });
 
 /**
- * Edit Message
+ * 编辑用户消息，在独立会话分支中启动新 Run
  *
  * 编辑用户消息，在独立会话分支中启动新 Run。
  */
@@ -608,7 +608,7 @@ export const postApiV1ChatMessagesByMessageIdEdit = <ThrowOnError extends boolea
 });
 
 /**
- * Delete Feedback
+ * 幂等删除当前用户对消息的反馈
  *
  * 幂等删除当前用户对消息的反馈。
  */
@@ -619,9 +619,9 @@ export const deleteApiV1ChatMessagesByMessageIdFeedback = <ThrowOnError extends 
 });
 
 /**
- * Set Feedback
+ * 新增或更新当前用户对一条智能体回复的反馈
  *
- * 新增或更新当前用户对一条 Agent 回复的反馈。
+ * 新增或更新当前用户对一条智能体回复的反馈。
  */
 export const putApiV1ChatMessagesByMessageIdFeedback = <ThrowOnError extends boolean = true>(options: Options<PutApiV1ChatMessagesByMessageIdFeedbackData, ThrowOnError>): RequestResult<PutApiV1ChatMessagesByMessageIdFeedbackResponses, PutApiV1ChatMessagesByMessageIdFeedbackErrors, ThrowOnError, 'data'> => (options.client ?? client).put<PutApiV1ChatMessagesByMessageIdFeedbackResponses, PutApiV1ChatMessagesByMessageIdFeedbackErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -634,7 +634,7 @@ export const putApiV1ChatMessagesByMessageIdFeedback = <ThrowOnError extends boo
 });
 
 /**
- * Regenerate Message
+ * 保留原回复，并以同一触发消息创建可幂等重试的新 Run
  *
  * 保留原回复，并以同一触发消息创建可幂等重试的新 Run。
  */
@@ -649,9 +649,9 @@ export const postApiV1ChatMessagesByMessageIdRegenerate = <ThrowOnError extends 
 });
 
 /**
- * Cancel Run
+ * 幂等取消排队中或运行中的智能体运行
  *
- * 幂等取消排队中或运行中的 Agent Run。
+ * 幂等取消排队中或运行中的智能体运行。
  */
 export const postApiV1ChatRunsByRunIdCancel = <ThrowOnError extends boolean = true>(options: Options<PostApiV1ChatRunsByRunIdCancelData, ThrowOnError>): RequestResult<PostApiV1ChatRunsByRunIdCancelResponses, PostApiV1ChatRunsByRunIdCancelErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1ChatRunsByRunIdCancelResponses, PostApiV1ChatRunsByRunIdCancelErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -660,7 +660,7 @@ export const postApiV1ChatRunsByRunIdCancel = <ThrowOnError extends boolean = tr
 });
 
 /**
- * Run Evaluation Suite
+ * 运行不产生外部调用的中文拟人行为回放集
  *
  * 运行不产生外部调用的中文拟人行为回放集。
  */
@@ -671,9 +671,9 @@ export const postApiV1CognitionEvaluationsRun = <ThrowOnError extends boolean = 
 });
 
 /**
- * List Resources
+ * 列出当前智能体的全部认知资源版本
  *
- * 列出当前 Agent 的全部认知资源版本。
+ * 列出当前智能体的全部认知资源版本。
  */
 export const getApiV1CognitionResources = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1CognitionResourcesData, ThrowOnError>): RequestResult<GetApiV1CognitionResourcesResponses, GetApiV1CognitionResourcesErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1CognitionResourcesResponses, GetApiV1CognitionResourcesErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -682,7 +682,7 @@ export const getApiV1CognitionResources = <ThrowOnError extends boolean = true>(
 });
 
 /**
- * Create Resource Draft
+ * 校验并创建一个新的不可变认知资源草稿
  *
  * 校验并创建一个新的不可变认知资源草稿。
  */
@@ -697,7 +697,7 @@ export const postApiV1CognitionResources = <ThrowOnError extends boolean = true>
 });
 
 /**
- * Test Resource Payload
+ * 在保存前执行确定性结构与安全边界测试
  *
  * 在保存前执行确定性结构与安全边界测试。
  */
@@ -712,7 +712,7 @@ export const postApiV1CognitionResourcesTest = <ThrowOnError extends boolean = t
 });
 
 /**
- * Publish Resource
+ * 发布草稿，并原子替代同资源键的旧发布版本
  *
  * 发布草稿，并原子替代同资源键的旧发布版本。
  */
@@ -723,7 +723,7 @@ export const postApiV1CognitionResourcesByResourceIdPublish = <ThrowOnError exte
 });
 
 /**
- * Rollback Resource
+ * 从任意历史版本复制并立即发布一个新的回滚版本
  *
  * 从任意历史版本复制并立即发布一个新的回滚版本。
  */
@@ -734,7 +734,7 @@ export const postApiV1CognitionResourcesByResourceIdRollback = <ThrowOnError ext
 });
 
 /**
- * Get Run Trace
+ * 返回安全阶段摘要、行动候选、情绪快照和模型调用
  *
  * 返回安全阶段摘要、行动候选、情绪快照和模型调用。
  */
@@ -745,7 +745,7 @@ export const getApiV1CognitionRunsByRunIdTrace = <ThrowOnError extends boolean =
 });
 
 /**
- * List Definitions
+ * 公开安全的 Schema 与默认值，绝不包含密钥内容
  *
  * 公开安全的 Schema 与默认值，绝不包含密钥内容。
  */
@@ -756,7 +756,7 @@ export const getApiV1ConfigurationDefinitions = <ThrowOnError extends boolean = 
 });
 
 /**
- * Create Draft
+ * 校验并保存一个新的不可变配置草稿
  *
  * 校验并保存一个新的不可变配置草稿。
  */
@@ -771,7 +771,7 @@ export const postApiV1ConfigurationDrafts = <ThrowOnError extends boolean = true
 });
 
 /**
- * Get Effective Configuration
+ * 返回指定上下文中的最终值及逐项来源
  *
  * 返回指定上下文中的最终值及逐项来源。
  */
@@ -782,7 +782,7 @@ export const getApiV1ConfigurationEffective = <ThrowOnError extends boolean = tr
 });
 
 /**
- * Import Configuration Package
+ * 将配置包校验为新草稿
  *
  * 将配置包校验为新草稿；导入不会直接发布或覆盖当前配置。
  */
@@ -797,7 +797,7 @@ export const postApiV1ConfigurationImports = <ThrowOnError extends boolean = tru
 });
 
 /**
- * List Secrets
+ * 仅列出密钥掩码和管理状态
  *
  * 仅列出密钥掩码和管理状态。
  */
@@ -808,7 +808,7 @@ export const getApiV1ConfigurationSecrets = <ThrowOnError extends boolean = true
 });
 
 /**
- * Set Secret
+ * 新增或覆盖一个作用域密钥，响应不包含明文
  *
  * 新增或覆盖一个作用域密钥，响应不包含明文。
  */
@@ -823,7 +823,7 @@ export const postApiV1ConfigurationSecrets = <ThrowOnError extends boolean = tru
 });
 
 /**
- * Clear Secret
+ * 清除一个密钥引用及其加密材料
  *
  * 清除一个密钥引用及其加密材料。
  */
@@ -834,7 +834,7 @@ export const deleteApiV1ConfigurationSecretsBySecretId = <ThrowOnError extends b
 });
 
 /**
- * Rotate Secret
+ * 以新材料轮换现有密钥引用
  *
  * 以新材料轮换现有密钥引用。
  */
@@ -849,7 +849,7 @@ export const postApiV1ConfigurationSecretsBySecretIdRotate = <ThrowOnError exten
 });
 
 /**
- * Test Secret Integrity
+ * 在服务端解密并验证完整性，不调用外部模型 API
  *
  * 在服务端解密并验证完整性，不调用外部模型 API。
  */
@@ -860,7 +860,7 @@ export const postApiV1ConfigurationSecretsBySecretIdTest = <ThrowOnError extends
 });
 
 /**
- * List Versions
+ * 按从新到旧的顺序返回不可变配置历史
  *
  * 按从新到旧的顺序返回不可变配置历史。
  */
@@ -871,7 +871,7 @@ export const getApiV1ConfigurationVersions = <ThrowOnError extends boolean = tru
 });
 
 /**
- * Get Version
+ * 返回一个不含密钥明文的配置版本
  *
  * 返回一个不含密钥明文的配置版本。
  */
@@ -882,7 +882,7 @@ export const getApiV1ConfigurationVersionsByVersionId = <ThrowOnError extends bo
 });
 
 /**
- * Preview Version Diff
+ * 返回相对当前发布版本或指定基线的安全差异
  *
  * 返回相对当前发布版本或指定基线的安全差异。
  */
@@ -893,7 +893,7 @@ export const getApiV1ConfigurationVersionsByVersionIdDiff = <ThrowOnError extend
 });
 
 /**
- * Export Version
+ * 导出可移植的非密钥配置包，文件中不包含内部资源 ID
  *
  * 导出可移植的非密钥配置包，文件中不包含内部资源 ID。
  */
@@ -904,7 +904,7 @@ export const getApiV1ConfigurationVersionsByVersionIdExport = <ThrowOnError exte
 });
 
 /**
- * Publish Version
+ * 原子发布草稿，并将其设为唯一生效版本
  *
  * 原子发布草稿，并将其设为唯一生效版本。
  */
@@ -915,7 +915,7 @@ export const postApiV1ConfigurationVersionsByVersionIdPublish = <ThrowOnError ex
 });
 
 /**
- * Rollback Version
+ * 复制历史快照并发布为新的不可变版本
  *
  * 复制历史快照并发布为新的不可变版本。
  */
@@ -926,7 +926,7 @@ export const postApiV1ConfigurationVersionsByVersionIdRollback = <ThrowOnError e
 });
 
 /**
- * Record Backup Restore Drill
+ * 登记隔离恢复后的清单摘要、计数与三项完整性证据
  *
  * 登记隔离恢复后的清单摘要、计数与三项完整性证据。
  */
@@ -941,7 +941,7 @@ export const postApiV1DataLifecycleBackupDrills = <ThrowOnError extends boolean 
 });
 
 /**
- * Export User Data
+ * 生成一次性 JSON 下载
  *
  * 生成一次性 JSON 下载；服务端不落盘，也不导出内部安全字段。
  */
@@ -956,7 +956,7 @@ export const postApiV1DataLifecycleExports = <ThrowOnError extends boolean = tru
 });
 
 /**
- * Forget User Data
+ * 清除用户正文、来源、向量、关系、会话副本和身份绑定
  *
  * 清除用户正文、来源、向量、关系、会话副本和身份绑定。
  */
@@ -971,7 +971,7 @@ export const postApiV1DataLifecycleForget = <ThrowOnError extends boolean = true
 });
 
 /**
- * Orphan Cleanup
+ * 清理 MinIO 孤儿对象
  */
 export const postApiV1DataLifecycleObjectsOrphansCleanup = <ThrowOnError extends boolean = true>(options: Options<PostApiV1DataLifecycleObjectsOrphansCleanupData, ThrowOnError>): RequestResult<PostApiV1DataLifecycleObjectsOrphansCleanupResponses, PostApiV1DataLifecycleObjectsOrphansCleanupErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1DataLifecycleObjectsOrphansCleanupResponses, PostApiV1DataLifecycleObjectsOrphansCleanupErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -984,7 +984,7 @@ export const postApiV1DataLifecycleObjectsOrphansCleanup = <ThrowOnError extends
 });
 
 /**
- * Lifecycle Overview
+ * 返回生效保留策略和最近安全运行证据
  *
  * 返回生效保留策略和最近安全运行证据。
  */
@@ -995,7 +995,7 @@ export const getApiV1DataLifecycleOverview = <ThrowOnError extends boolean = tru
 });
 
 /**
- * Retention Cleanup
+ * 执行保留期清理
  */
 export const postApiV1DataLifecycleRetentionCleanup = <ThrowOnError extends boolean = true>(options: Options<PostApiV1DataLifecycleRetentionCleanupData, ThrowOnError>): RequestResult<PostApiV1DataLifecycleRetentionCleanupResponses, PostApiV1DataLifecycleRetentionCleanupErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1DataLifecycleRetentionCleanupResponses, PostApiV1DataLifecycleRetentionCleanupErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1008,7 +1008,7 @@ export const postApiV1DataLifecycleRetentionCleanup = <ThrowOnError extends bool
 });
 
 /**
- * List Lifecycle Runs
+ * 列出数据生命周期运行记录
  */
 export const getApiV1DataLifecycleRuns = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1DataLifecycleRunsData, ThrowOnError>): RequestResult<GetApiV1DataLifecycleRunsResponses, GetApiV1DataLifecycleRunsErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1DataLifecycleRunsResponses, GetApiV1DataLifecycleRunsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1017,7 +1017,7 @@ export const getApiV1DataLifecycleRuns = <ThrowOnError extends boolean = true>(o
 });
 
 /**
- * Claim Blind Review
+ * 领取稳定的随机 A/B 任务
  *
  * 领取稳定的随机 A/B 任务；响应故意省略运行、模型和来源字段。
  */
@@ -1032,7 +1032,7 @@ export const postApiV1EvaluationsBlindAssignments = <ThrowOnError extends boolea
 });
 
 /**
- * Submit Blind Review
+ * 提交双侧独立评分，由服务端映射并保存候选/参考结论
  *
  * 提交双侧独立评分，由服务端映射并保存候选/参考结论。
  */
@@ -1047,7 +1047,7 @@ export const postApiV1EvaluationsBlindAssignmentsByAssignmentIdReviews = <ThrowO
 });
 
 /**
- * List Evaluation Comparison Targets
+ * 列出当前发布路由允许用于同源回放的模型档案
  *
  * 列出当前发布路由允许用于同源回放的模型档案。
  */
@@ -1058,7 +1058,7 @@ export const getApiV1EvaluationsComparisonTargets = <ThrowOnError extends boolea
 });
 
 /**
- * List Evaluation Comparisons
+ * 列出不携带回答正文的最近多模型对比摘要
  *
  * 列出不携带回答正文的最近多模型对比摘要。
  */
@@ -1069,7 +1069,7 @@ export const getApiV1EvaluationsComparisons = <ThrowOnError extends boolean = tr
 });
 
 /**
- * Run Evaluation Comparison
+ * 在同一冻结资源快照上运行多个已发布模型档案
  *
  * 在同一冻结资源快照上运行多个已发布模型档案。
  */
@@ -1084,7 +1084,7 @@ export const postApiV1EvaluationsComparisons = <ThrowOnError extends boolean = t
 });
 
 /**
- * Get Evaluation Comparison
+ * 读取受权限保护的多模型对比及逐用例完整回答
  *
  * 读取受权限保护的多模型对比及逐用例完整回答。
  */
@@ -1095,7 +1095,7 @@ export const getApiV1EvaluationsComparisonsByComparisonId = <ThrowOnError extend
 });
 
 /**
- * Get Evaluation Report
+ * 聚合自动门禁和团队盲评结果，并给出当前评审剩余数量
  *
  * 聚合自动门禁和团队盲评结果，并给出当前评审剩余数量。
  */
@@ -1106,7 +1106,7 @@ export const getApiV1EvaluationsReport = <ThrowOnError extends boolean = true>(o
 });
 
 /**
- * List Evaluation Runs
+ * 列出最近自动回放的轻量摘要
  *
  * 列出最近自动回放的轻量摘要。
  */
@@ -1117,7 +1117,7 @@ export const getApiV1EvaluationsRuns = <ThrowOnError extends boolean = true>(opt
 });
 
 /**
- * Run Evaluation
+ * 运行内置基线或指定已发布评测集并冻结版本、回答与成本
  *
  * 运行内置基线或指定已发布评测集并冻结版本、回答与成本。
  */
@@ -1132,7 +1132,7 @@ export const postApiV1EvaluationsRuns = <ThrowOnError extends boolean = true>(op
 });
 
 /**
- * Get Evaluation Run
+ * 读取自动质量门、冻结输出和全部确定性检查
  *
  * 读取自动质量门、冻结输出和全部确定性检查。
  */
@@ -1143,9 +1143,9 @@ export const getApiV1EvaluationsRunsByRunId = <ThrowOnError extends boolean = tr
 });
 
 /**
- * List Evaluation Suites
+ * 列出当前智能体的全部评测集版本
  *
- * 列出当前 Agent 的全部评测集版本。
+ * 列出当前智能体的全部评测集版本。
  */
 export const getApiV1EvaluationsSuites = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1EvaluationsSuitesData, ThrowOnError>): RequestResult<GetApiV1EvaluationsSuitesResponses, GetApiV1EvaluationsSuitesErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1EvaluationsSuitesResponses, GetApiV1EvaluationsSuitesErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1154,7 +1154,7 @@ export const getApiV1EvaluationsSuites = <ThrowOnError extends boolean = true>(o
 });
 
 /**
- * Create Evaluation Suite
+ * 一次性创建包含完整用例快照的不可变评测集草稿
  *
  * 一次性创建包含完整用例快照的不可变评测集草稿。
  */
@@ -1169,7 +1169,7 @@ export const postApiV1EvaluationsSuites = <ThrowOnError extends boolean = true>(
 });
 
 /**
- * Publish Evaluation Suite
+ * 发布草稿并原子替代同键的上一发布版本
  *
  * 发布草稿并原子替代同键的上一发布版本。
  */
@@ -1180,7 +1180,7 @@ export const postApiV1EvaluationsSuitesBySuiteIdPublish = <ThrowOnError extends 
 });
 
 /**
- * List Conversation Mappings
+ * 列出外部会话映射
  */
 export const getApiV1IntegrationsConversationMappings = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1IntegrationsConversationMappingsData, ThrowOnError>): RequestResult<GetApiV1IntegrationsConversationMappingsResponses, GetApiV1IntegrationsConversationMappingsErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1IntegrationsConversationMappingsResponses, GetApiV1IntegrationsConversationMappingsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1189,7 +1189,7 @@ export const getApiV1IntegrationsConversationMappings = <ThrowOnError extends bo
 });
 
 /**
- * Create Conversation Mapping
+ * 创建外部会话映射
  */
 export const postApiV1IntegrationsConversationMappings = <ThrowOnError extends boolean = true>(options: Options<PostApiV1IntegrationsConversationMappingsData, ThrowOnError>): RequestResult<PostApiV1IntegrationsConversationMappingsResponses, PostApiV1IntegrationsConversationMappingsErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1IntegrationsConversationMappingsResponses, PostApiV1IntegrationsConversationMappingsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1202,7 +1202,7 @@ export const postApiV1IntegrationsConversationMappings = <ThrowOnError extends b
 });
 
 /**
- * Update Conversation Mapping Status
+ * 更新外部会话映射状态
  */
 export const patchApiV1IntegrationsConversationMappingsByMappingIdStatus = <ThrowOnError extends boolean = true>(options: Options<PatchApiV1IntegrationsConversationMappingsByMappingIdStatusData, ThrowOnError>): RequestResult<PatchApiV1IntegrationsConversationMappingsByMappingIdStatusResponses, PatchApiV1IntegrationsConversationMappingsByMappingIdStatusErrors, ThrowOnError, 'data'> => (options.client ?? client).patch<PatchApiV1IntegrationsConversationMappingsByMappingIdStatusResponses, PatchApiV1IntegrationsConversationMappingsByMappingIdStatusErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1215,7 +1215,7 @@ export const patchApiV1IntegrationsConversationMappingsByMappingIdStatus = <Thro
 });
 
 /**
- * List Identity Mappings
+ * 列出外部身份映射
  */
 export const getApiV1IntegrationsIdentityMappings = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1IntegrationsIdentityMappingsData, ThrowOnError>): RequestResult<GetApiV1IntegrationsIdentityMappingsResponses, GetApiV1IntegrationsIdentityMappingsErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1IntegrationsIdentityMappingsResponses, GetApiV1IntegrationsIdentityMappingsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1224,7 +1224,7 @@ export const getApiV1IntegrationsIdentityMappings = <ThrowOnError extends boolea
 });
 
 /**
- * Create Identity Mapping
+ * 创建外部身份映射
  */
 export const postApiV1IntegrationsIdentityMappings = <ThrowOnError extends boolean = true>(options: Options<PostApiV1IntegrationsIdentityMappingsData, ThrowOnError>): RequestResult<PostApiV1IntegrationsIdentityMappingsResponses, PostApiV1IntegrationsIdentityMappingsErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1IntegrationsIdentityMappingsResponses, PostApiV1IntegrationsIdentityMappingsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1237,7 +1237,7 @@ export const postApiV1IntegrationsIdentityMappings = <ThrowOnError extends boole
 });
 
 /**
- * Update Identity Mapping Status
+ * 更新外部身份映射状态
  */
 export const patchApiV1IntegrationsIdentityMappingsByMappingIdStatus = <ThrowOnError extends boolean = true>(options: Options<PatchApiV1IntegrationsIdentityMappingsByMappingIdStatusData, ThrowOnError>): RequestResult<PatchApiV1IntegrationsIdentityMappingsByMappingIdStatusResponses, PatchApiV1IntegrationsIdentityMappingsByMappingIdStatusErrors, ThrowOnError, 'data'> => (options.client ?? client).patch<PatchApiV1IntegrationsIdentityMappingsByMappingIdStatusResponses, PatchApiV1IntegrationsIdentityMappingsByMappingIdStatusErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1250,9 +1250,9 @@ export const patchApiV1IntegrationsIdentityMappingsByMappingIdStatus = <ThrowOnE
 });
 
 /**
- * Simulate Inbound Acceptance
+ * 从内部 Web 适配器模拟已验签事件，不接收真实即时通讯 Webhook
  *
- * 从内部 Web Adapter 模拟已验签事件，不接收真实 IM Webhook。
+ * 从内部 Web 适配器模拟已验签事件，不接收真实即时通讯 Webhook。
  */
 export const postApiV1IntegrationsInboundByChannelIdSimulate = <ThrowOnError extends boolean = true>(options: Options<PostApiV1IntegrationsInboundByChannelIdSimulateData, ThrowOnError>): RequestResult<PostApiV1IntegrationsInboundByChannelIdSimulateResponses, PostApiV1IntegrationsInboundByChannelIdSimulateErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1IntegrationsInboundByChannelIdSimulateResponses, PostApiV1IntegrationsInboundByChannelIdSimulateErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1265,7 +1265,7 @@ export const postApiV1IntegrationsInboundByChannelIdSimulate = <ThrowOnError ext
 });
 
 /**
- * List Inbox Events
+ * 列出入站箱事件
  */
 export const getApiV1IntegrationsInbox = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1IntegrationsInboxData, ThrowOnError>): RequestResult<GetApiV1IntegrationsInboxResponses, GetApiV1IntegrationsInboxErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1IntegrationsInboxResponses, GetApiV1IntegrationsInboxErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1274,7 +1274,7 @@ export const getApiV1IntegrationsInbox = <ThrowOnError extends boolean = true>(o
 });
 
 /**
- * Replay Inbox Event
+ * 安全重放入站箱事件
  */
 export const postApiV1IntegrationsInboxByInboxIdReplay = <ThrowOnError extends boolean = true>(options: Options<PostApiV1IntegrationsInboxByInboxIdReplayData, ThrowOnError>): RequestResult<PostApiV1IntegrationsInboxByInboxIdReplayResponses, PostApiV1IntegrationsInboxByInboxIdReplayErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1IntegrationsInboxByInboxIdReplayResponses, PostApiV1IntegrationsInboxByInboxIdReplayErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1287,9 +1287,9 @@ export const postApiV1IntegrationsInboxByInboxIdReplay = <ThrowOnError extends b
 });
 
 /**
- * List Episodes
+ * 列出当前智能体的情景记录
  *
- * 列出当前 Agent 的 Episode。
+ * 列出当前智能体的情景记录。
  */
 export const getApiV1MemoryEpisodes = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1MemoryEpisodesData, ThrowOnError>): RequestResult<GetApiV1MemoryEpisodesResponses, GetApiV1MemoryEpisodesErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1MemoryEpisodesResponses, GetApiV1MemoryEpisodesErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1298,7 +1298,7 @@ export const getApiV1MemoryEpisodes = <ThrowOnError extends boolean = true>(opti
 });
 
 /**
- * Create Episode
+ * 创建带来源消息列表的 Episode
  *
  * 创建带来源消息列表的 Episode。
  */
@@ -1313,7 +1313,7 @@ export const postApiV1MemoryEpisodes = <ThrowOnError extends boolean = true>(opt
 });
 
 /**
- * Close Episode
+ * 关闭 Episode 或标记为已巩固
  *
  * 关闭 Episode 或标记为已巩固。
  */
@@ -1328,7 +1328,7 @@ export const postApiV1MemoryEpisodesByEpisodeIdClose = <ThrowOnError extends boo
 });
 
 /**
- * List Index Jobs
+ * 查看可审计的 embedding 重建任务进度
  *
  * 查看可审计的 embedding 重建任务进度。
  */
@@ -1339,9 +1339,9 @@ export const getApiV1MemoryIndexJobs = <ThrowOnError extends boolean = true>(opt
 });
 
 /**
- * Rebuild Index
+ * 建立索引进度和事务发件箱任务，由 Dramatiq 任务进程异步执行
  *
- * 建立索引进度和 Outbox 任务，由 Dramatiq Worker 异步执行。
+ * 建立索引进度和事务发件箱任务，由 Dramatiq 任务进程异步执行。
  */
 export const postApiV1MemoryIndexJobs = <ThrowOnError extends boolean = true>(options: Options<PostApiV1MemoryIndexJobsData, ThrowOnError>): RequestResult<PostApiV1MemoryIndexJobsResponses, PostApiV1MemoryIndexJobsErrors, ThrowOnError, 'data'> => (options.client ?? client).post<PostApiV1MemoryIndexJobsResponses, PostApiV1MemoryIndexJobsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1354,9 +1354,9 @@ export const postApiV1MemoryIndexJobs = <ThrowOnError extends boolean = true>(op
 });
 
 /**
- * List Memories
+ * 按当前租户和智能体搜索长期记忆
  *
- * 按当前租户和 Agent 搜索长期记忆。
+ * 按当前租户和智能体搜索长期记忆。
  */
 export const getApiV1MemoryMemories = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1MemoryMemoriesData, ThrowOnError>): RequestResult<GetApiV1MemoryMemoriesResponses, GetApiV1MemoryMemoriesErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1MemoryMemoriesResponses, GetApiV1MemoryMemoriesErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1365,7 +1365,7 @@ export const getApiV1MemoryMemories = <ThrowOnError extends boolean = true>(opti
 });
 
 /**
- * Create Memory
+ * 创建具有显式来源和治理属性的长期记忆
  *
  * 创建具有显式来源和治理属性的长期记忆。
  */
@@ -1380,7 +1380,7 @@ export const postApiV1MemoryMemories = <ThrowOnError extends boolean = true>(opt
 });
 
 /**
- * Get Memory
+ * 查看一条记忆及其来源、冲突和替代链
  *
  * 查看一条记忆及其来源、冲突和替代链。
  */
@@ -1391,7 +1391,7 @@ export const getApiV1MemoryMemoriesByMemoryId = <ThrowOnError extends boolean = 
 });
 
 /**
- * Set Memory Confirmation
+ * 确认记忆或标记争议，并同步调整置信度
  *
  * 确认记忆或标记争议，并同步调整置信度。
  */
@@ -1406,7 +1406,7 @@ export const postApiV1MemoryMemoriesByMemoryIdConfirmation = <ThrowOnError exten
 });
 
 /**
- * Create Memory Conflict
+ * 显式登记两条记忆的冲突，不静默覆盖其中任意一条
  *
  * 显式登记两条记忆的冲突，不静默覆盖其中任意一条。
  */
@@ -1421,7 +1421,7 @@ export const postApiV1MemoryMemoriesByMemoryIdConflicts = <ThrowOnError extends 
 });
 
 /**
- * Correct Memory
+ * 创建纠正版本，不覆盖或删除原始审计事实
  *
  * 创建纠正版本，不覆盖或删除原始审计事实。
  */
@@ -1436,7 +1436,7 @@ export const postApiV1MemoryMemoriesByMemoryIdCorrections = <ThrowOnError extend
 });
 
 /**
- * Forget Memory
+ * 清除正文、来源摘录和向量，同时保留最小审计骨架
  *
  * 清除正文、来源摘录和向量，同时保留最小审计骨架。
  */
@@ -1451,7 +1451,7 @@ export const postApiV1MemoryMemoriesByMemoryIdForget = <ThrowOnError extends boo
 });
 
 /**
- * Recall Memories
+ * 按发布配置执行全文、语义、时间、重要性和关系混合召回
  *
  * 按发布配置执行全文、语义、时间、重要性和关系混合召回。
  */
@@ -1466,9 +1466,9 @@ export const postApiV1MemoryRecall = <ThrowOnError extends boolean = true>(optio
 });
 
 /**
- * Get Relationship
+ * 查看当前智能体与指定用户的关系快照和事件
  *
- * 查看当前 Agent 与指定用户的关系快照和事件。
+ * 查看当前智能体与指定用户的关系快照和事件。
  */
 export const getApiV1MemoryRelationship = <ThrowOnError extends boolean = true>(options: Options<GetApiV1MemoryRelationshipData, ThrowOnError>): RequestResult<GetApiV1MemoryRelationshipResponses, GetApiV1MemoryRelationshipErrors, ThrowOnError, 'data'> => (options.client ?? client).get<GetApiV1MemoryRelationshipResponses, GetApiV1MemoryRelationshipErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1477,7 +1477,7 @@ export const getApiV1MemoryRelationship = <ThrowOnError extends boolean = true>(
 });
 
 /**
- * Create Relationship Event
+ * 追加关系事件并确定性推进关系阶段
  *
  * 追加关系事件并确定性推进关系阶段。
  */
@@ -1492,7 +1492,7 @@ export const postApiV1MemoryRelationshipEvents = <ThrowOnError extends boolean =
 });
 
 /**
- * Dashboard
+ * 返回当前租户的聚合指标、冻结成本和确定性活动告警
  *
  * 返回当前租户的聚合指标、冻结成本和确定性活动告警。
  */
@@ -1503,7 +1503,7 @@ export const getApiV1ObservabilityDashboard = <ThrowOnError extends boolean = tr
 });
 
 /**
- * Overview
+ * 返回管理总览所需的安全聚合数据和可选真实依赖状态
  *
  * 返回管理总览所需的安全聚合数据和可选真实依赖状态。
  */
@@ -1514,7 +1514,7 @@ export const getApiV1SystemOverview = <ThrowOnError extends boolean = true>(opti
 });
 
 /**
- * Bootstrap Settings
+ * 展示安全的启动设置摘要，不返回数据库、Redis、MinIO 或主密钥明文
  *
  * 展示安全的启动设置摘要，不返回数据库、Redis、MinIO 或主密钥明文。
  */
@@ -1525,9 +1525,9 @@ export const getApiV1SystemSettings = <ThrowOnError extends boolean = true>(opti
 });
 
 /**
- * Task Status
+ * 返回 PostgreSQL 任务真相计数和可验证的任务进程心跳
  *
- * 返回 PostgreSQL 任务真相计数和可验证的 Worker 心跳。
+ * 返回 PostgreSQL 任务真相计数和可验证的任务进程心跳。
  */
 export const getApiV1SystemTasksStatus = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1SystemTasksStatusData, ThrowOnError>): RequestResult<GetApiV1SystemTasksStatusResponses, GetApiV1SystemTasksStatusErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1SystemTasksStatusResponses, GetApiV1SystemTasksStatusErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1536,9 +1536,9 @@ export const getApiV1SystemTasksStatus = <ThrowOnError extends boolean = true>(o
 });
 
 /**
- * Dashboard
+ * 返回任务真相计数和仍处于新鲜时间窗内的任务进程
  *
- * 返回任务真相计数和仍处于新鲜时间窗内的 Worker。
+ * 返回任务真相计数和仍处于新鲜时间窗内的任务进程。
  */
 export const getApiV1TasksDashboard = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1TasksDashboardData, ThrowOnError>): RequestResult<GetApiV1TasksDashboardResponses, GetApiV1TasksDashboardErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1TasksDashboardResponses, GetApiV1TasksDashboardErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1547,7 +1547,7 @@ export const getApiV1TasksDashboard = <ThrowOnError extends boolean = true>(opti
 });
 
 /**
- * List Dead Letters
+ * 仅返回可由管理员检查和安全重放的死信任务
  *
  * 仅返回可由管理员检查和安全重放的死信任务。
  */
@@ -1558,7 +1558,7 @@ export const getApiV1TasksDeadLetters = <ThrowOnError extends boolean = true>(op
 });
 
 /**
- * List Jobs
+ * 按创建时间倒序查询当前租户任务
  *
  * 按创建时间倒序查询当前租户任务。
  */
@@ -1569,7 +1569,7 @@ export const getApiV1TasksJobs = <ThrowOnError extends boolean = true>(options?:
 });
 
 /**
- * Get Job
+ * 返回任务及其全部尝试，但不返回原始业务载荷
  *
  * 返回任务及其全部尝试，但不返回原始业务载荷。
  */
@@ -1580,7 +1580,7 @@ export const getApiV1TasksJobsByJobId = <ThrowOnError extends boolean = true>(op
 });
 
 /**
- * Cancel Job
+ * 取消未开始任务，或给运行中任务设置协作式取消标记
  *
  * 取消未开始任务，或给运行中任务设置协作式取消标记。
  */
@@ -1595,7 +1595,7 @@ export const postApiV1TasksJobsByJobIdCancel = <ThrowOnError extends boolean = t
 });
 
 /**
- * Replay Job
+ * 复制失败任务为全新审计实体，不复活或改写原任务
  *
  * 复制失败任务为全新审计实体，不复活或改写原任务。
  */
@@ -1610,9 +1610,9 @@ export const postApiV1TasksJobsByJobIdReplay = <ThrowOnError extends boolean = t
 });
 
 /**
- * Recover Expired Leases
+ * 立即恢复因任务进程或 API 重启而过期的执行和发布租约
  *
- * 立即恢复因 Worker/API 重启而过期的执行和发布租约。
+ * 立即恢复因任务进程或 API 重启而过期的执行和发布租约。
  */
 export const postApiV1TasksMaintenanceRecover = <ThrowOnError extends boolean = true>(options?: Options<PostApiV1TasksMaintenanceRecoverData, ThrowOnError>): RequestResult<PostApiV1TasksMaintenanceRecoverResponses, PostApiV1TasksMaintenanceRecoverErrors, ThrowOnError, 'data'> => (options?.client ?? client).post<PostApiV1TasksMaintenanceRecoverResponses, PostApiV1TasksMaintenanceRecoverErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
@@ -1621,7 +1621,7 @@ export const postApiV1TasksMaintenanceRecover = <ThrowOnError extends boolean = 
 });
 
 /**
- * List Scheduled Actions
+ * 查看待评估、已抑制和已分发的定时行为
  *
  * 查看待评估、已抑制和已分发的定时行为。
  */
@@ -1632,7 +1632,7 @@ export const getApiV1TasksScheduledActions = <ThrowOnError extends boolean = tru
 });
 
 /**
- * Create Scheduled Action
+ * 创建带 PostgreSQL 真相任务的主动行为候选
  *
  * 创建带 PostgreSQL 真相任务的主动行为候选。
  */
@@ -1647,7 +1647,7 @@ export const postApiV1TasksScheduledActions = <ThrowOnError extends boolean = tr
 });
 
 /**
- * Cancel Scheduled Action
+ * 原子取消行为和它尚未执行的后台任务
  *
  * 原子取消行为和它尚未执行的后台任务。
  */
@@ -1662,7 +1662,7 @@ export const postApiV1TasksScheduledActionsByActionIdCancel = <ThrowOnError exte
 });
 
 /**
- * Live
+ * 报告 API 进程是否能够处理请求
  *
  * 报告 API 进程是否能够处理请求。
  */
@@ -1673,7 +1673,7 @@ export const getHealthLive = <ThrowOnError extends boolean = true>(options?: Opt
 });
 
 /**
- * Ready
+ * 执行有超时边界的依赖探测，或明确说明深度检查未启用
  *
  * 执行有超时边界的依赖探测，或明确说明深度检查未启用。
  */

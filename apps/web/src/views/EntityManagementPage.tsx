@@ -43,7 +43,7 @@ const statusLabels: Record<EntityLifecycleStatus, string> = {
 
 const impactLabels = {
   conversations: '会话',
-  agent_runs: 'Agent Run',
+  agent_runs: '智能体运行',
   cognition_resource_versions: '认知版本',
   memories: '记忆',
   relationships: '关系',
@@ -148,14 +148,14 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
   })
   const renameAgent = useMutation({
     mutationFn: async () => {
-      if (selectedAgentId === null) throw new Error('请先选择一个 Agent')
+      if (selectedAgentId === null) throw new Error('请先选择一个智能体')
       return renameManagedAgent(selectedAgentId, renameAgentName.trim())
     },
     onSuccess: refreshAgentManagement,
   })
   const archiveAgent = useMutation({
     mutationFn: async () => {
-      if (selectedAgentId === null) throw new Error('请先选择一个 Agent')
+      if (selectedAgentId === null) throw new Error('请先选择一个智能体')
       return archiveManagedAgent(selectedAgentId, lifecycleConfirmation)
     },
     onSuccess: async () => {
@@ -165,7 +165,7 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
   })
   const deleteAgent = useMutation({
     mutationFn: async () => {
-      if (selectedAgentId === null) throw new Error('请先选择一个 Agent')
+      if (selectedAgentId === null) throw new Error('请先选择一个智能体')
       return softDeleteManagedAgent(selectedAgentId, lifecycleConfirmation)
     },
     onSuccess: async () => {
@@ -188,7 +188,7 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
   const columns = useMemo<Array<AdminTableColumn<EntityRow>>>(() => [
     {
       key: 'name',
-      label: isAgent ? 'Agent' : '用户',
+      label: isAgent ? '智能体' : '用户',
       render: (row) => <div className="table-primary"><strong>{row.name}</strong><code>{row.id}</code></div>,
     },
     {
@@ -222,7 +222,7 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
 
   const runBulk = (status: 'active' | 'disabled') => {
     const action = status === 'active' ? '启用' : '停用'
-    if (window.confirm(`确认${action}已选择的 ${selected.size} 个${isAgent ? ' Agent' : '用户'}？此操作会写入审计日志。`)) {
+    if (window.confirm(`确认${action}已选择的 ${selected.size} 个${isAgent ? '智能体' : '用户'}？此操作会写入审计日志。`)) {
       updateStatus.mutate(status)
     }
   }
@@ -233,8 +233,8 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
       <section className="page-heading compact">
         <div>
           <p className="eyebrow">资源管理</p>
-          <h1>{isAgent ? 'Agent 管理' : '用户与身份'}</h1>
-          <p>{isAgent ? '管理 Agent 的创建、复制、命名、启停、归档与软删除保留期；人格版本通过独立入口治理。' : '集中管理当前租户用户的状态、请求预算、临时停用、可信角色、身份绑定与管理会话。'}</p>
+          <h1>{isAgent ? '智能体管理' : '用户与身份'}</h1>
+          <p>{isAgent ? '管理智能体的创建、复制、命名、启停、归档与软删除保留期；人格版本通过独立入口治理。' : '集中管理当前租户用户的状态、请求预算、临时停用、可信角色、身份绑定与管理会话。'}</p>
         </div>
         <div className="heading-actions">
           <button className="secondary-button" disabled={!canWrite || selected.size === 0 || !bulkStatusAllowed || updateStatus.isPending} onClick={() => runBulk('active')}><Power size={14} /> 批量启用</button>
@@ -246,22 +246,22 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
         <Icon size={17} />
         <div>
           <strong>{isAgent ? `已选择 ${selected.size} 项` : `当前身份：${session.data?.display_name ?? '读取中'} · ${session.data ? adminRoleLabels[session.data.role] : '—'}`}</strong>
-          <span>{isAgent ? '选择一个 Agent 可自动加载依赖影响预览；归档与删除均要求逐字确认。' : `租户 ${session.data?.tenant_id ?? '读取中'}；用户状态变更同样经过租户隔离、权限和确认校验。`}</span>
+          <span>{isAgent ? '选择一个智能体可自动加载依赖影响预览；归档与删除均要求逐字确认。' : `租户 ${session.data?.tenant_id ?? '读取中'}；用户状态变更同样经过租户隔离、权限和确认校验。`}</span>
         </div>
       </div>
       {pendingError && <div className="notice error" role="alert">{pendingError.message}</div>}
 
       {isAgent && canWrite && (
-        <section className="panel agent-create-panel" aria-label="创建或复制 Agent">
+        <section className="panel agent-create-panel" aria-label="创建或复制智能体">
           <form onSubmit={(event) => {
             event.preventDefault()
             if (newAgentName.trim()) createAgent.mutate()
           }}>
-            <div><strong>新建 Agent</strong><span>创建空白认知空间，后续独立配置人格与模型。</span></div>
+            <div><strong>新建智能体</strong><span>创建空白认知空间，后续独立配置人格与模型。</span></div>
             <input
-              aria-label="新 Agent 名称"
+              aria-label="新智能体名称"
               maxLength={120}
-              placeholder="输入新 Agent 名称"
+              placeholder="输入新智能体名称"
               value={newAgentName}
               onChange={(event) => setNewAgentName(event.target.value)}
             />
@@ -273,14 +273,14 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
             event.preventDefault()
             if (copySourceId && copyAgentName.trim()) copyAgent.mutate()
           }}>
-            <div><strong>复制 Agent</strong><span>复制源 Agent 已发布的认知资源，并从版本 1 独立演进。</span></div>
-            <select aria-label="源 Agent" value={copySourceId} onChange={(event) => setCopySourceId(event.target.value)}>
+            <div><strong>复制智能体</strong><span>复制源智能体已发布的认知资源，并从版本 1 独立演进。</span></div>
+            <select aria-label="源智能体" value={copySourceId} onChange={(event) => setCopySourceId(event.target.value)}>
               {(entities.data ?? []).filter((agent) => agent.status === 'active').map((agent) => (
                 <option key={agent.id} value={agent.id}>{agent.name}</option>
               ))}
             </select>
             <input
-              aria-label="复制后的 Agent 名称"
+              aria-label="复制后的智能体名称"
               maxLength={120}
               placeholder="输入副本名称"
               value={copyAgentName}
@@ -294,7 +294,7 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
       )}
 
       {isAgent && selectedAgent && (
-        <section className="panel agent-lifecycle-panel" aria-label="Agent 生命周期管理">
+        <section className="panel agent-lifecycle-panel" aria-label="智能体生命周期管理">
           <div className="panel-heading">
             <div><p className="eyebrow">安全生命周期</p><h2>{selectedAgent.name}</h2></div>
             <span className={`entity-status ${selectedAgent.status}`}>{statusLabels[selectedAgent.status]}</span>
@@ -303,7 +303,7 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
             event.preventDefault()
             if (renameAgentName.trim()) renameAgent.mutate()
           }}>
-            <label htmlFor="agent-rename">Agent 名称</label>
+            <label htmlFor="agent-rename">智能体名称</label>
             <input id="agent-rename" maxLength={120} value={renameAgentName} onChange={(event) => setRenameAgentName(event.target.value)} />
             <button className="secondary-button" disabled={!canWrite || selectedAgent.status === 'deleted' || !renameAgentName.trim() || renameAgent.isPending}><Pencil size={14} /> 保存名称</button>
           </form>
@@ -320,7 +320,7 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
               <div className="notice warning">
                 <Archive size={17} />
                 <div>
-                  <strong>其他已启用 Agent：{impact.data.active_replacement_count} 个</strong>
+                  <strong>其他已启用智能体：{impact.data.active_replacement_count} 个</strong>
                   <span>归档会立即阻止新运行、停用渠道并取消待执行主动行为；软删除后保留 {impact.data.deleted_agent_retention_days} 天，当前操作不会物理删除数据。</span>
                 </div>
               </div>
@@ -336,7 +336,7 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
                 <div className="agent-confirmation-box">
                   <label htmlFor="agent-lifecycle-confirmation">逐字输入确认短语</label>
                   <code>{impact.data.can_delete ? impact.data.delete_confirmation : impact.data.archive_confirmation}</code>
-                  <input id="agent-lifecycle-confirmation" aria-label="Agent 生命周期确认短语" value={lifecycleConfirmation} onChange={(event) => setLifecycleConfirmation(event.target.value)} />
+                  <input id="agent-lifecycle-confirmation" aria-label="智能体生命周期确认短语" value={lifecycleConfirmation} onChange={(event) => setLifecycleConfirmation(event.target.value)} />
                   <div className="heading-actions">
                     {impact.data.can_archive && (
                       <button className="danger-button" disabled={lifecycleConfirmation !== impact.data.archive_confirmation || archiveAgent.isPending} onClick={() => archiveAgent.mutate()}><Archive size={14} /> 确认归档</button>
@@ -367,7 +367,7 @@ export function EntityManagementPage({ kind }: { kind: 'agents' | 'users' }) {
           columns={columns}
           rowKey={(row) => row.id}
           searchableText={searchableText}
-          searchPlaceholder={`搜索${isAgent ? ' Agent' : '用户'}名称或 ID`}
+          searchPlaceholder={`搜索${isAgent ? '智能体' : '用户'}名称或 ID`}
           emptyMessage={entities.isLoading ? '正在读取资源…' : '暂无匹配资源'}
           selectedKeys={selected}
           onSelectionChange={setSelected}

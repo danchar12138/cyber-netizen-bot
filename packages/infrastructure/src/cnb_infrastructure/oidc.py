@@ -405,7 +405,7 @@ class OidcAuthenticator:
             or agent.tenant_id != tenant_id
             or user.tenant_id != tenant_id
         ):
-            raise AuthenticationError("本地租户、用户或 Agent 已停用")
+            raise AuthenticationError("本地租户、用户或智能体已停用")
 
     @staticmethod
     def _required_claim(

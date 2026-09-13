@@ -282,7 +282,7 @@ async def get_request_identity(
     if header_agent_id and query_agent_id and header_agent_id != query_agent_id:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Agent 选择参数不一致",
+            detail="智能体选择参数不一致",
         )
     selected_agent_id = header_agent_id or query_agent_id
     if selected_agent_id:
@@ -291,7 +291,7 @@ async def get_request_identity(
         except ValueError as error:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Agent ID 格式无效",
+                detail="智能体 ID 格式无效",
             ) from error
     elif principal.authentication_mode == "development":
         agent_id = request.app.state.development_identity.agent_id
@@ -300,16 +300,16 @@ async def get_request_identity(
         if agent_id is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="OIDC Agent 映射尚未配置",
+                detail="OIDC 智能体映射尚未配置",
             )
 
     agent = await repository.get_agent(tenant_id=principal.tenant_id, agent_id=agent_id)
     if agent is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent 不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="智能体不存在")
     if agent.status in {AgentLifecycleStatus.ARCHIVED, AgentLifecycleStatus.DELETED}:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent 不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="智能体不存在")
     if agent.status is not AgentLifecycleStatus.ACTIVE:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="所选 Agent 已停用")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="所选智能体已停用")
 
     identity = DevelopmentIdentity(
         tenant_id=principal.tenant_id,
