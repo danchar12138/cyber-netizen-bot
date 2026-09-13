@@ -2213,6 +2213,116 @@ async def test_telegram_remote_rate_limit_is_safe_and_recorded_by_api() -> None:
     assert len(transport.requests) == 1
 
 
+async def test_telegram_webhook_management_api_is_agent_isolated_and_safe() -> None:
+    token = "123456789:" + ("A" * 35)
+    webhook_secret = "api-webhook-secret_1"
+    webhook_url = "https://bot.example.invalid/telegram"
+    transport = ApiTelegramTransport(
+        Response(
+            200,
+            json={
+                "ok": True,
+                "result": {
+                    "url": webhook_url,
+                    "pending_update_count": 4,
+                    "last_error_date": 1_789_000_000,
+                    "last_error_message": "remote secret detail",
+                    "allowed_updates": ["message", "callback_query"],
+                },
+            },
+        )
+    )
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+        channel_adapter_registry=ChannelAdapterRegistry(
+            (TelegramChannelAdapter(transport=transport),)
+        ),
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        channel = await client.post(
+            "/api/v1/channels",
+            json={
+                "name": "Telegram Webhook API",
+                "platform": "telegram",
+                "status": "enabled",
+                "rate_limit_per_minute": 60,
+                "settings": {},
+                "credential": token,
+            },
+        )
+        channel_id = channel.json()["id"]
+        secret = await client.post(
+            "/api/v1/configuration/secrets",
+            json={
+                "key": "telegram_webhook_secret",
+                "scope_type": "channel",
+                "scope_id": channel_id,
+                "plaintext": webhook_secret,
+            },
+        )
+        unconfirmed = await client.post(
+            f"/api/v1/channels/{channel_id}/telegram-webhook/register",
+            json={"webhook_url": webhook_url},
+        )
+        status_response = await client.get(f"/api/v1/channels/{channel_id}/telegram-webhook")
+        registered = await client.post(
+            f"/api/v1/channels/{channel_id}/telegram-webhook/register",
+            json={
+                "webhook_url": webhook_url,
+                "drop_pending_updates": True,
+                "confirmed": True,
+            },
+        )
+        cleared = await client.post(
+            f"/api/v1/channels/{channel_id}/telegram-webhook/clear",
+            json={"drop_pending_updates": False, "confirmed": True},
+        )
+        events = await client.get(
+            "/api/v1/channels/diagnostics/events", params={"channel_id": channel_id}
+        )
+        cross_agent = await client.get(
+            f"/api/v1/channels/{channel_id}/telegram-webhook",
+            headers={"X-CNB-Agent-ID": str(uuid4())},
+        )
+
+    assert channel.status_code == 201
+    assert secret.status_code == 200
+    assert webhook_secret not in secret.text
+    assert unconfirmed.status_code == 409
+    assert status_response.status_code == registered.status_code == cleared.status_code == 200
+    assert status_response.json()["configured"] is True
+    assert registered.json()["pending_update_count"] == 4
+    assert registered.json()["allowed_updates"] == ["message"]
+    assert cleared.json()["configured"] is True
+    assert events.status_code == 200
+    assert len(events.json()["items"]) == 2
+    assert webhook_url not in status_response.text
+    assert webhook_url not in registered.text
+    assert webhook_secret not in registered.text
+    assert token not in registered.text
+    assert "remote secret detail" not in registered.text
+    assert webhook_url not in events.text
+    assert webhook_secret not in events.text
+    assert token not in events.text
+    assert cross_agent.status_code == 404
+    assert [request[0].rsplit("/", 1)[-1] for request in transport.requests] == [
+        "getWebhookInfo",
+        "setWebhook",
+        "getWebhookInfo",
+        "deleteWebhook",
+        "getWebhookInfo",
+    ]
+    assert transport.requests[1][1] == {
+        "url": webhook_url,
+        "secret_token": webhook_secret,
+        "drop_pending_updates": True,
+        "allowed_updates": ["message"],
+    }
+    assert transport.requests[3][1] == {"drop_pending_updates": False}
+
+
 async def test_telegram_webhook_safely_routes_text_updates_to_the_inbox() -> None:
     webhook_secret = "telegram-webhook-test-secret"
     message_text = "只应进入净化入站信封的 Telegram 文本"

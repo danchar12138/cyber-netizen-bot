@@ -38,6 +38,7 @@ from cnb_application.channel_service import (
     ChannelService,
     ChannelSimulationResult,
     ChannelValidationError,
+    TelegramWebhookStatus,
 )
 from cnb_application.cognition_service import (
     CognitionRepository,
@@ -294,6 +295,7 @@ __all__ = [
     "TaskNotFoundError",
     "TaskRepository",
     "TaskValidationError",
+    "TelegramWebhookStatus",
     "UploadGrant",
     "build_default_registry",
     "decode_audit_cursor",

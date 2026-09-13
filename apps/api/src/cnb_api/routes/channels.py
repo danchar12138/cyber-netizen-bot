@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from cnb_adapters import ChannelAdapterError, ChannelCapabilityError
+from cnb_adapters import ChannelAdapterError, ChannelCapabilityError, ChannelNotConfiguredError
 from cnb_api.dependencies import get_channel_service, get_request_identity, require_permission
 from cnb_application import (
     ChannelConflictError,
@@ -14,6 +14,7 @@ from cnb_application import (
     ChannelNotFoundError,
     ChannelService,
     ChannelValidationError,
+    TelegramWebhookStatus,
 )
 from cnb_contracts import (
     ChannelCapabilitiesResponse,
@@ -37,6 +38,9 @@ from cnb_contracts import (
     ModelCapabilityResponse,
     MultimodalContentBlockInput,
     MultimodalContentBlockResponse,
+    TelegramWebhookClearCommand,
+    TelegramWebhookRegisterCommand,
+    TelegramWebhookStatusResponse,
 )
 from cnb_domain import (
     AdminPermission,
@@ -101,6 +105,19 @@ def _event_response(value: ChannelDiagnosticEvent) -> ChannelDiagnosticEventResp
         error_code=value.error_code,
         degradations=value.degradations,
         occurred_at=value.occurred_at,
+    )
+
+
+def _webhook_response(value: TelegramWebhookStatus) -> TelegramWebhookStatusResponse:
+    return TelegramWebhookStatusResponse(
+        channel_id=value.channel_id,
+        status=value.status,
+        configured=value.configured,
+        pending_update_count=value.pending_update_count,
+        last_error_at=value.last_error_at,
+        last_error_present=value.last_error_present,
+        allowed_updates=value.allowed_updates,
+        checked_at=value.checked_at,
     )
 
 
@@ -326,6 +343,137 @@ async def test_connection(
     except ChannelNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     return _instance_response(item)
+
+
+@router.get("/{channel_id}/telegram-webhook", response_model=TelegramWebhookStatusResponse)
+async def get_telegram_webhook_status(
+    channel_id: UUID,
+    principal: Annotated[AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_READ))],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ChannelService, Depends(get_channel_service)],
+) -> TelegramWebhookStatusResponse:
+    try:
+        result = await service.telegram_webhook_status(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            channel_id=channel_id,
+        )
+    except ChannelNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except ChannelAdapterError as error:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_429_TOO_MANY_REQUESTS
+                if error.code in {"rate_limited", "telegram_rate_limited"}
+                else status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
+            detail=error.safe_message,
+            headers=(
+                {"Retry-After": str(error.retry_after_seconds)}
+                if error.retry_after_seconds is not None
+                else None
+            ),
+        ) from error
+    return _webhook_response(result)
+
+
+@router.post(
+    "/{channel_id}/telegram-webhook/register",
+    response_model=TelegramWebhookStatusResponse,
+)
+async def register_telegram_webhook(
+    channel_id: UUID,
+    command: TelegramWebhookRegisterCommand,
+    principal: Annotated[
+        AdminPrincipal,
+        Depends(require_permission(AdminPermission.CHANNEL_CREDENTIAL_MANAGE)),
+    ],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ChannelService, Depends(get_channel_service)],
+) -> TelegramWebhookStatusResponse:
+    try:
+        result = await service.register_telegram_webhook(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            channel_id=channel_id,
+            webhook_url=command.webhook_url,
+            drop_pending_updates=command.drop_pending_updates,
+            actor_id=principal.user_id,
+            confirmed=command.confirmed,
+        )
+    except ChannelNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except ChannelNotConfiguredError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=error.safe_message
+        ) from error
+    except (ChannelValidationError, ChannelConflictError) as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except ChannelAdapterError as error:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_429_TOO_MANY_REQUESTS
+                if error.code in {"rate_limited", "telegram_rate_limited"}
+                else status.HTTP_422_UNPROCESSABLE_CONTENT
+                if error.code == "unsupported_capability"
+                else status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
+            detail=error.safe_message,
+            headers=(
+                {"Retry-After": str(error.retry_after_seconds)}
+                if error.retry_after_seconds is not None
+                else None
+            ),
+        ) from error
+    return _webhook_response(result)
+
+
+@router.post(
+    "/{channel_id}/telegram-webhook/clear",
+    response_model=TelegramWebhookStatusResponse,
+)
+async def clear_telegram_webhook(
+    channel_id: UUID,
+    command: TelegramWebhookClearCommand,
+    principal: Annotated[
+        AdminPrincipal,
+        Depends(require_permission(AdminPermission.CHANNEL_CREDENTIAL_MANAGE)),
+    ],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ChannelService, Depends(get_channel_service)],
+) -> TelegramWebhookStatusResponse:
+    try:
+        result = await service.clear_telegram_webhook(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            channel_id=channel_id,
+            drop_pending_updates=command.drop_pending_updates,
+            actor_id=principal.user_id,
+            confirmed=command.confirmed,
+        )
+    except ChannelNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except ChannelNotConfiguredError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=error.safe_message
+        ) from error
+    except (ChannelValidationError, ChannelConflictError) as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except ChannelAdapterError as error:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_429_TOO_MANY_REQUESTS
+                if error.code in {"rate_limited", "telegram_rate_limited"}
+                else status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
+            detail=error.safe_message,
+            headers=(
+                {"Retry-After": str(error.retry_after_seconds)}
+                if error.retry_after_seconds is not None
+                else None
+            ),
+        ) from error
+    return _webhook_response(result)
 
 
 @router.post(

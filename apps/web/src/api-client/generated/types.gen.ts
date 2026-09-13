@@ -5867,6 +5867,79 @@ export type TaskStatusResponse = {
 };
 
 /**
+ * TelegramWebhookClearCommand
+ *
+ * 清理 Telegram Webhook；是否丢弃积压更新由调用方明确选择。
+ */
+export type TelegramWebhookClearCommand = {
+    /**
+     * Confirmed
+     */
+    confirmed?: boolean;
+    /**
+     * Drop Pending Updates
+     */
+    drop_pending_updates?: boolean;
+};
+
+/**
+ * TelegramWebhookRegisterCommand
+ *
+ * 注册 Telegram Webhook；URL 仅允许 HTTPS，动作必须显式确认。
+ */
+export type TelegramWebhookRegisterCommand = {
+    /**
+     * Confirmed
+     */
+    confirmed?: boolean;
+    /**
+     * Drop Pending Updates
+     */
+    drop_pending_updates?: boolean;
+    /**
+     * Webhook Url
+     */
+    webhook_url: string;
+};
+
+/**
+ * TelegramWebhookStatusResponse
+ *
+ * Telegram Webhook 的安全运营状态摘要，不返回 URL、Secret 或远端错误正文。
+ */
+export type TelegramWebhookStatusResponse = {
+    /**
+     * Allowed Updates
+     */
+    allowed_updates: Array<string>;
+    /**
+     * Channel Id
+     */
+    channel_id: string;
+    /**
+     * Checked At
+     */
+    checked_at: string;
+    /**
+     * Configured
+     */
+    configured: boolean;
+    /**
+     * Last Error At
+     */
+    last_error_at: string | null;
+    /**
+     * Last Error Present
+     */
+    last_error_present: boolean;
+    /**
+     * Pending Update Count
+     */
+    pending_update_count: number;
+    status: ChannelHealthStatus;
+};
+
+/**
  * UserAccessPolicyUpdateCommand
  *
  * 更新用户限流和临时停用状态的完整命令。
@@ -8016,6 +8089,192 @@ export type PostApiV1ChannelsByChannelIdSimulateInboundResponses = {
 };
 
 export type PostApiV1ChannelsByChannelIdSimulateInboundResponse = PostApiV1ChannelsByChannelIdSimulateInboundResponses[keyof PostApiV1ChannelsByChannelIdSimulateInboundResponses];
+
+export type GetApiV1ChannelsByChannelIdTelegramWebhookData = {
+    body?: never;
+    path: {
+        /**
+         * Channel Id
+         */
+        channel_id: string;
+    };
+    query?: never;
+    url: '/api/v1/channels/{channel_id}/telegram-webhook';
+};
+
+export type GetApiV1ChannelsByChannelIdTelegramWebhookErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ChannelsByChannelIdTelegramWebhookError = GetApiV1ChannelsByChannelIdTelegramWebhookErrors[keyof GetApiV1ChannelsByChannelIdTelegramWebhookErrors];
+
+export type GetApiV1ChannelsByChannelIdTelegramWebhookResponses = {
+    /**
+     * 请求成功
+     */
+    200: TelegramWebhookStatusResponse;
+};
+
+export type GetApiV1ChannelsByChannelIdTelegramWebhookResponse = GetApiV1ChannelsByChannelIdTelegramWebhookResponses[keyof GetApiV1ChannelsByChannelIdTelegramWebhookResponses];
+
+export type PostApiV1ChannelsByChannelIdTelegramWebhookClearData = {
+    body: TelegramWebhookClearCommand;
+    path: {
+        /**
+         * Channel Id
+         */
+        channel_id: string;
+    };
+    query?: never;
+    url: '/api/v1/channels/{channel_id}/telegram-webhook/clear';
+};
+
+export type PostApiV1ChannelsByChannelIdTelegramWebhookClearErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1ChannelsByChannelIdTelegramWebhookClearError = PostApiV1ChannelsByChannelIdTelegramWebhookClearErrors[keyof PostApiV1ChannelsByChannelIdTelegramWebhookClearErrors];
+
+export type PostApiV1ChannelsByChannelIdTelegramWebhookClearResponses = {
+    /**
+     * 请求成功
+     */
+    200: TelegramWebhookStatusResponse;
+};
+
+export type PostApiV1ChannelsByChannelIdTelegramWebhookClearResponse = PostApiV1ChannelsByChannelIdTelegramWebhookClearResponses[keyof PostApiV1ChannelsByChannelIdTelegramWebhookClearResponses];
+
+export type PostApiV1ChannelsByChannelIdTelegramWebhookRegisterData = {
+    body: TelegramWebhookRegisterCommand;
+    path: {
+        /**
+         * Channel Id
+         */
+        channel_id: string;
+    };
+    query?: never;
+    url: '/api/v1/channels/{channel_id}/telegram-webhook/register';
+};
+
+export type PostApiV1ChannelsByChannelIdTelegramWebhookRegisterErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1ChannelsByChannelIdTelegramWebhookRegisterError = PostApiV1ChannelsByChannelIdTelegramWebhookRegisterErrors[keyof PostApiV1ChannelsByChannelIdTelegramWebhookRegisterErrors];
+
+export type PostApiV1ChannelsByChannelIdTelegramWebhookRegisterResponses = {
+    /**
+     * 请求成功
+     */
+    200: TelegramWebhookStatusResponse;
+};
+
+export type PostApiV1ChannelsByChannelIdTelegramWebhookRegisterResponse = PostApiV1ChannelsByChannelIdTelegramWebhookRegisterResponses[keyof PostApiV1ChannelsByChannelIdTelegramWebhookRegisterResponses];
 
 export type PostApiV1ChatAttachmentsReservationsData = {
     body: AttachmentReserve;

@@ -11,6 +11,9 @@ import {
   getChannelEvents,
   getChannelInstances,
   getModelCapabilities,
+  getTelegramWebhookStatus,
+  clearTelegramWebhook,
+  registerTelegramWebhook,
   setChannelCredential,
   simulateChannel,
   testChannelConnection,
@@ -67,6 +70,10 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
   const [settingsText, setSettingsText] = useState('{}')
   const [credential, setCredential] = useState('')
   const [credentialChannelId, setCredentialChannelId] = useState('')
+  const [telegramChannelId, setTelegramChannelId] = useState('')
+  const [webhookUrl, setWebhookUrl] = useState('')
+  const [dropPendingUpdates, setDropPendingUpdates] = useState(false)
+  const [webhookConfirmed, setWebhookConfirmed] = useState(false)
   const [simulationPlatform, setSimulationPlatform] = useState<ChannelPlatform>('discord')
   const [simulationText, setSimulationText] = useState('这是一条 **Markdown** 渠道能力协商测试。')
   const [requestStreaming, setRequestStreaming] = useState(true)
@@ -87,6 +94,13 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     queryKey: ['channel-instances', selectedAgentId],
     queryFn: getChannelInstances,
   })
+  const telegramChannels = instances.data?.items.filter((item) => item.platform === 'telegram') ?? []
+  const selectedTelegramChannelId = telegramChannelId || telegramChannels[0]?.id || ''
+  const webhook = useQuery({
+    queryKey: ['telegram-webhook', selectedTelegramChannelId],
+    queryFn: () => getTelegramWebhookStatus(selectedTelegramChannelId),
+    enabled: Boolean(selectedTelegramChannelId),
+  })
   const events = useQuery({
     queryKey: ['channel-events', selectedAgentId],
     queryFn: () => getChannelEvents(),
@@ -100,6 +114,9 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     await Promise.all([
       invalidateAcrossTabs(queryClient, ['channel-instances', selectedAgentId]),
       invalidateAcrossTabs(queryClient, ['channel-events', selectedAgentId]),
+      ...(selectedTelegramChannelId
+        ? [invalidateAcrossTabs(queryClient, ['telegram-webhook', selectedTelegramChannelId])]
+        : []),
     ])
   }
   const createMutation = useMutation({
@@ -111,6 +128,31 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     },
   })
   const testMutation = useMutation({ mutationFn: testChannelConnection, onSuccess: refresh })
+  const webhookStatusMutation = useMutation({
+    mutationFn: getTelegramWebhookStatus,
+    onSuccess: (result) => queryClient.setQueryData(['telegram-webhook', result.channel_id], result),
+  })
+  const registerWebhookMutation = useMutation({
+    mutationFn: () => registerTelegramWebhook(selectedTelegramChannelId, {
+      webhook_url: webhookUrl.trim(),
+      drop_pending_updates: dropPendingUpdates,
+      confirmed: webhookConfirmed,
+    }),
+    onSuccess: async () => {
+      setWebhookConfirmed(false)
+      await refresh()
+    },
+  })
+  const clearWebhookMutation = useMutation({
+    mutationFn: () => clearTelegramWebhook(selectedTelegramChannelId, {
+      drop_pending_updates: dropPendingUpdates,
+      confirmed: webhookConfirmed,
+    }),
+    onSuccess: async () => {
+      setWebhookConfirmed(false)
+      await refresh()
+    },
+  })
   const updateMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: ChannelInstance['status'] }) =>
       updateChannelInstance(id, { status, confirmed: true }),
@@ -199,7 +241,7 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     { key: 'degradation', label: '降级 / 错误', render: (row) => degradationLabels(row.degradations).join('、') || row.error_code || '无' },
     { key: 'time', label: '时间', render: (row) => new Date(row.occurred_at).toLocaleString('zh-CN') },
   ], [])
-  const operationError = createMutation.error ?? testMutation.error ?? updateMutation.error ?? credentialMutation.error ?? clearCredentialMutation.error ?? simulation.error ?? delivery.error
+  const operationError = createMutation.error ?? testMutation.error ?? updateMutation.error ?? credentialMutation.error ?? clearCredentialMutation.error ?? webhookStatusMutation.error ?? registerWebhookMutation.error ?? clearWebhookMutation.error ?? simulation.error ?? delivery.error
 
   return (
     <div className="page">
@@ -240,6 +282,26 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
           <label><span>渠道实例</span><select value={credentialChannelId} onChange={(event) => setCredentialChannelId(event.target.value)} required><option value="">选择外部渠道</option>{instances.data?.items.filter((item) => item.platform !== 'web').map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
           <label><span>新凭证</span><input type="password" autoComplete="new-password" value={credential} onChange={(event) => setCredential(event.target.value)} required /></label>
           <button className="secondary-button" type="submit" disabled={!canManageCredential || !credentialChannelId || !credential}><KeyRound size={14} />安全写入</button>
+        </form>
+      </section>}
+
+      {telegramChannels.length > 0 && <section className="panel channel-form-panel">
+        <div className="panel-heading"><div><span>Telegram 运营</span><h2>Webhook 状态与管理</h2></div><RadioTower size={19} /></div>
+        <div className="channel-create-form">
+          <label><span>Telegram 渠道实例</span><select value={selectedTelegramChannelId} onChange={(event) => setTelegramChannelId(event.target.value)}><option value="">选择 Telegram 渠道</option>{telegramChannels.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+          <div className="channel-simulation-result" aria-live="polite">
+            <strong>{webhook.isLoading ? '正在探测 Webhook' : webhook.data ? channelHealthLabels[webhook.data.status] : '尚未探测'}</strong>
+            <span>{webhook.data ? `${webhook.data.configured ? '已注册' : '未注册'} · 待处理更新 ${webhook.data.pending_update_count}` : '选择渠道后可读取 Telegram 安全状态摘要'}</span>
+            {webhook.data && <small>{webhook.data.last_error_present ? `最近错误：${webhook.data.last_error_at ? new Date(webhook.data.last_error_at).toLocaleString('zh-CN') : '有记录'}` : '最近探测未发现远端错误'} · 更新类型：{webhook.data.allowed_updates.join('、') || '未配置'}</small>}
+          </div>
+          <button className="secondary-button" type="button" disabled={!canManageCredential || !selectedTelegramChannelId || webhookStatusMutation.isPending} onClick={() => webhookStatusMutation.mutate(selectedTelegramChannelId)}><RefreshCw size={14} />刷新探测</button>
+        </div>
+        <form className="channel-create-form" onSubmit={(event) => { event.preventDefault(); registerWebhookMutation.mutate() }}>
+          <label><span>HTTPS Webhook URL</span><input type="url" inputMode="url" value={webhookUrl} onChange={(event) => setWebhookUrl(event.target.value)} placeholder="https://example.com/api/v1/webhooks/telegram/..." pattern="https://.*" maxLength={2048} required /></label>
+          <label className="channel-options"><span>注册选项</span><span><input type="checkbox" checked={dropPendingUpdates} onChange={(event) => setDropPendingUpdates(event.target.checked)} />丢弃积压更新</span></label>
+          <label className="channel-options"><span>明确确认</span><span><input type="checkbox" checked={webhookConfirmed} onChange={(event) => setWebhookConfirmed(event.target.checked)} required />我确认将修改 Telegram Webhook</span></label>
+          <button className="primary-button" type="submit" disabled={!canManageCredential || !selectedTelegramChannelId || !webhookUrl.trim() || !webhookConfirmed || registerWebhookMutation.isPending}><RadioTower size={14} />注册 Webhook</button>
+          <button className="secondary-button" type="button" disabled={!canManageCredential || !selectedTelegramChannelId || !webhookConfirmed || clearWebhookMutation.isPending} onClick={() => clearWebhookMutation.mutate()}><Unplug size={14} />清理 Webhook</button>
         </form>
       </section>}
 

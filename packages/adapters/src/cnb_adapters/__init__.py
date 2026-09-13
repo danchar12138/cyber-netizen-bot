@@ -14,6 +14,7 @@ from cnb_adapters.channel import (
     ChannelInboundEvent,
     ChannelNotConfiguredError,
     ChannelRateLimitError,
+    WebhookInfo,
     negotiate_capabilities,
     summarize_blocks,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "TelegramChannelAdapter",
     "TelegramTransport",
     "WebChannelAdapter",
+    "WebhookInfo",
     "build_default_channel_registry",
     "negotiate_capabilities",
     "summarize_blocks",

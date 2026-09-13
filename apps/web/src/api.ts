@@ -16,6 +16,7 @@ import type {
   MessagePartResponse,
   MessageResponse,
   ManagedUserDetailResponse,
+  TelegramWebhookStatusResponse,
 } from './api-client/generated/types.gen'
 import {
   ApiClientError,
@@ -189,6 +190,8 @@ export interface ChannelInstance {
   created_at: string
   updated_at: string
 }
+
+export type TelegramWebhookStatus = TelegramWebhookStatusResponse
 
 export interface MultimodalContentBlock {
   kind: ContentBlockKind
@@ -1226,6 +1229,25 @@ export const clearChannelCredential = (channelId: string) =>
 
 export const testChannelConnection = (channelId: string) =>
   apiSdk.postApiV1ChannelsByChannelIdConnectionTest({ path: { channel_id: channelId } })
+
+export const getTelegramWebhookStatus = (channelId: string) =>
+  apiSdk.getApiV1ChannelsByChannelIdTelegramWebhook({ path: { channel_id: channelId } })
+
+export const registerTelegramWebhook = (
+  channelId: string,
+  command: { webhook_url: string; drop_pending_updates: boolean; confirmed: boolean },
+) => apiSdk.postApiV1ChannelsByChannelIdTelegramWebhookRegister({
+  path: { channel_id: channelId },
+  body: command,
+})
+
+export const clearTelegramWebhook = (
+  channelId: string,
+  command: { drop_pending_updates: boolean; confirmed: boolean },
+) => apiSdk.postApiV1ChannelsByChannelIdTelegramWebhookClear({
+  path: { channel_id: channelId },
+  body: command,
+})
 
 export const simulateChannel = (command: {
   platform: ChannelPlatform

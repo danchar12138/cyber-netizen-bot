@@ -26,6 +26,7 @@ from cnb_application import ChannelNotFoundError, ChannelService, ChannelValidat
 from cnb_domain import (
     ChannelInstanceStatus,
     ChannelPlatform,
+    ConfigScope,
     ContentBlockKind,
     ExternalConversationKind,
     MultimodalContentBlock,
@@ -179,6 +180,194 @@ async def test_telegram_adapter_tests_connection_sends_threads_and_edits() -> No
         "text": "修改后",
         "message_id": 41,
     }
+
+
+async def test_telegram_webhook_adapter_validates_input_and_sends_safe_payload() -> None:
+    transport = RecordingTelegramTransport(
+        [
+            httpx.Response(200, json={"ok": True, "result": True}),
+            httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "result": {
+                        "url": "https://bot.example.invalid/telegram",
+                        "pending_update_count": 3,
+                        "last_error_date": 1_789_000_000,
+                        "last_error_message": "remote secret detail",
+                        "allowed_updates": ["message", "callback_query", 7],
+                        "ip_address": "203.0.113.1",
+                    },
+                },
+            ),
+        ]
+    )
+    adapter = TelegramChannelAdapter(transport=transport)
+
+    info = await adapter.set_webhook(
+        credential=_TELEGRAM_TOKEN,
+        webhook_url="  https://bot.example.invalid/telegram  ",
+        secret_token="webhook-secret_1",
+        drop_pending_updates=True,
+    )
+
+    assert info.configured is True
+    assert info.pending_update_count == 3
+    assert info.last_error_present is True
+    assert info.allowed_updates == ("message",)
+    assert info.last_error_at == datetime.fromtimestamp(1_789_000_000, UTC)
+    assert transport.requests[0][0].endswith("/setWebhook")
+    assert transport.requests[0][1] == {
+        "url": "https://bot.example.invalid/telegram",
+        "secret_token": "webhook-secret_1",
+        "drop_pending_updates": True,
+        "allowed_updates": ["message"],
+    }
+    assert transport.requests[1][0].endswith("/getWebhookInfo")
+    assert _TELEGRAM_TOKEN not in repr(info)
+    assert "remote secret detail" not in repr(info)
+
+
+@pytest.mark.parametrize(
+    ("webhook_url", "secret_token", "message"),
+    (
+        ("http://bot.example.invalid/hook", "valid-secret", "HTTPS"),
+        ("https://bot.example.invalid/hook?token=secret", "valid-secret", "HTTPS"),
+        ("https://user:password@bot.example.invalid/hook", "valid-secret", "HTTPS"),
+        ("https://bot.example.invalid/hook", "secret with spaces", "Secret"),
+        ("https://bot.example.invalid/hook", "", "Secret"),
+    ),
+)
+async def test_telegram_webhook_adapter_rejects_unsafe_input_before_network(
+    webhook_url: str,
+    secret_token: str,
+    message: str,
+) -> None:
+    transport = RecordingTelegramTransport([])
+    adapter = TelegramChannelAdapter(transport=transport)
+
+    with pytest.raises(ChannelCapabilityError, match=message):
+        await adapter.set_webhook(
+            credential=_TELEGRAM_TOKEN,
+            webhook_url=webhook_url,
+            secret_token=secret_token,
+            drop_pending_updates=False,
+        )
+
+    assert transport.requests == []
+
+
+async def test_telegram_webhook_service_isolated_and_records_safe_diagnostics() -> None:
+    transport = RecordingTelegramTransport(
+        [
+            httpx.Response(
+                200,
+                json={"ok": True, "result": {"url": "", "pending_update_count": 0}},
+            ),
+            httpx.Response(200, json={"ok": True, "result": True}),
+            httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "result": {
+                        "url": "https://bot.example.invalid/hook",
+                        "pending_update_count": 2,
+                        "allowed_updates": ["message"],
+                    },
+                },
+            ),
+            httpx.Response(200, json={"ok": True, "result": True}),
+            httpx.Response(
+                200,
+                json={"ok": True, "result": {"url": "", "pending_update_count": 0}},
+            ),
+        ]
+    )
+    repository = MemoryChannelRepository()
+    secret_store = MemorySecretStore()
+    service = ChannelService(
+        repository,
+        ChannelAdapterRegistry((TelegramChannelAdapter(transport=transport),)),
+        secret_store,
+    )
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
+    created = await service.create(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        name="Telegram Webhook 运营",
+        platform=ChannelPlatform.TELEGRAM,
+        status=ChannelInstanceStatus.ENABLED,
+        rate_limit_per_minute=60,
+        settings={},
+        credential=_TELEGRAM_TOKEN,
+        actor_id=actor_id,
+    )
+    await secret_store.set_secret(
+        key="telegram_webhook_secret",
+        scope_type=ConfigScope.CHANNEL,
+        scope_id=created.instance.id,
+        plaintext="webhook-secret_1",
+        actor_id=actor_id,
+    )
+
+    initial = await service.telegram_webhook_status(
+        tenant_id=tenant_id, agent_id=agent_id, channel_id=created.instance.id
+    )
+    registered = await service.register_telegram_webhook(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        channel_id=created.instance.id,
+        webhook_url="https://bot.example.invalid/hook",
+        drop_pending_updates=False,
+        actor_id=actor_id,
+        confirmed=True,
+    )
+    cleared = await service.clear_telegram_webhook(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        channel_id=created.instance.id,
+        drop_pending_updates=True,
+        actor_id=actor_id,
+        confirmed=True,
+    )
+    events = await service.events(
+        tenant_id=tenant_id, agent_id=agent_id, channel_id=created.instance.id, limit=10
+    )
+
+    assert initial.configured is False
+    assert registered.configured is True
+    assert registered.pending_update_count == 2
+    assert cleared.configured is False
+    assert transport.requests[1][1] == {
+        "url": "https://bot.example.invalid/hook",
+        "secret_token": "webhook-secret_1",
+        "drop_pending_updates": False,
+        "allowed_updates": ["message"],
+    }
+    assert transport.requests[3][1] == {"drop_pending_updates": True}
+    assert all("webhook-secret_1" not in repr(event) for event in events)
+    assert all(_TELEGRAM_TOKEN not in repr(event) for event in events)
+    assert all("https://bot.example.invalid" not in repr(event) for event in events)
+    assert all(
+        event.payload_summary.keys()
+        <= {"configured", "pending_update_count", "last_error_present", "allowed_updates"}
+        for event in events
+    )
+
+    with pytest.raises(ChannelValidationError, match="明确确认"):
+        await service.clear_telegram_webhook(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=created.instance.id,
+            drop_pending_updates=False,
+            actor_id=actor_id,
+            confirmed=False,
+        )
+
+    with pytest.raises(ChannelNotFoundError):
+        await service.telegram_webhook_status(
+            tenant_id=tenant_id, agent_id=uuid4(), channel_id=created.instance.id
+        )
 
 
 @pytest.mark.parametrize(

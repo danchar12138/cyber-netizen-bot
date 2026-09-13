@@ -60,6 +60,9 @@ from cnb_contracts.channels import (
     ModelCapabilityResponse,
     MultimodalContentBlockInput,
     MultimodalContentBlockResponse,
+    TelegramWebhookClearCommand,
+    TelegramWebhookRegisterCommand,
+    TelegramWebhookStatusResponse,
 )
 from cnb_contracts.cognition import (
     ActionCandidateResponse,
@@ -421,6 +424,9 @@ __all__ = [
     "TaskDashboardResponse",
     "TaskReplayCommand",
     "TaskStatusResponse",
+    "TelegramWebhookClearCommand",
+    "TelegramWebhookRegisterCommand",
+    "TelegramWebhookStatusResponse",
     "UserAccessPolicyUpdateCommand",
     "UserDataExportCommand",
     "UserDataForgetCommand",

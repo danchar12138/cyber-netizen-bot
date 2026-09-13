@@ -5,6 +5,7 @@ import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Final, Literal, Protocol, cast
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -17,6 +18,7 @@ from cnb_adapters.channel import (
     ChannelDeliveryCommand,
     ChannelInboundEvent,
     ChannelNotConfiguredError,
+    WebhookInfo,
 )
 from cnb_domain import (
     ChannelCapabilities,
@@ -33,6 +35,8 @@ _TELEGRAM_API_ORIGIN: Final = "https://api.telegram.org"
 _TOKEN_PATTERN: Final = re.compile(r"^[1-9][0-9]{5,15}:[A-Za-z0-9_-]{20,128}$")
 _INTEGER_ID_PATTERN: Final = re.compile(r"^-?[1-9][0-9]{0,19}$")
 _USERNAME_PATTERN: Final = re.compile(r"^@[A-Za-z][A-Za-z0-9_]{4,31}$")
+_WEBHOOK_SECRET_PATTERN: Final = re.compile(r"^[A-Za-z0-9_-]{1,256}$")
+_ALLOWED_UPDATE_TYPES: Final = frozenset({"message"})
 _MAX_TELEGRAM_INTEGER: Final = 9_223_372_036_854_775_807
 _MAX_MESSAGE_TEXT_CHARS: Final = 4_096
 _MIN_MESSAGE_TIMESTAMP: Final = 946_684_800  # 2000-01-01T00:00:00Z
@@ -139,6 +143,48 @@ class TelegramChannelAdapter:
             checked_at=datetime.now(UTC),
         )
 
+    async def get_webhook_info(self, *, credential: str | None) -> WebhookInfo:
+        token = self._token(credential)
+        payload = await self._call(token=token, method="getWebhookInfo")
+        return self._webhook_info(payload)
+
+    async def set_webhook(
+        self,
+        *,
+        credential: str | None,
+        webhook_url: str,
+        secret_token: str,
+        drop_pending_updates: bool,
+    ) -> WebhookInfo:
+        token = self._token(credential)
+        normalized_url = self._webhook_url(webhook_url)
+        normalized_secret = self._webhook_secret(secret_token)
+        await self._call(
+            token=token,
+            method="setWebhook",
+            request={
+                "url": normalized_url,
+                "secret_token": normalized_secret,
+                "drop_pending_updates": drop_pending_updates,
+                "allowed_updates": ["message"],
+            },
+        )
+        return await self.get_webhook_info(credential=credential)
+
+    async def delete_webhook(
+        self,
+        *,
+        credential: str | None,
+        drop_pending_updates: bool,
+    ) -> WebhookInfo:
+        token = self._token(credential)
+        await self._call(
+            token=token,
+            method="deleteWebhook",
+            request={"drop_pending_updates": drop_pending_updates},
+        )
+        return await self.get_webhook_info(credential=credential)
+
     def validate_credential(self, credential: str) -> None:
         """在持久化和发起网络请求前验证 Bot Token 的公开格式。"""
         self._token(credential)
@@ -240,6 +286,59 @@ class TelegramChannelAdapter:
         if self._owns_transport:
             await self._transport.aclose()
 
+    @classmethod
+    def _webhook_info(cls, payload: Mapping[str, object]) -> WebhookInfo:
+        result = payload.get("result")
+        if not isinstance(result, Mapping):
+            raise ChannelAdapterError(
+                "telegram_invalid_response", "Telegram 返回了无效 Webhook 状态"
+            )
+        result = cast(Mapping[str, object], result)
+        url = result.get("url")
+        configured = isinstance(url, str) and bool(url.strip())
+        pending = result.get("pending_update_count", 0)
+        if type(pending) is not int or not 0 <= pending <= 1_000_000_000:
+            raise ChannelAdapterError(
+                "telegram_invalid_response", "Telegram 返回了无效 Webhook 状态"
+            )
+        error_date = result.get("last_error_date")
+        last_error_at: datetime | None = None
+        if error_date is not None:
+            if (
+                type(error_date) is not int
+                or not _MIN_MESSAGE_TIMESTAMP <= error_date <= _MAX_MESSAGE_TIMESTAMP
+            ):
+                raise ChannelAdapterError(
+                    "telegram_invalid_response", "Telegram 返回了无效 Webhook 状态"
+                )
+            try:
+                last_error_at = datetime.fromtimestamp(error_date, UTC)
+            except (OverflowError, OSError, ValueError):
+                raise ChannelAdapterError(
+                    "telegram_invalid_response", "Telegram 返回了无效 Webhook 状态"
+                ) from None
+        allowed_value = result.get("allowed_updates", [])
+        if not isinstance(allowed_value, list):
+            raise ChannelAdapterError(
+                "telegram_invalid_response", "Telegram 返回了无效 Webhook 状态"
+            )
+        allowed_value = cast(list[object], allowed_value)
+        allowed_updates = tuple(
+            sorted(
+                value
+                for value in allowed_value
+                if isinstance(value, str) and value in _ALLOWED_UPDATE_TYPES
+            )
+        )
+        return WebhookInfo(
+            configured=configured,
+            pending_update_count=pending,
+            last_error_at=last_error_at,
+            last_error_present=isinstance(result.get("last_error_message"), str),
+            allowed_updates=allowed_updates,
+            checked_at=datetime.now(UTC),
+        )
+
     async def _call(
         self,
         *,
@@ -312,6 +411,29 @@ class TelegramChannelAdapter:
         if not _TOKEN_PATTERN.fullmatch(token):
             raise ChannelNotConfiguredError("Telegram Bot Token 格式无效")
         return token
+
+    @staticmethod
+    def _webhook_url(value: str) -> str:
+        normalized = value.strip()
+        parsed = urlsplit(normalized)
+        if (
+            len(normalized) > 2048
+            or parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ChannelCapabilityError("Telegram Webhook URL 必须是无查询参数的 HTTPS 地址")
+        return normalized
+
+    @staticmethod
+    def _webhook_secret(value: str) -> str:
+        normalized = value.strip()
+        if not _WEBHOOK_SECRET_PATTERN.fullmatch(normalized):
+            raise ChannelCapabilityError("Telegram Webhook Secret 格式无效")
+        return normalized
 
     @staticmethod
     def _chat_id(value: str) -> int | str:

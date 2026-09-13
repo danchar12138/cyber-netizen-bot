@@ -12,6 +12,7 @@ from cnb_adapters.channel import (
     ChannelDeliveryCommand,
     ChannelInboundEvent,
     ChannelNotConfiguredError,
+    WebhookInfo,
 )
 from cnb_domain import ChannelCapabilities, ChannelHealthStatus, ChannelPlatform, JsonValue
 
@@ -47,6 +48,30 @@ class PlaceholderAdapter:
             detail=f"{self.display_name} 适配器当前为占位实现，未访问外部 API。",
             checked_at=datetime.now(UTC),
         )
+
+    async def get_webhook_info(self, *, credential: str | None) -> WebhookInfo:
+        del credential
+        raise ChannelNotConfiguredError(f"{self.display_name} 适配器当前为占位实现，未管理 Webhook")
+
+    async def set_webhook(
+        self,
+        *,
+        credential: str | None,
+        webhook_url: str,
+        secret_token: str,
+        drop_pending_updates: bool,
+    ) -> WebhookInfo:
+        del credential, webhook_url, secret_token, drop_pending_updates
+        raise ChannelNotConfiguredError(f"{self.display_name} 适配器当前为占位实现，未管理 Webhook")
+
+    async def delete_webhook(
+        self,
+        *,
+        credential: str | None,
+        drop_pending_updates: bool,
+    ) -> WebhookInfo:
+        del credential, drop_pending_updates
+        raise ChannelNotConfiguredError(f"{self.display_name} 适配器当前为占位实现，未管理 Webhook")
 
     async def deliver(
         self,

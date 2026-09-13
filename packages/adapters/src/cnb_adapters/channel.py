@@ -87,6 +87,18 @@ class AdapterHealth:
 
 
 @dataclass(frozen=True, slots=True)
+class WebhookInfo:
+    """Webhook 平台状态的安全摘要，不包含远端 URL 或错误正文。"""
+
+    configured: bool
+    pending_update_count: int
+    last_error_at: datetime | None
+    last_error_present: bool
+    allowed_updates: tuple[str, ...]
+    checked_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class ChannelDeliveryCommand:
     """经过应用层授权后交给 Adapter 的标准化发送命令。"""
 
@@ -154,6 +166,24 @@ class ChannelAdapter(Protocol):
     def validate_credential(self, credential: str) -> None: ...
 
     async def test_connection(self, *, credential: str | None) -> AdapterHealth: ...
+
+    async def get_webhook_info(self, *, credential: str | None) -> WebhookInfo: ...
+
+    async def set_webhook(
+        self,
+        *,
+        credential: str | None,
+        webhook_url: str,
+        secret_token: str,
+        drop_pending_updates: bool,
+    ) -> WebhookInfo: ...
+
+    async def delete_webhook(
+        self,
+        *,
+        credential: str | None,
+        drop_pending_updates: bool,
+    ) -> WebhookInfo: ...
 
     async def deliver(
         self,

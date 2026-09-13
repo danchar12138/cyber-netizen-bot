@@ -16,6 +16,7 @@ from cnb_adapters import (
     ChannelInboundEvent,
     ChannelNotConfiguredError,
     ChannelRateLimitError,
+    WebhookInfo,
     negotiate_capabilities,
     summarize_blocks,
 )
@@ -100,6 +101,20 @@ class TelegramWebhookContext:
     tenant_id: UUID
     agent_id: UUID
     channel_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class TelegramWebhookStatus:
+    """Telegram Webhook 的运营状态摘要，不包含 URL、Secret 或远端错误正文。"""
+
+    channel_id: UUID
+    status: ChannelHealthStatus
+    configured: bool
+    pending_update_count: int
+    last_error_at: datetime | None
+    last_error_present: bool
+    allowed_updates: tuple[str, ...]
+    checked_at: datetime
 
 
 class ChannelRepository(Protocol):
@@ -681,6 +696,160 @@ class ChannelService:
             channel_id=instance.id,
         )
 
+    async def telegram_webhook_status(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID,
+    ) -> TelegramWebhookStatus:
+        """探测 Telegram Webhook，并将结果裁剪为可安全展示的状态摘要。"""
+        instance = await self._required(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+        )
+        if instance.platform is not ChannelPlatform.TELEGRAM:
+            raise ChannelNotFoundError(f"Telegram Webhook 不适用于渠道：{channel_id}")
+        checked_at = datetime.now(UTC)
+        if instance.status is ChannelInstanceStatus.DISABLED:
+            return TelegramWebhookStatus(
+                channel_id=channel_id,
+                status=ChannelHealthStatus.DISABLED,
+                configured=False,
+                pending_update_count=0,
+                last_error_at=None,
+                last_error_present=False,
+                allowed_updates=(),
+                checked_at=checked_at,
+            )
+        credential = await self._resolve_credential(instance)
+        if credential is None:
+            return TelegramWebhookStatus(
+                channel_id=channel_id,
+                status=ChannelHealthStatus.NOT_CONFIGURED,
+                configured=False,
+                pending_update_count=0,
+                last_error_at=None,
+                last_error_present=False,
+                allowed_updates=(),
+                checked_at=checked_at,
+            )
+        info = await self._adapters.get(ChannelPlatform.TELEGRAM).get_webhook_info(
+            credential=credential
+        )
+        return self._webhook_status(channel_id, info)
+
+    async def register_telegram_webhook(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID,
+        webhook_url: str,
+        drop_pending_updates: bool,
+        actor_id: UUID,
+        confirmed: bool,
+    ) -> TelegramWebhookStatus:
+        del actor_id
+        if not confirmed:
+            raise ChannelValidationError("注册 Telegram Webhook 必须明确确认")
+        instance = await self._required(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+        )
+        self._ensure_telegram_webhook_instance(instance)
+        credential = await self._resolve_credential(instance)
+        if credential is None:
+            raise ChannelNotConfiguredError("Telegram Bot Token 尚未配置")
+        secret = await self._secret_store.resolve_secret(
+            _TELEGRAM_WEBHOOK_SECRET_KEY,
+            tenant_id=tenant_id,
+            channel_id=channel_id,
+        )
+        if secret is None:
+            raise ChannelNotConfiguredError("Telegram Webhook Secret 尚未配置")
+        try:
+            info = await self._adapters.get(ChannelPlatform.TELEGRAM).set_webhook(
+                credential=credential,
+                webhook_url=webhook_url,
+                secret_token=secret,
+                drop_pending_updates=drop_pending_updates,
+            )
+        except ChannelAdapterError as error:
+            await self._record_webhook_event(
+                instance,
+                event_type="telegram.webhook.registration_failed",
+                status=ChannelEventStatus.FAILED,
+                error_code=error.code,
+                info=None,
+            )
+            raise
+        result = self._webhook_status(channel_id, info)
+        await self._record_webhook_event(
+            instance,
+            event_type="telegram.webhook.registered",
+            status=(
+                ChannelEventStatus.DELIVERED
+                if result.status is ChannelHealthStatus.HEALTHY
+                else ChannelEventStatus.DEGRADED
+            ),
+            error_code=None,
+            info=info,
+        )
+        return result
+
+    async def clear_telegram_webhook(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID,
+        drop_pending_updates: bool,
+        actor_id: UUID,
+        confirmed: bool,
+    ) -> TelegramWebhookStatus:
+        del actor_id
+        if not confirmed:
+            raise ChannelValidationError("清理 Telegram Webhook 必须明确确认")
+        instance = await self._required(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+        )
+        self._ensure_telegram_webhook_instance(instance)
+        credential = await self._resolve_credential(instance)
+        if credential is None:
+            raise ChannelNotConfiguredError("Telegram Bot Token 尚未配置")
+        try:
+            info = await self._adapters.get(ChannelPlatform.TELEGRAM).delete_webhook(
+                credential=credential,
+                drop_pending_updates=drop_pending_updates,
+            )
+        except ChannelAdapterError as error:
+            await self._record_webhook_event(
+                instance,
+                event_type="telegram.webhook.clear_failed",
+                status=ChannelEventStatus.FAILED,
+                error_code=error.code,
+                info=None,
+            )
+            raise
+        result = self._webhook_status(channel_id, info)
+        await self._record_webhook_event(
+            instance,
+            event_type="telegram.webhook.cleared",
+            status=(
+                ChannelEventStatus.DELIVERED
+                if not result.configured
+                else ChannelEventStatus.DEGRADED
+            ),
+            error_code=None,
+            info=info,
+        )
+        return result
+
     async def events(
         self,
         *,
@@ -702,6 +871,64 @@ class ChannelService:
             agent_id=agent_id,
             channel_id=channel_id,
             limit=limit,
+        )
+
+    @staticmethod
+    def _webhook_status(channel_id: UUID, info: WebhookInfo) -> TelegramWebhookStatus:
+        if not info.configured:
+            status = ChannelHealthStatus.NOT_CONFIGURED
+        elif info.last_error_present:
+            status = ChannelHealthStatus.DEGRADED
+        else:
+            status = ChannelHealthStatus.HEALTHY
+        return TelegramWebhookStatus(
+            channel_id=channel_id,
+            status=status,
+            configured=info.configured,
+            pending_update_count=info.pending_update_count,
+            last_error_at=info.last_error_at,
+            last_error_present=info.last_error_present,
+            allowed_updates=info.allowed_updates,
+            checked_at=info.checked_at,
+        )
+
+    @staticmethod
+    def _ensure_telegram_webhook_instance(instance: ChannelInstance) -> None:
+        if instance.platform is not ChannelPlatform.TELEGRAM:
+            raise ChannelNotFoundError(f"Telegram Webhook 不适用于渠道：{instance.id}")
+        if instance.status is ChannelInstanceStatus.DISABLED:
+            raise ChannelConflictError("停用渠道不能管理 Telegram Webhook")
+
+    async def _record_webhook_event(
+        self,
+        instance: ChannelInstance,
+        *,
+        event_type: str,
+        status: ChannelEventStatus,
+        error_code: str | None,
+        info: WebhookInfo | None,
+    ) -> None:
+        summary: dict[str, JsonValue] = {}
+        if info is not None:
+            summary = {
+                "configured": info.configured,
+                "pending_update_count": info.pending_update_count,
+                "last_error_present": info.last_error_present,
+                "allowed_updates": list(info.allowed_updates),
+            }
+        await self._repository.record_event(
+            self._event(
+                instance=instance,
+                direction=ChannelEventDirection.SYSTEM,
+                event_type=event_type,
+                status=status,
+                idempotency_key=f"{event_type}:{uuid4()}",
+                payload_summary=summary,
+                error_code=error_code,
+                degradations=(),
+                external_message_id=None,
+                occurred_at=datetime.now(UTC),
+            )
         )
 
     async def _required(

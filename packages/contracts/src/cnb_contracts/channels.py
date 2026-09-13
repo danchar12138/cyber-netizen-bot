@@ -129,6 +129,34 @@ class ChannelConfirmedCommand(BaseModel):
     confirmed: bool
 
 
+class TelegramWebhookStatusResponse(BaseModel):
+    """Telegram Webhook 的安全运营状态摘要，不返回 URL、Secret 或远端错误正文。"""
+
+    channel_id: UUID
+    status: ChannelHealthStatus
+    configured: bool
+    pending_update_count: int = Field(ge=0)
+    last_error_at: datetime | None
+    last_error_present: bool
+    allowed_updates: tuple[str, ...]
+    checked_at: datetime
+
+
+class TelegramWebhookRegisterCommand(BaseModel):
+    """注册 Telegram Webhook；URL 仅允许 HTTPS，动作必须显式确认。"""
+
+    webhook_url: str = Field(min_length=1, max_length=2048)
+    drop_pending_updates: bool = False
+    confirmed: bool = False
+
+
+class TelegramWebhookClearCommand(BaseModel):
+    """清理 Telegram Webhook；是否丢弃积压更新由调用方明确选择。"""
+
+    drop_pending_updates: bool = False
+    confirmed: bool = False
+
+
 class ChannelInstanceResponse(BaseModel):
     """不包含凭证明文、定位符或远端原始响应的渠道视图。"""
 
