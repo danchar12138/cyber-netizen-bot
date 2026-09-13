@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -24,6 +24,9 @@ from cnb_adapters import (
 )
 from cnb_application import ChannelNotFoundError, ChannelService, ChannelValidationError
 from cnb_domain import (
+    ChannelDiagnosticEvent,
+    ChannelEventDirection,
+    ChannelEventStatus,
     ChannelInstanceStatus,
     ChannelPlatform,
     ConfigScope,
@@ -943,4 +946,153 @@ async def test_channel_public_settings_reject_nested_secret_like_fields() -> Non
             settings={"connection": {"bot_token": "不应保存在公开设置中"}},
             credential=None,
             actor_id=uuid4(),
+        )
+
+
+async def test_channel_operation_metrics_are_windowed_and_agent_isolated() -> None:
+    tenant_id = uuid4()
+    agent_id, other_agent_id, actor_id = uuid4(), uuid4(), uuid4()
+    repository = MemoryChannelRepository()
+    service = ChannelService(repository, build_default_channel_registry(), MemorySecretStore())
+    current = await service.create(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        name="指标 Web",
+        platform=ChannelPlatform.WEB,
+        status=ChannelInstanceStatus.ENABLED,
+        rate_limit_per_minute=60,
+        settings={},
+        credential=None,
+        actor_id=actor_id,
+    )
+    other = await service.create(
+        tenant_id=tenant_id,
+        agent_id=other_agent_id,
+        name="指标 Web",
+        platform=ChannelPlatform.WEB,
+        status=ChannelInstanceStatus.ENABLED,
+        rate_limit_per_minute=60,
+        settings={},
+        credential=None,
+        actor_id=actor_id,
+    )
+    ended_at = datetime(2026, 9, 13, 12, 0, tzinfo=UTC)
+    started_at = ended_at.replace(hour=11)
+
+    async def record(
+        channel_id: UUID,
+        direction: ChannelEventDirection,
+        event_status: ChannelEventStatus,
+        occurred_at: datetime,
+        key: str,
+    ) -> None:
+        await repository.record_event(
+            ChannelDiagnosticEvent(
+                id=uuid4(),
+                tenant_id=tenant_id,
+                channel_id=channel_id,
+                direction=direction,
+                event_type="metrics.test",
+                status=event_status,
+                external_event_id=None,
+                idempotency_key=key,
+                external_message_id=None,
+                payload_summary={},
+                error_code=None,
+                degradations=(),
+                occurred_at=occurred_at,
+            )
+        )
+
+    await record(
+        current.instance.id,
+        ChannelEventDirection.INBOUND,
+        ChannelEventStatus.ACCEPTED,
+        started_at,
+        "inbound-start",
+    )
+    await record(
+        current.instance.id,
+        ChannelEventDirection.INBOUND,
+        ChannelEventStatus.ACCEPTED,
+        ended_at,
+        "inbound-end",
+    )
+    await record(
+        current.instance.id,
+        ChannelEventDirection.OUTBOUND,
+        ChannelEventStatus.DELIVERED,
+        ended_at,
+        "delivered",
+    )
+    await record(
+        current.instance.id,
+        ChannelEventDirection.OUTBOUND,
+        ChannelEventStatus.DEGRADED,
+        ended_at,
+        "degraded",
+    )
+    await record(
+        current.instance.id,
+        ChannelEventDirection.OUTBOUND,
+        ChannelEventStatus.FAILED,
+        ended_at,
+        "failed",
+    )
+    await record(
+        current.instance.id,
+        ChannelEventDirection.OUTBOUND,
+        ChannelEventStatus.REJECTED,
+        ended_at,
+        "rejected",
+    )
+    await record(
+        current.instance.id,
+        ChannelEventDirection.OUTBOUND,
+        ChannelEventStatus.RATE_LIMITED,
+        ended_at,
+        "limited",
+    )
+    await record(
+        current.instance.id,
+        ChannelEventDirection.OUTBOUND,
+        ChannelEventStatus.FAILED,
+        started_at.replace(hour=10),
+        "outside",
+    )
+    await record(
+        other.instance.id,
+        ChannelEventDirection.OUTBOUND,
+        ChannelEventStatus.FAILED,
+        ended_at,
+        "other-agent",
+    )
+
+    metrics = await service.operation_metrics(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        channel_id=None,
+        window_minutes=60,
+        now=ended_at,
+    )
+
+    assert [item.channel_id for item in metrics] == [current.instance.id]
+    item = metrics[0]
+    assert item.inbound_events == 2
+    assert item.outbound_events == 5
+    assert item.outbound_delivered == 1
+    assert item.outbound_degraded == 1
+    assert item.outbound_failed == 2
+    assert item.outbound_rate_limited == 1
+    assert item.outbound_attempts == 5
+    assert item.outbound_failure_rate_percent == 60.0
+    assert item.last_failure_at == ended_at
+
+    with pytest.raises(ChannelValidationError, match="5 到 1440"):
+        await service.operation_metrics(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=None,
+            window_minutes=4,
+            now=ended_at,
         )

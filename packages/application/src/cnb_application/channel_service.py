@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from secrets import compare_digest
 from typing import Literal, Protocol
 from uuid import UUID, uuid4
@@ -29,6 +29,7 @@ from cnb_domain import (
     ChannelHealthStatus,
     ChannelInstance,
     ChannelInstanceStatus,
+    ChannelOperationMetrics,
     ChannelPlatform,
     ConfigScope,
     JsonValue,
@@ -168,6 +169,16 @@ class ChannelRepository(Protocol):
         channel_id: UUID | None,
         limit: int,
     ) -> tuple[ChannelDiagnosticEvent, ...]: ...
+
+    async def get_operation_metrics(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+    ) -> tuple[ChannelOperationMetrics, ...]: ...
 
     async def reserve_rate_limit(
         self,
@@ -871,6 +882,34 @@ class ChannelService:
             agent_id=agent_id,
             channel_id=channel_id,
             limit=limit,
+        )
+
+    async def operation_metrics(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        window_minutes: int,
+        now: datetime | None = None,
+    ) -> tuple[ChannelOperationMetrics, ...]:
+        """返回当前 Agent 渠道的安全运营聚合，不读取或返回事件正文。"""
+        if not 5 <= window_minutes <= 1_440:
+            raise ChannelValidationError("运营指标时间窗必须位于 5 到 1440 分钟之间")
+        ended_at = (now or datetime.now(UTC)).astimezone(UTC)
+        started_at = ended_at - timedelta(minutes=window_minutes)
+        if channel_id is not None:
+            await self._required(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                channel_id=channel_id,
+            )
+        return await self._repository.get_operation_metrics(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+            window_started_at=started_at,
+            window_ended_at=ended_at,
         )
 
     @staticmethod

@@ -1,6 +1,7 @@
 """多模态能力、渠道实例、模拟器、凭证与诊断管理 API。"""
 
 from dataclasses import asdict
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
@@ -12,6 +13,7 @@ from cnb_application import (
     ChannelConflictError,
     ChannelInstanceView,
     ChannelNotFoundError,
+    ChannelOperationMetrics,
     ChannelService,
     ChannelValidationError,
     TelegramWebhookStatus,
@@ -32,6 +34,8 @@ from cnb_contracts import (
     ChannelInstanceListResponse,
     ChannelInstanceResponse,
     ChannelInstanceUpdate,
+    ChannelOperationMetricsListResponse,
+    ChannelOperationMetricsResponse,
     ChannelSimulationCommand,
     ChannelSimulationResponse,
     ModelCapabilityMatrixResponse,
@@ -121,6 +125,23 @@ def _webhook_response(value: TelegramWebhookStatus) -> TelegramWebhookStatusResp
     )
 
 
+def _operation_metrics_response(value: ChannelOperationMetrics) -> ChannelOperationMetricsResponse:
+    return ChannelOperationMetricsResponse(
+        channel_id=value.channel_id,
+        window_started_at=value.window_started_at,
+        window_ended_at=value.window_ended_at,
+        inbound_events=value.inbound_events,
+        outbound_events=value.outbound_events,
+        outbound_delivered=value.outbound_delivered,
+        outbound_degraded=value.outbound_degraded,
+        outbound_failed=value.outbound_failed,
+        outbound_rate_limited=value.outbound_rate_limited,
+        outbound_attempts=value.outbound_attempts,
+        outbound_failure_rate_percent=value.outbound_failure_rate_percent,
+        last_failure_at=value.last_failure_at,
+    )
+
+
 @router.get(
     "/catalog",
     response_model=ChannelCatalogListResponse,
@@ -195,6 +216,44 @@ async def list_instances(
                 agent_id=identity.agent_id,
             )
         )
+    )
+
+
+@router.get(
+    "/operations/metrics",
+    response_model=ChannelOperationMetricsListResponse,
+    dependencies=[Depends(require_permission(AdminPermission.CHANNEL_READ))],
+)
+async def operation_metrics(
+    principal: Annotated[AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_READ))],
+    service: Annotated[ChannelService, Depends(get_channel_service)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    channel_id: Annotated[UUID | None, Query()] = None,
+    window_minutes: Annotated[int, Query(ge=5, le=1_440)] = 60,
+) -> ChannelOperationMetricsListResponse:
+    try:
+        metrics = await service.operation_metrics(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            channel_id=channel_id,
+            window_minutes=window_minutes,
+        )
+    except ChannelNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except ChannelValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    if metrics:
+        window_started_at = metrics[0].window_started_at
+        window_ended_at = metrics[0].window_ended_at
+    else:
+        window_ended_at = datetime.now(UTC)
+        window_started_at = window_ended_at - timedelta(minutes=window_minutes)
+    return ChannelOperationMetricsListResponse(
+        window_started_at=window_started_at,
+        window_ended_at=window_ended_at,
+        items=tuple(_operation_metrics_response(item) for item in metrics),
     )
 
 

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Cable, FlaskConical, KeyRound, Plus, RadioTower, RefreshCw, Send, ShieldCheck, Unplug } from 'lucide-react'
+import { Activity, Cable, CheckCircle2, FlaskConical, KeyRound, Plus, RadioTower, RefreshCw, Send, ShieldCheck, TriangleAlert, Unplug } from 'lucide-react'
 import { useCallback, useMemo, useState, type FormEvent } from 'react'
 
 import {
@@ -10,6 +10,7 @@ import {
   getChannelCatalog,
   getChannelEvents,
   getChannelInstances,
+  getChannelOperationMetrics,
   getModelCapabilities,
   getTelegramWebhookStatus,
   clearTelegramWebhook,
@@ -20,6 +21,7 @@ import {
   updateChannelInstance,
   type ChannelDiagnosticEvent,
   type ChannelInstance,
+  type ChannelOperationMetrics,
   type ChannelPlatform,
   type ModelCapabilityProfile,
 } from '../api'
@@ -57,6 +59,10 @@ function modelInputs(profile: ModelCapabilityProfile) {
     .filter(Boolean).join(' / ')
 }
 
+function formatMetricTime(value: string | null) {
+  return value ? new Date(value).toLocaleString('zh-CN') : '无'
+}
+
 export function ChannelsPage() {
   const selectedAgentId = useSelectedAgentId()
   return <ChannelsPageContent key={selectedAgentId ?? 'default'} selectedAgentId={selectedAgentId} />
@@ -85,6 +91,7 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
   const [deliveryText, setDeliveryText] = useState('这是一条来自赛博网友管理后台的测试消息。')
   const [deliveryThreadId, setDeliveryThreadId] = useState('')
   const [deliveryEditMessageId, setDeliveryEditMessageId] = useState('')
+  const [metricsWindow, setMetricsWindow] = useState(60)
   const [formError, setFormError] = useState('')
 
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
@@ -105,6 +112,10 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     queryKey: ['channel-events', selectedAgentId],
     queryFn: () => getChannelEvents(),
   })
+  const operationMetrics = useQuery({
+    queryKey: ['channel-operation-metrics', selectedAgentId, metricsWindow],
+    queryFn: () => getChannelOperationMetrics(undefined, metricsWindow),
+  })
   const canWrite = session.data?.permissions.includes('channel:write') ?? false
   const canSend = session.data?.permissions.includes('channel:send') ?? false
   const canManageCredential = session.data?.permissions.includes('channel_credential:manage') ?? false
@@ -114,6 +125,7 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     await Promise.all([
       invalidateAcrossTabs(queryClient, ['channel-instances', selectedAgentId]),
       invalidateAcrossTabs(queryClient, ['channel-events', selectedAgentId]),
+      invalidateAcrossTabs(queryClient, ['channel-operation-metrics', selectedAgentId, metricsWindow]),
       ...(selectedTelegramChannelId
         ? [invalidateAcrossTabs(queryClient, ['telegram-webhook', selectedTelegramChannelId])]
         : []),
@@ -234,6 +246,51 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       </div>,
     },
   ], [canManageCredential, canSend, canWrite, runClearCredential, runToggle, testMutation])
+  const instanceNames = useMemo(
+    () => new Map((instances.data?.items ?? []).map((item) => [item.id, item.name])),
+    [instances.data?.items],
+  )
+  const operationMetricColumns = useMemo<Array<AdminTableColumn<ChannelOperationMetrics>>>(() => [
+    {
+      key: 'channel', label: '渠道实例',
+      render: (row) => <div className="table-primary"><strong>{instanceNames.get(row.channel_id) ?? '未知渠道'}</strong><code>{row.channel_id}</code></div>,
+    },
+    { key: 'traffic', label: '入站 / 出站', render: (row) => `${row.inbound_events} / ${row.outbound_events}` },
+    { key: 'outcomes', label: '送达 / 降级', render: (row) => `${row.outbound_delivered} / ${row.outbound_degraded}` },
+    { key: 'failures', label: '失败 / 限流', render: (row) => `${row.outbound_failed} / ${row.outbound_rate_limited}` },
+    { key: 'failure-rate', label: '失败率', render: (row) => `${row.outbound_failure_rate_percent.toFixed(2)}%` },
+    { key: 'last-failure', label: '最近失败', render: (row) => formatMetricTime(row.last_failure_at) },
+  ], [instanceNames])
+  const metricTotals = useMemo(() => {
+    const totals = (operationMetrics.data?.items ?? []).reduce(
+      (result, row) => ({
+        inbound_events: result.inbound_events + row.inbound_events,
+        outbound_events: result.outbound_events + row.outbound_events,
+        outbound_delivered: result.outbound_delivered + row.outbound_delivered,
+        outbound_degraded: result.outbound_degraded + row.outbound_degraded,
+        outbound_failed: result.outbound_failed + row.outbound_failed,
+        outbound_rate_limited: result.outbound_rate_limited + row.outbound_rate_limited,
+        last_failure_at: result.last_failure_at && row.last_failure_at
+          ? (result.last_failure_at > row.last_failure_at ? result.last_failure_at : row.last_failure_at)
+          : result.last_failure_at ?? row.last_failure_at,
+      }),
+      {
+        inbound_events: 0,
+        outbound_events: 0,
+        outbound_delivered: 0,
+        outbound_degraded: 0,
+        outbound_failed: 0,
+        outbound_rate_limited: 0,
+        last_failure_at: null as string | null,
+      },
+    )
+    const attempts = totals.outbound_delivered + totals.outbound_degraded + totals.outbound_failed + totals.outbound_rate_limited
+    return {
+      ...totals,
+      failure_rate: attempts ? ((totals.outbound_failed + totals.outbound_rate_limited) * 100) / attempts : 0,
+    }
+  }, [operationMetrics.data?.items])
+  const hasOperationFailure = (operationMetrics.data?.items ?? []).some((item) => item.outbound_failure_rate_percent > 0)
   const eventColumns = useMemo<Array<AdminTableColumn<ChannelDiagnosticEvent>>>(() => [
     { key: 'event', label: '事件', render: (row) => <div className="table-primary"><strong>{displayLabel(channelEventTypeLabels, row.event_type)}</strong><code>{channelEventDirectionLabels[row.direction]} · {row.id}</code></div> },
     { key: 'status', label: '结果', render: (row) => <span className={`entity-status task-${row.status}`}>{channelEventStatusLabels[row.status]}</span> },
@@ -250,7 +307,7 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
         <span className="phase-tag">Telegram 入站已接通</span>
       </section>
 
-      {(catalog.isError || models.isError || instances.isError || events.isError) && <div className="notice error">渠道数据读取失败，请检查 API 与迁移状态。</div>}
+      {(catalog.isError || models.isError || instances.isError || events.isError || operationMetrics.isError) && <div className="notice error">渠道数据读取失败，请检查 API 与迁移状态。</div>}
       {(formError || operationError) && <div className="notice error">{formError || operationError?.message}</div>}
       <div className="notice info"><ShieldCheck size={17} /><div><strong>凭证只写入信封加密存储</strong><span>API、页面、诊断事件和审计记录只展示是否已配置；能力降级会明确列出，不会静默丢弃图片、文件、线程或流式语义。</span></div></div>
       <div className="notice info"><RadioTower size={17} /><div><strong>渠道严格归属当前智能体</strong><span>创建、凭证、连接测试、收发模拟和诊断事件均按全局选择隔离；当前标识：{selectedAgentId ?? '默认智能体'}。</span></div></div>
@@ -308,6 +365,25 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       <section className="panel table-panel">
         <div className="panel-heading task-panel-heading"><div><span>运行实例</span><h2>渠道实例</h2></div><small>{instances.data?.items.length ?? 0} 个实例</small></div>
         <AdminDataTable rows={instances.data?.items ?? []} columns={instanceColumns} rowKey={(row) => row.id} searchableText={(row) => `${row.name} ${row.platform} ${row.status} ${row.health_status}`} searchPlaceholder="搜索渠道、平台或健康状态" emptyMessage={instances.isLoading ? '正在读取渠道…' : '尚未创建渠道实例'} />
+      </section>
+
+      <section className="channel-operation-section" aria-label="渠道运营指标">
+        <div className="panel-heading channel-operation-heading"><div><span>时间窗聚合 · 不含正文</span><h2>运营指标</h2></div><label className="status-filter"><span>统计窗口</span><select value={metricsWindow} onChange={(event) => setMetricsWindow(Number(event.target.value))}><option value={15}>最近 15 分钟</option><option value={60}>最近 1 小时</option><option value={360}>最近 6 小时</option><option value={1440}>最近 24 小时</option></select></label></div>
+        <div className="metric-grid channel-operation-metrics">
+          <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>入站事件</p><strong>{operationMetrics.data ? metricTotals.inbound_events : '—'}</strong><span>当前 Agent 全部渠道</span></article>
+          <article className="metric-card"><div className="metric-icon"><Send size={18} /></div><p>出站事件</p><strong>{operationMetrics.data ? metricTotals.outbound_events : '—'}</strong><span>发送尝试已聚合</span></article>
+          <article className="metric-card"><div className="metric-icon"><CheckCircle2 size={18} /></div><p>送达</p><strong>{operationMetrics.data ? metricTotals.outbound_delivered : '—'}</strong><span>适配器确认送达</span></article>
+          <article className="metric-card"><div className="metric-icon"><ShieldCheck size={18} /></div><p>降级</p><strong>{operationMetrics.data ? metricTotals.outbound_degraded : '—'}</strong><span>透明能力降级</span></article>
+          <article className="metric-card"><div className="metric-icon"><TriangleAlert size={18} /></div><p>失败</p><strong>{operationMetrics.data ? metricTotals.outbound_failed : '—'}</strong><span>失败与拒绝</span></article>
+          <article className="metric-card"><div className="metric-icon"><RadioTower size={18} /></div><p>限流</p><strong>{operationMetrics.data ? metricTotals.outbound_rate_limited : '—'}</strong><span>渠道速率限制</span></article>
+          <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>出站失败率</p><strong>{operationMetrics.data ? `${metricTotals.failure_rate.toFixed(2)}%` : '—'}</strong><span>失败与限流 / 出站尝试</span></article>
+          <article className="metric-card"><div className="metric-icon"><RefreshCw size={18} /></div><p>最近失败</p><strong className="metric-text">{operationMetrics.data ? formatMetricTime(metricTotals.last_failure_at) : '—'}</strong><span>{operationMetrics.data ? `窗口 ${new Date(operationMetrics.data.window_started_at).toLocaleString('zh-CN')} 起` : '等待指标返回'}</span></article>
+        </div>
+        {hasOperationFailure && <div className="notice warning"><TriangleAlert size={17} /><div><strong>检测到失败出站</strong><span>失败率大于 0。请前往<a href="/tasks">任务与主动行为</a>，逐项确认问题已处理后再显式重放；本页不提供自动重试。</span></div></div>}
+        <div className="panel table-panel channel-operation-table">
+          <div className="panel-heading task-panel-heading"><div><span>{operationMetrics.data ? `${new Date(operationMetrics.data.window_started_at).toLocaleString('zh-CN')} 至 ${new Date(operationMetrics.data.window_ended_at).toLocaleString('zh-CN')}` : '等待查询'}</span><h2>按渠道明细</h2></div><small>{operationMetrics.data?.items.length ?? 0} 个渠道</small></div>
+          <AdminDataTable rows={operationMetrics.data?.items ?? []} columns={operationMetricColumns} rowKey={(row) => row.channel_id} searchableText={(row) => `${instanceNames.get(row.channel_id) ?? ''} ${row.channel_id}`} searchPlaceholder="搜索渠道实例" emptyMessage={operationMetrics.isLoading ? '正在读取运营指标…' : '当前窗口暂无渠道指标'} />
+        </div>
       </section>
 
       <section className="channel-lab-grid">

@@ -20,6 +20,7 @@ from cnb_contracts import (
     AgentLifecycleImpactResponse,
     ApiErrorResponse,
     BootstrapSettingsResponse,
+    ChannelOperationMetricsListResponse,
     CognitionResourceListResponse,
     CognitionResourceResponse,
     CognitiveRunTraceResponse,
@@ -2103,6 +2104,23 @@ async def test_channel_management_simulation_delivery_and_secret_boundary_api() 
             params={"channel_id": web_id, "limit": 100},
             headers={"X-CNB-Agent-ID": other_agent_id},
         )
+        metrics = await client.get(
+            "/api/v1/channels/operations/metrics",
+            params={"window_minutes": 60},
+        )
+        web_metrics = await client.get(
+            "/api/v1/channels/operations/metrics",
+            params={"channel_id": web_id, "window_minutes": 60},
+        )
+        other_metrics = await client.get(
+            "/api/v1/channels/operations/metrics",
+            params={"channel_id": web_id, "window_minutes": 60},
+            headers={"X-CNB-Agent-ID": other_agent_id},
+        )
+        invalid_metrics_window = await client.get(
+            "/api/v1/channels/operations/metrics",
+            params={"window_minutes": 4},
+        )
         viewer_create = await client.post(
             "/api/v1/channels",
             headers={"X-CNB-Development-Role": "viewer"},
@@ -2140,6 +2158,19 @@ async def test_channel_management_simulation_delivery_and_secret_boundary_api() 
     assert cross_agent_update.status_code == 404
     assert cross_agent_credential.status_code == 404
     assert cross_agent_events.status_code == 404
+    metrics_payload = ChannelOperationMetricsListResponse.model_validate(metrics.json())
+    web_metrics_payload = ChannelOperationMetricsListResponse.model_validate(web_metrics.json())
+    assert metrics.status_code == web_metrics.status_code == 200
+    assert {item.channel_id for item in metrics_payload.items} == {UUID(web_id), UUID(feishu_id)}
+    assert len(web_metrics_payload.items) == 1
+    assert web_metrics_payload.items[0].inbound_events == 1
+    assert web_metrics_payload.items[0].outbound_events == 1
+    assert web_metrics_payload.items[0].outbound_delivered == 1
+    assert web_metrics_payload.items[0].outbound_failure_rate_percent == 0
+    assert other_metrics.status_code == 404
+    assert invalid_metrics_window.status_code == 422
+    assert "你好，**渠道**" not in metrics.text
+    assert "不能通过响应返回的渠道密钥" not in metrics.text
     assert first_delivery.status_code == replayed_delivery.status_code == 200
     assert replayed_delivery.json()["idempotent_replay"] is True
     assert inbound.json()["blocks"][0]["text"] == "模拟入站消息"

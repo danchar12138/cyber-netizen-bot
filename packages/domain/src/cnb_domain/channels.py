@@ -131,3 +131,41 @@ class ChannelDiagnosticEvent:
     error_code: str | None
     degradations: tuple[str, ...]
     occurred_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelOperationMetrics:
+    """渠道运营时间窗聚合，不携带消息正文或平台原始载荷。"""
+
+    channel_id: UUID
+    window_started_at: datetime
+    window_ended_at: datetime
+    inbound_events: int
+    outbound_events: int
+    outbound_delivered: int
+    outbound_degraded: int
+    outbound_failed: int
+    outbound_rate_limited: int
+    last_failure_at: datetime | None
+
+    @property
+    def outbound_attempts(self) -> int:
+        """出站尝试总量，供成功率和失败率计算复用。"""
+        return (
+            self.outbound_delivered
+            + self.outbound_degraded
+            + self.outbound_failed
+            + self.outbound_rate_limited
+        )
+
+    @property
+    def outbound_failure_rate_percent(self) -> float:
+        attempts = self.outbound_attempts
+        return (
+            round(
+                (self.outbound_failed + self.outbound_rate_limited) * 100 / attempts,
+                4,
+            )
+            if attempts
+            else 0.0
+        )

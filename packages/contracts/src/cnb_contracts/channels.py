@@ -272,6 +272,31 @@ class ChannelDiagnosticEventListResponse(BaseModel):
     items: tuple[ChannelDiagnosticEventResponse, ...]
 
 
+class ChannelOperationMetricsResponse(BaseModel):
+    """渠道运营时间窗聚合，不包含消息正文、凭证或平台原始响应。"""
+
+    channel_id: UUID
+    window_started_at: datetime
+    window_ended_at: datetime
+    inbound_events: int = Field(ge=0)
+    outbound_events: int = Field(ge=0)
+    outbound_delivered: int = Field(ge=0)
+    outbound_degraded: int = Field(ge=0)
+    outbound_failed: int = Field(ge=0)
+    outbound_rate_limited: int = Field(ge=0)
+    outbound_attempts: int = Field(ge=0)
+    outbound_failure_rate_percent: float = Field(ge=0, le=100)
+    last_failure_at: datetime | None
+
+
+class ChannelOperationMetricsListResponse(BaseModel):
+    """当前 Agent 渠道运营指标及其统一查询时间窗。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    items: tuple[ChannelOperationMetricsResponse, ...]
+
+
 class ModelCapabilityResponse(BaseModel):
     """用于渠道规划的模型输入输出能力矩阵行。"""
 

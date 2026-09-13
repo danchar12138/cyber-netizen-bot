@@ -2576,6 +2576,124 @@
         "title": "ChannelInstanceUpdate",
         "type": "object"
       },
+      "ChannelOperationMetricsListResponse": {
+        "description": "当前 Agent 渠道运营指标及其统一查询时间窗。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ChannelOperationMetricsResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "window_ended_at": {
+            "format": "date-time",
+            "title": "Window Ended At",
+            "type": "string"
+          },
+          "window_started_at": {
+            "format": "date-time",
+            "title": "Window Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_started_at",
+          "window_ended_at",
+          "items"
+        ],
+        "title": "ChannelOperationMetricsListResponse",
+        "type": "object"
+      },
+      "ChannelOperationMetricsResponse": {
+        "description": "渠道运营时间窗聚合，不包含消息正文、凭证或平台原始响应。",
+        "properties": {
+          "channel_id": {
+            "format": "uuid",
+            "title": "Channel Id",
+            "type": "string"
+          },
+          "inbound_events": {
+            "minimum": 0.0,
+            "title": "Inbound Events",
+            "type": "integer"
+          },
+          "last_failure_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Failure At"
+          },
+          "outbound_attempts": {
+            "minimum": 0.0,
+            "title": "Outbound Attempts",
+            "type": "integer"
+          },
+          "outbound_degraded": {
+            "minimum": 0.0,
+            "title": "Outbound Degraded",
+            "type": "integer"
+          },
+          "outbound_delivered": {
+            "minimum": 0.0,
+            "title": "Outbound Delivered",
+            "type": "integer"
+          },
+          "outbound_events": {
+            "minimum": 0.0,
+            "title": "Outbound Events",
+            "type": "integer"
+          },
+          "outbound_failed": {
+            "minimum": 0.0,
+            "title": "Outbound Failed",
+            "type": "integer"
+          },
+          "outbound_failure_rate_percent": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Outbound Failure Rate Percent",
+            "type": "number"
+          },
+          "outbound_rate_limited": {
+            "minimum": 0.0,
+            "title": "Outbound Rate Limited",
+            "type": "integer"
+          },
+          "window_ended_at": {
+            "format": "date-time",
+            "title": "Window Ended At",
+            "type": "string"
+          },
+          "window_started_at": {
+            "format": "date-time",
+            "title": "Window Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel_id",
+          "window_started_at",
+          "window_ended_at",
+          "inbound_events",
+          "outbound_events",
+          "outbound_delivered",
+          "outbound_degraded",
+          "outbound_failed",
+          "outbound_rate_limited",
+          "outbound_attempts",
+          "outbound_failure_rate_percent",
+          "last_failure_at"
+        ],
+        "title": "ChannelOperationMetricsResponse",
+        "type": "object"
+      },
       "ChannelPlatform": {
         "description": "稳定的平台标识；Telegram 已提供正式出站实现。",
         "enum": [
@@ -13303,6 +13421,148 @@
           }
         },
         "summary": "返回当前内置模型服务的稳定能力矩阵",
+        "tags": [
+          "渠道与适配器"
+        ]
+      }
+    },
+    "/api/v1/channels/operations/metrics": {
+      "get": {
+        "operationId": "get_api_v1_channels_operations_metrics",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "channel_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Channel Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "window_minutes",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "maximum": 1440,
+              "minimum": 5,
+              "title": "Window Minutes",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelOperationMetricsListResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "执行渠道与适配器操作",
         "tags": [
           "渠道与适配器"
         ]

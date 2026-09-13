@@ -1562,6 +1562,82 @@ export type ChannelInstanceUpdate = {
 };
 
 /**
+ * ChannelOperationMetricsListResponse
+ *
+ * 当前 Agent 渠道运营指标及其统一查询时间窗。
+ */
+export type ChannelOperationMetricsListResponse = {
+    /**
+     * Items
+     */
+    items: Array<ChannelOperationMetricsResponse>;
+    /**
+     * Window Ended At
+     */
+    window_ended_at: string;
+    /**
+     * Window Started At
+     */
+    window_started_at: string;
+};
+
+/**
+ * ChannelOperationMetricsResponse
+ *
+ * 渠道运营时间窗聚合，不包含消息正文、凭证或平台原始响应。
+ */
+export type ChannelOperationMetricsResponse = {
+    /**
+     * Channel Id
+     */
+    channel_id: string;
+    /**
+     * Inbound Events
+     */
+    inbound_events: number;
+    /**
+     * Last Failure At
+     */
+    last_failure_at: string | null;
+    /**
+     * Outbound Attempts
+     */
+    outbound_attempts: number;
+    /**
+     * Outbound Degraded
+     */
+    outbound_degraded: number;
+    /**
+     * Outbound Delivered
+     */
+    outbound_delivered: number;
+    /**
+     * Outbound Events
+     */
+    outbound_events: number;
+    /**
+     * Outbound Failed
+     */
+    outbound_failed: number;
+    /**
+     * Outbound Failure Rate Percent
+     */
+    outbound_failure_rate_percent: number;
+    /**
+     * Outbound Rate Limited
+     */
+    outbound_rate_limited: number;
+    /**
+     * Window Ended At
+     */
+    window_ended_at: string;
+    /**
+     * Window Started At
+     */
+    window_started_at: string;
+};
+
+/**
  * ChannelPlatform
  *
  * 稳定的平台标识；Telegram 已提供正式出站实现。
@@ -7598,6 +7674,72 @@ export type GetApiV1ChannelsModelCapabilitiesResponses = {
 };
 
 export type GetApiV1ChannelsModelCapabilitiesResponse = GetApiV1ChannelsModelCapabilitiesResponses[keyof GetApiV1ChannelsModelCapabilitiesResponses];
+
+export type GetApiV1ChannelsOperationsMetricsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Channel Id
+         */
+        channel_id?: string | null;
+        /**
+         * Window Minutes
+         */
+        window_minutes?: number;
+    };
+    url: '/api/v1/channels/operations/metrics';
+};
+
+export type GetApiV1ChannelsOperationsMetricsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ChannelsOperationsMetricsError = GetApiV1ChannelsOperationsMetricsErrors[keyof GetApiV1ChannelsOperationsMetricsErrors];
+
+export type GetApiV1ChannelsOperationsMetricsResponses = {
+    /**
+     * 请求成功
+     */
+    200: ChannelOperationMetricsListResponse;
+};
+
+export type GetApiV1ChannelsOperationsMetricsResponse = GetApiV1ChannelsOperationsMetricsResponses[keyof GetApiV1ChannelsOperationsMetricsResponses];
 
 export type PostApiV1ChannelsSimulateData = {
     body: ChannelSimulationCommand;

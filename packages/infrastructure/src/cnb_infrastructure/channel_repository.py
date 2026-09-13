@@ -3,10 +3,10 @@
 import asyncio
 from dataclasses import replace
 from datetime import datetime
-from typing import cast
+from typing import TypedDict, cast
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -18,6 +18,7 @@ from cnb_domain import (
     ChannelHealthStatus,
     ChannelInstance,
     ChannelInstanceStatus,
+    ChannelOperationMetrics,
     ChannelPlatform,
     JsonValue,
 )
@@ -27,6 +28,28 @@ from cnb_infrastructure.models import (
     ChannelInstanceModel,
     ChannelRateLimitWindowModel,
 )
+
+
+class _OperationMetricCounts(TypedDict):
+    inbound_events: int
+    outbound_events: int
+    outbound_delivered: int
+    outbound_degraded: int
+    outbound_failed: int
+    outbound_rate_limited: int
+    last_failure_at: datetime | None
+
+
+_OperationAggregateRow = tuple[
+    UUID,
+    int | None,
+    int | None,
+    int | None,
+    int | None,
+    int | None,
+    int | None,
+    datetime | None,
+]
 
 
 class MemoryChannelRepository:
@@ -207,6 +230,83 @@ class MemoryChannelRepository:
                 key=lambda item: (item.occurred_at, str(item.id)),
                 reverse=True,
             )[:limit]
+        )
+
+    async def get_operation_metrics(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+    ) -> tuple[ChannelOperationMetrics, ...]:
+        visible_channels = tuple(
+            item
+            for item in self.instances.values()
+            if item.tenant_id == tenant_id
+            and item.agent_id == agent_id
+            and (channel_id is None or item.id == channel_id)
+        )
+        by_channel: dict[UUID, _OperationMetricCounts] = {
+            item.id: {
+                "inbound_events": 0,
+                "outbound_events": 0,
+                "outbound_delivered": 0,
+                "outbound_degraded": 0,
+                "outbound_failed": 0,
+                "outbound_rate_limited": 0,
+                "last_failure_at": None,
+            }
+            for item in visible_channels
+        }
+        for event in self.events.values():
+            if (
+                event.channel_id not in by_channel
+                or not window_started_at <= event.occurred_at <= window_ended_at
+            ):
+                continue
+            values = by_channel[event.channel_id]
+            if event.direction is ChannelEventDirection.INBOUND:
+                values["inbound_events"] = int(values["inbound_events"]) + 1
+            elif event.direction is ChannelEventDirection.OUTBOUND:
+                values["outbound_events"] = int(values["outbound_events"]) + 1
+                if event.status is ChannelEventStatus.DELIVERED:
+                    values["outbound_delivered"] = int(values["outbound_delivered"]) + 1
+                elif event.status is ChannelEventStatus.DEGRADED:
+                    values["outbound_degraded"] = int(values["outbound_degraded"]) + 1
+                elif event.status is ChannelEventStatus.RATE_LIMITED:
+                    values["outbound_rate_limited"] = int(values["outbound_rate_limited"]) + 1
+                elif event.status in {
+                    ChannelEventStatus.FAILED,
+                    ChannelEventStatus.REJECTED,
+                }:
+                    values["outbound_failed"] = int(values["outbound_failed"]) + 1
+                if event.status in {
+                    ChannelEventStatus.FAILED,
+                    ChannelEventStatus.REJECTED,
+                    ChannelEventStatus.RATE_LIMITED,
+                }:
+                    previous = values["last_failure_at"]
+                    if previous is None or event.occurred_at > previous:
+                        values["last_failure_at"] = event.occurred_at
+        return tuple(
+            ChannelOperationMetrics(
+                channel_id=item.id,
+                window_started_at=window_started_at,
+                window_ended_at=window_ended_at,
+                inbound_events=values["inbound_events"],
+                outbound_events=values["outbound_events"],
+                outbound_delivered=values["outbound_delivered"],
+                outbound_degraded=values["outbound_degraded"],
+                outbound_failed=values["outbound_failed"],
+                outbound_rate_limited=values["outbound_rate_limited"],
+                last_failure_at=values["last_failure_at"],
+            )
+            for item in sorted(
+                visible_channels, key=lambda value: (value.created_at, str(value.id))
+            )
+            for values in (by_channel[item.id],)
         )
 
     async def reserve_rate_limit(
@@ -455,6 +555,183 @@ class SqlAlchemyChannelRepository:
                 )
             ).all()
         return tuple(self._event(row) for row in rows)
+
+    async def get_operation_metrics(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+    ) -> tuple[ChannelOperationMetrics, ...]:
+        channel_statement = select(ChannelInstanceModel).where(
+            ChannelInstanceModel.tenant_id == tenant_id,
+            ChannelInstanceModel.agent_id == agent_id,
+        )
+        if channel_id is not None:
+            channel_statement = channel_statement.where(ChannelInstanceModel.id == channel_id)
+        aggregate_statement = (
+            select(
+                ChannelDiagnosticEventModel.channel_id,
+                func.sum(
+                    case(
+                        (
+                            ChannelDiagnosticEventModel.direction
+                            == ChannelEventDirection.INBOUND.value,
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ).label("inbound_events"),
+                func.sum(
+                    case(
+                        (
+                            ChannelDiagnosticEventModel.direction
+                            == ChannelEventDirection.OUTBOUND.value,
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ).label("outbound_events"),
+                func.sum(
+                    case(
+                        (
+                            (
+                                ChannelDiagnosticEventModel.direction
+                                == ChannelEventDirection.OUTBOUND.value
+                            )
+                            & (
+                                ChannelDiagnosticEventModel.status
+                                == ChannelEventStatus.DELIVERED.value
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ).label("outbound_delivered"),
+                func.sum(
+                    case(
+                        (
+                            (
+                                ChannelDiagnosticEventModel.direction
+                                == ChannelEventDirection.OUTBOUND.value
+                            )
+                            & (
+                                ChannelDiagnosticEventModel.status
+                                == ChannelEventStatus.DEGRADED.value
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ).label("outbound_degraded"),
+                func.sum(
+                    case(
+                        (
+                            (
+                                ChannelDiagnosticEventModel.direction
+                                == ChannelEventDirection.OUTBOUND.value
+                            )
+                            & ChannelDiagnosticEventModel.status.in_(
+                                [
+                                    ChannelEventStatus.FAILED.value,
+                                    ChannelEventStatus.REJECTED.value,
+                                ]
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ).label("outbound_failed"),
+                func.sum(
+                    case(
+                        (
+                            (
+                                ChannelDiagnosticEventModel.direction
+                                == ChannelEventDirection.OUTBOUND.value
+                            )
+                            & (
+                                ChannelDiagnosticEventModel.status
+                                == ChannelEventStatus.RATE_LIMITED.value
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ).label("outbound_rate_limited"),
+                func.max(
+                    case(
+                        (
+                            (
+                                ChannelDiagnosticEventModel.direction
+                                == ChannelEventDirection.OUTBOUND.value
+                            )
+                            & ChannelDiagnosticEventModel.status.in_(
+                                [
+                                    ChannelEventStatus.FAILED.value,
+                                    ChannelEventStatus.REJECTED.value,
+                                    ChannelEventStatus.RATE_LIMITED.value,
+                                ]
+                            ),
+                            ChannelDiagnosticEventModel.occurred_at,
+                        ),
+                        else_=None,
+                    )
+                ).label("last_failure_at"),
+            )
+            .join(
+                ChannelInstanceModel,
+                ChannelInstanceModel.id == ChannelDiagnosticEventModel.channel_id,
+            )
+            .where(
+                ChannelDiagnosticEventModel.tenant_id == tenant_id,
+                ChannelInstanceModel.tenant_id == tenant_id,
+                ChannelInstanceModel.agent_id == agent_id,
+                ChannelDiagnosticEventModel.occurred_at >= window_started_at,
+                ChannelDiagnosticEventModel.occurred_at <= window_ended_at,
+            )
+            .group_by(ChannelDiagnosticEventModel.channel_id)
+        )
+        if channel_id is not None:
+            aggregate_statement = aggregate_statement.where(
+                ChannelDiagnosticEventModel.channel_id == channel_id
+            )
+        async with self._session_factory() as session:
+            channels = (await session.scalars(channel_statement)).all()
+            rows = cast(
+                tuple[_OperationAggregateRow, ...],
+                (await session.execute(aggregate_statement)).all(),
+            )
+        # Keep the aggregate query narrow and construct zero rows for quiet channels.
+        aggregates = {row[0]: row for row in rows}
+        return tuple(
+            ChannelOperationMetrics(
+                channel_id=channel.id,
+                window_started_at=window_started_at,
+                window_ended_at=window_ended_at,
+                inbound_events=aggregates.get(channel.id, (channel.id, 0, 0, 0, 0, 0, 0, None))[1]
+                or 0,
+                outbound_events=aggregates.get(channel.id, (channel.id, 0, 0, 0, 0, 0, 0, None))[2]
+                or 0,
+                outbound_delivered=aggregates.get(channel.id, (channel.id, 0, 0, 0, 0, 0, 0, None))[
+                    3
+                ]
+                or 0,
+                outbound_degraded=aggregates.get(channel.id, (channel.id, 0, 0, 0, 0, 0, 0, None))[
+                    4
+                ]
+                or 0,
+                outbound_failed=aggregates.get(channel.id, (channel.id, 0, 0, 0, 0, 0, 0, None))[5]
+                or 0,
+                outbound_rate_limited=aggregates.get(
+                    channel.id, (channel.id, 0, 0, 0, 0, 0, 0, None)
+                )[6]
+                or 0,
+                last_failure_at=aggregates.get(channel.id, (channel.id, 0, 0, 0, 0, 0, 0, None))[7],
+            )
+            for channel in channels
+        )
 
     async def reserve_rate_limit(
         self,

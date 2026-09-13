@@ -4,6 +4,7 @@ import type {
   AgentLifecycleStatus,
   AgentRunResponse,
   AttachmentReservationResponse,
+  ChannelOperationMetricsResponse,
   ConfigDefinitionResponse,
   ConversationResponse,
   EvaluationComparisonResponse,
@@ -227,6 +228,8 @@ export interface ChannelDiagnosticEvent {
   degradations: string[]
   occurred_at: string
 }
+
+export type ChannelOperationMetrics = ChannelOperationMetricsResponse
 
 export interface ModelCapabilityProfile {
   provider: string
@@ -1279,6 +1282,11 @@ export const getChannelEvents = (channelId?: string) => {
     query: { limit: 100, channel_id: channelId },
   })
 }
+
+export const getChannelOperationMetrics = (channelId?: string, windowMinutes = 60) =>
+  apiSdk.getApiV1ChannelsOperationsMetrics({
+    query: { channel_id: channelId, window_minutes: windowMinutes },
+  })
 
 export type ExternalIdentityMapping = ExternalIdentityMappingResponse
 export type ExternalConversationMapping = ExternalConversationMappingResponse
