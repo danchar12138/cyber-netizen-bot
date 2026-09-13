@@ -79,7 +79,7 @@ def test_production_openapi_uses_chinese_product_copy() -> None:
     operation_tags = {tag for operation in operations for tag in operation["tags"]}
 
     assert document["info"]["title"] == "赛博网友机器人 API"
-    assert len(operations) == 133
+    assert len(operations) == 134
     assert all(re.search(r"[\u3400-\u9fff]", operation["summary"]) for operation in operations)
     assert all(
         response["description"] != "Successful Response"
@@ -88,4 +88,5 @@ def test_production_openapi_uses_chinese_product_copy() -> None:
     )
     assert operation_tags <= tag_names
     assert "渠道与适配器" in operation_tags
+    assert "外部平台 Webhook" in operation_tags
     assert "内部对话" in operation_tags

@@ -143,6 +143,7 @@ class ChannelInstanceResponse(BaseModel):
     rate_limit_per_minute: int
     settings: dict[str, JsonValue]
     credential_configured: bool
+    inbound_webhook_configured: bool
     capabilities: ChannelCapabilitiesResponse
     health_status: ChannelHealthStatus
     health_detail: str | None

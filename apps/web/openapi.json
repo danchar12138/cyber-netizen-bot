@@ -2431,6 +2431,10 @@
             "title": "Implementation Status",
             "type": "string"
           },
+          "inbound_webhook_configured": {
+            "title": "Inbound Webhook Configured",
+            "type": "boolean"
+          },
           "last_checked_at": {
             "anyOf": [
               {
@@ -2487,6 +2491,7 @@
           "rate_limit_per_minute",
           "settings",
           "credential_configured",
+          "inbound_webhook_configured",
           "capabilities",
           "health_status",
           "health_detail",
@@ -26875,6 +26880,123 @@
         ]
       }
     },
+    "/api/v1/webhooks/telegram/{channel_id}": {
+      "post": {
+        "description": "安全接收 Telegram 文本 Update，并交由已有 Inbox 流程异步处理。",
+        "operationId": "post_api_v1_webhooks_telegram_by_channel_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "接收 Telegram Webhook 更新",
+        "tags": [
+          "外部平台 Webhook"
+        ]
+      }
+    },
     "/health/live": {
       "get": {
         "description": "报告 API 进程是否能够处理请求。",
@@ -27160,6 +27282,10 @@
     {
       "description": "数据导出、遗忘、保留与恢复演练。",
       "name": "数据生命周期"
+    },
+    {
+      "description": "外部消息平台的安全入站边界。",
+      "name": "外部平台 Webhook"
     }
   ]
 }

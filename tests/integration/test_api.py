@@ -2213,6 +2213,129 @@ async def test_telegram_remote_rate_limit_is_safe_and_recorded_by_api() -> None:
     assert len(transport.requests) == 1
 
 
+async def test_telegram_webhook_safely_routes_text_updates_to_the_inbox() -> None:
+    webhook_secret = "telegram-webhook-test-secret"
+    message_text = "只应进入净化入站信封的 Telegram 文本"
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        identity = (await client.get("/api/v1/chat/identity")).json()
+        conversation = await client.post(
+            "/api/v1/chat/conversations",
+            json={"title": "Telegram 入站会话"},
+        )
+        channel = await client.post(
+            "/api/v1/channels",
+            json={
+                "name": "Telegram 入站",
+                "platform": "telegram",
+                "status": "enabled",
+                "rate_limit_per_minute": 60,
+                "settings": {},
+            },
+        )
+        channel_id = channel.json()["id"]
+        secret = await client.post(
+            "/api/v1/configuration/secrets",
+            json={
+                "key": "telegram_webhook_secret",
+                "scope_type": "channel",
+                "scope_id": channel_id,
+                "plaintext": webhook_secret,
+            },
+        )
+        configured_channel = await client.get(f"/api/v1/channels/{channel_id}")
+        identity_mapping = await client.post(
+            "/api/v1/integrations/identity-mappings",
+            json={
+                "channel_id": channel_id,
+                "external_subject_id": "501",
+                "user_id": identity["user_id"],
+            },
+        )
+        conversation_mapping = await client.post(
+            "/api/v1/integrations/conversation-mappings",
+            json={
+                "channel_id": channel_id,
+                "user_id": identity["user_id"],
+                "kind": "direct",
+                "external_conversation_id": "501",
+                "conversation_id": conversation.json()["id"],
+            },
+        )
+        now = datetime.now(UTC)
+        update: dict[str, JsonValue] = {
+            "update_id": 800_001,
+            "message": {
+                "message_id": 42,
+                "date": int(now.timestamp()),
+                "from": {"id": 501, "is_bot": False},
+                "chat": {"id": 501, "type": "private"},
+                "text": message_text,
+            },
+        }
+        webhook_url = f"/api/v1/webhooks/telegram/{channel_id}"
+        headers = {"X-Telegram-Bot-Api-Secret-Token": webhook_secret}
+        accepted = await client.post(webhook_url, json=update, headers=headers)
+        duplicate = await client.post(webhook_url, json=update, headers=headers)
+        inbox = await client.get("/api/v1/integrations/inbox")
+        jobs = await client.get("/api/v1/tasks/jobs")
+        wrong_secret = await client.post(
+            webhook_url,
+            json=update,
+            headers={"X-Telegram-Bot-Api-Secret-Token": "incorrect"},
+        )
+        no_content_type = await client.post(webhook_url, content=b"{}", headers=headers)
+        malformed_json = await client.post(
+            webhook_url,
+            content=b"{",
+            headers={**headers, "content-type": "application/json"},
+        )
+        unsupported_update = await client.post(
+            webhook_url,
+            json={"update_id": 800_002, "channel_post": {}},
+            headers=headers,
+        )
+        unmapped_update: dict[str, JsonValue] = {
+            "update_id": 800_003,
+            "message": {
+                "message_id": 43,
+                "date": int(now.timestamp()),
+                "from": {"id": 502, "is_bot": False},
+                "chat": {"id": 502, "type": "private"},
+                "text": message_text,
+            },
+        }
+        unmapped = await client.post(webhook_url, json=unmapped_update, headers=headers)
+        oversized = await client.post(
+            webhook_url,
+            content=b" " * (10 * 1024 * 1024 + 1),
+            headers={**headers, "content-type": "application/json"},
+        )
+
+    assert channel.status_code == 201
+    assert secret.status_code == 200
+    assert webhook_secret not in secret.text
+    assert configured_channel.json()["inbound_webhook_configured"] is True
+    assert identity_mapping.status_code == conversation_mapping.status_code == 201
+    assert accepted.status_code == duplicate.status_code == 204
+    assert accepted.content == duplicate.content == b""
+    assert len(inbox.json()["items"]) == len(jobs.json()["items"]) == 1
+    assert inbox.json()["items"][0]["platform"] == "telegram"
+    assert message_text not in inbox.text
+    assert webhook_secret not in inbox.text
+    assert wrong_secret.status_code == unmapped.status_code == 404
+    assert channel_id not in wrong_secret.text
+    assert message_text not in wrong_secret.text
+    assert no_content_type.status_code == 415
+    assert malformed_json.status_code == 400
+    assert unsupported_update.status_code == 422
+    assert oversized.status_code == 413
+
+
 def test_internal_chat_websocket_replays_from_sequence_and_responds_to_ping() -> None:
     app = create_app(
         Settings(environment="test"),

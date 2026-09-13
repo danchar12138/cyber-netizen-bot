@@ -76,6 +76,7 @@ def _instance_response(value: ChannelInstanceView) -> ChannelInstanceResponse:
         rate_limit_per_minute=item.rate_limit_per_minute,
         settings=item.settings,
         credential_configured=value.credential_configured,
+        inbound_webhook_configured=value.inbound_webhook_configured,
         capabilities=_capabilities(value.capabilities),
         health_status=item.health_status,
         health_detail=item.health_detail,

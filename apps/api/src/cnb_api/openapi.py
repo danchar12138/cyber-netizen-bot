@@ -28,6 +28,7 @@ OPENAPI_TAGS: list[dict[str, str]] = [
     {"name": "内部对话附件", "description": "MinIO 附件上传、校验、预览与清理。"},
     {"name": "内部对话", "description": "会话、消息、反馈与流式运行。"},
     {"name": "数据生命周期", "description": "数据导出、遗忘、保留与恢复演练。"},
+    {"name": "外部平台 Webhook", "description": "外部消息平台的安全入站边界。"},
 ]
 
 _TAG_TRANSLATIONS = {
@@ -46,6 +47,7 @@ _TAG_TRANSLATIONS = {
     "internal-chat-attachments": "内部对话附件",
     "internal-chat": "内部对话",
     "data-lifecycle": "数据生命周期",
+    "webhooks": "外部平台 Webhook",
 }
 _FALLBACK_OPERATION_SUMMARIES = {
     "list_instances": "列出渠道实例",
@@ -69,6 +71,7 @@ _FALLBACK_OPERATION_SUMMARIES = {
     "list_lifecycle_runs": "列出数据生命周期运行记录",
     "retention_cleanup": "执行保留期清理",
     "orphan_cleanup": "清理 MinIO 孤儿对象",
+    "receive_telegram_update": "接收 Telegram Webhook 更新",
 }
 _CHINESE_TEXT = re.compile(r"[\u3400-\u9fff]")
 

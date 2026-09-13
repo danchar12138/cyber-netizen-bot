@@ -29,6 +29,7 @@ from cnb_api.routes import (
     observability,
     system,
     tasks,
+    webhooks,
 )
 from cnb_api.telemetry import SafeObservabilityMiddleware, configure_telemetry
 from cnb_application import (
@@ -348,6 +349,7 @@ def create_app(
         attachment.router,
         conversation.router,
         data_lifecycle.router,
+        webhooks.router,
     ):
         localize_openapi_routes(api_router)
 
@@ -366,6 +368,7 @@ def create_app(
     application.include_router(attachment.router, prefix="/api/v1")
     application.include_router(conversation.router, prefix="/api/v1")
     application.include_router(data_lifecycle.router, prefix="/api/v1")
+    application.include_router(webhooks.router, prefix="/api/v1")
     return application
 
 

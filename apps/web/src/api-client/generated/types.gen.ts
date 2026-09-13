@@ -1494,6 +1494,10 @@ export type ChannelInstanceResponse = {
      */
     implementation_status: 'ready' | 'placeholder';
     /**
+     * Inbound Webhook Configured
+     */
+    inbound_webhook_configured: boolean;
+    /**
      * Last Checked At
      */
     last_checked_at: string | null;
@@ -14067,6 +14071,68 @@ export type PostApiV1TasksScheduledActionsByActionIdCancelResponses = {
 };
 
 export type PostApiV1TasksScheduledActionsByActionIdCancelResponse = PostApiV1TasksScheduledActionsByActionIdCancelResponses[keyof PostApiV1TasksScheduledActionsByActionIdCancelResponses];
+
+export type PostApiV1WebhooksTelegramByChannelIdData = {
+    body?: never;
+    path: {
+        /**
+         * Channel Id
+         */
+        channel_id: string;
+    };
+    query?: never;
+    url: '/api/v1/webhooks/telegram/{channel_id}';
+};
+
+export type PostApiV1WebhooksTelegramByChannelIdErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1WebhooksTelegramByChannelIdError = PostApiV1WebhooksTelegramByChannelIdErrors[keyof PostApiV1WebhooksTelegramByChannelIdErrors];
+
+export type PostApiV1WebhooksTelegramByChannelIdResponses = {
+    /**
+     * 请求成功
+     */
+    204: void;
+};
+
+export type PostApiV1WebhooksTelegramByChannelIdResponse = PostApiV1WebhooksTelegramByChannelIdResponses[keyof PostApiV1WebhooksTelegramByChannelIdResponses];
 
 export type GetHealthLiveData = {
     body?: never;

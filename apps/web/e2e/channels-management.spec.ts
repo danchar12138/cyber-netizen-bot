@@ -108,7 +108,7 @@ test('可以管理渠道、运行能力协商并查看安全诊断', async ({ pa
   await expect(page.getByRole('heading', { name: '渠道与适配器' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '平台能力模拟器' })).toBeVisible()
   await expect(page.getByText('凭证只写入信封加密存储')).toBeVisible()
-  await expect(page.getByText('Telegram 当前只开放安全出站')).toBeVisible()
+  await expect(page.getByText('Telegram 已接通安全文本入站')).toBeVisible()
   await expect(page.getByRole('heading', { name: '出站消息联调' })).toBeVisible()
   await expect(page.getByText(`当前标识：${agentId}。`)).toBeVisible()
   await expect(page.getByText('流式响应', { exact: true }).first()).toBeVisible()

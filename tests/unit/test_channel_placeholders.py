@@ -27,6 +27,7 @@ from cnb_domain import (
     ChannelInstanceStatus,
     ChannelPlatform,
     ContentBlockKind,
+    ExternalConversationKind,
     MultimodalContentBlock,
 )
 from cnb_infrastructure import MemoryChannelRepository, MemorySecretStore
@@ -244,11 +245,170 @@ async def test_telegram_errors_are_stable_and_do_not_expose_sensitive_context(
     assert "api.telegram.org" not in serialized
 
 
-async def test_telegram_inbound_remains_explicitly_disabled() -> None:
+async def test_telegram_normalizes_private_group_and_forum_text_updates() -> None:
     adapter = TelegramChannelAdapter(transport=RecordingTelegramTransport([]))
 
-    with pytest.raises(ChannelNotConfiguredError, match="入站接收尚未启用"):
-        await adapter.normalize_inbound({"update_id": 1})
+    private = await adapter.normalize_inbound(
+        {
+            "update_id": 101,
+            "message": {
+                "message_id": 11,
+                "date": 1_789_000_000,
+                "text": "  你好，赛博网友  ",
+                "from": {"id": 88, "is_bot": False},
+                "chat": {"id": 88, "type": "private"},
+            },
+        }
+    )
+    group = await adapter.normalize_inbound(
+        {
+            "update_id": 102,
+            "message": {
+                "message_id": 12,
+                "date": 1_789_000_001,
+                "text": "群聊消息",
+                "from": {"id": 89, "is_bot": False},
+                "chat": {"id": -100_123, "type": "group"},
+            },
+        }
+    )
+    forum = await adapter.normalize_inbound(
+        {
+            "update_id": 103,
+            "message": {
+                "message_id": 13,
+                "date": 1_789_000_002,
+                "text": "话题消息",
+                "from": {"id": 90, "is_bot": False},
+                "chat": {"id": -100_456, "type": "supergroup"},
+                "is_topic_message": True,
+                "message_thread_id": 7,
+            },
+        }
+    )
+
+    assert private.external_event_id == "telegram:update:101"
+    assert private.message_external_id == "telegram:message:88:11"
+    assert private.sender_external_id == "88"
+    assert private.conversation_external_id == "88"
+    assert private.conversation_kind is ExternalConversationKind.DIRECT
+    assert private.thread_external_id is None
+    assert private.blocks[0].text == "你好，赛博网友"
+    assert private.occurred_at == datetime.fromtimestamp(1_789_000_000, UTC)
+    assert group.conversation_kind is ExternalConversationKind.GROUP
+    assert group.conversation_external_id == "-100123"
+    assert group.thread_external_id is None
+    assert forum.conversation_kind is ExternalConversationKind.GROUP
+    assert forum.thread_external_id == "7"
+    assert forum.message_external_id == "telegram:message:-100456:13"
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    (
+        ({"update_id": 1}, "事件类型不受支持"),
+        (
+            {
+                "update_id": 1,
+                "message": {
+                    "message_id": 1,
+                    "date": 1_789_000_000,
+                    "text": "机器人消息",
+                    "from": {"id": 2, "is_bot": True},
+                    "chat": {"id": 2, "type": "private"},
+                },
+            },
+            "普通用户",
+        ),
+        (
+            {
+                "update_id": 1,
+                "message": {
+                    "message_id": 1,
+                    "date": 1_789_000_000,
+                    "text": "频道消息",
+                    "from": {"id": 2, "is_bot": False},
+                    "chat": {"id": -100_1, "type": "channel"},
+                },
+            },
+            "会话类型不受支持",
+        ),
+        (
+            {
+                "update_id": 1,
+                "message": {
+                    "message_id": 1,
+                    "date": 1_789_000_000,
+                    "text": "   ",
+                    "from": {"id": 2, "is_bot": False},
+                    "chat": {"id": 2, "type": "private"},
+                },
+            },
+            "文本不能为空",
+        ),
+        (
+            {
+                "update_id": 1,
+                "message": {
+                    "message_id": 1,
+                    "date": 1_789_000_000,
+                    "text": "a" * 4_097,
+                    "from": {"id": 2, "is_bot": False},
+                    "chat": {"id": 2, "type": "private"},
+                },
+            },
+            "超过长度上限",
+        ),
+        (
+            {
+                "update_id": True,
+                "message": {
+                    "message_id": 1,
+                    "date": 1_789_000_000,
+                    "text": "非法 ID",
+                    "from": {"id": 2, "is_bot": False},
+                    "chat": {"id": 2, "type": "private"},
+                },
+            },
+            "Update ID无效",
+        ),
+        (
+            {
+                "update_id": 1,
+                "message": {
+                    "message_id": 1,
+                    "date": 1,
+                    "text": "异常时间",
+                    "from": {"id": 2, "is_bot": False},
+                    "chat": {"id": 2, "type": "private"},
+                },
+            },
+            "时间超出允许范围",
+        ),
+        (
+            {
+                "update_id": 1,
+                "message": {
+                    "message_id": 1,
+                    "date": 1_789_000_000,
+                    "text": "错误线程",
+                    "from": {"id": 2, "is_bot": False},
+                    "chat": {"id": 2, "type": "private"},
+                    "message_thread_id": 7,
+                },
+            },
+            "线程必须属于超级群组",
+        ),
+    ),
+)
+async def test_telegram_inbound_rejects_unsupported_or_unsafe_updates(
+    payload: dict[str, object],
+    message: str,
+) -> None:
+    adapter = TelegramChannelAdapter(transport=RecordingTelegramTransport([]))
+
+    with pytest.raises(ChannelCapabilityError, match=message):
+        await adapter.normalize_inbound(payload)  # type: ignore[arg-type]
 
 
 async def test_telegram_service_reports_ready_and_replays_without_duplicate_send() -> None:

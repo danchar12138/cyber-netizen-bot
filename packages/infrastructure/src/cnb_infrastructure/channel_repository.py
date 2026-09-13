@@ -64,6 +64,9 @@ class MemoryChannelRepository:
             else None
         )
 
+    async def get_instance_by_id(self, *, channel_id: UUID) -> ChannelInstance | None:
+        return self.instances.get(channel_id)
+
     async def list_instances(
         self, *, tenant_id: UUID, agent_id: UUID
     ) -> tuple[ChannelInstance, ...]:
@@ -259,6 +262,13 @@ class SqlAlchemyChannelRepository:
                     ChannelInstanceModel.tenant_id == tenant_id,
                     ChannelInstanceModel.agent_id == agent_id,
                 )
+            )
+        return self._instance(row) if row is not None else None
+
+    async def get_instance_by_id(self, *, channel_id: UUID) -> ChannelInstance | None:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(ChannelInstanceModel).where(ChannelInstanceModel.id == channel_id)
             )
         return self._instance(row) if row is not None else None
 

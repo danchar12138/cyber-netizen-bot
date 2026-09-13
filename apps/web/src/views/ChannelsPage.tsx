@@ -179,6 +179,7 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       render: (row) => <div className="channel-status-stack"><span className={`entity-status ${row.status === 'enabled' ? 'active' : 'disabled'}`}>{row.status === 'enabled' ? '已启用' : '已停用'}</span><span>{channelHealthLabels[row.health_status]}</span></div>,
     },
     { key: 'credential', label: '凭证', render: (row) => row.platform === 'web' ? '无需凭证' : row.credential_configured ? '已加密配置' : '尚未配置' },
+    { key: 'inbound', label: '入站 Webhook', render: (row) => row.platform === 'telegram' ? row.inbound_webhook_configured ? '密钥已加密配置' : '尚未配置密钥' : '不适用' },
     { key: 'limit', label: '限流', render: (row) => `${row.rate_limit_per_minute} / 分钟` },
     { key: 'capabilities', label: '能力', render: (row) => <div className="permission-tags">{capabilityLabels(row).map((item) => <span key={item}>{item}</span>)}</div> },
     {
@@ -203,15 +204,15 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
   return (
     <div className="page">
       <section className="page-heading compact">
-        <div><p className="eyebrow">多模态与平台接入控制平面</p><h1>渠道与适配器</h1><p>统一管理能力协商、实例、凭证、健康、限流和安全诊断；Telegram 已开放正式出站，飞书与 Discord 仍为零副作用占位。</p></div>
-        <span className="phase-tag">Telegram 出站就绪</span>
+        <div><p className="eyebrow">多模态与平台接入控制平面</p><h1>渠道与适配器</h1><p>统一管理能力协商、实例、凭证、健康、限流和安全诊断；Telegram 已支持安全出站与文本入站，飞书与 Discord 仍为零副作用占位。</p></div>
+        <span className="phase-tag">Telegram 入站已接通</span>
       </section>
 
       {(catalog.isError || models.isError || instances.isError || events.isError) && <div className="notice error">渠道数据读取失败，请检查 API 与迁移状态。</div>}
       {(formError || operationError) && <div className="notice error">{formError || operationError?.message}</div>}
       <div className="notice info"><ShieldCheck size={17} /><div><strong>凭证只写入信封加密存储</strong><span>API、页面、诊断事件和审计记录只展示是否已配置；能力降级会明确列出，不会静默丢弃图片、文件、线程或流式语义。</span></div></div>
       <div className="notice info"><RadioTower size={17} /><div><strong>渠道严格归属当前智能体</strong><span>创建、凭证、连接测试、收发模拟和诊断事件均按全局选择隔离；当前标识：{selectedAgentId ?? '默认智能体'}。</span></div></div>
-      <div className="notice info"><Send size={17} /><div><strong>Telegram 当前只开放安全出站</strong><span>支持纯文本主动消息、Forum 话题和消息编辑；Markdown、流式与附件会透明降级，真实入站将在后续独立阶段接通。</span></div></div>
+      <div className="notice info"><Send size={17} /><div><strong>Telegram 已接通安全文本入站</strong><span>出站支持纯文本主动消息、Forum 话题和消息编辑；入站仅接受配置了渠道级 Webhook 密钥的文本 message Update，并沿用身份、会话映射和 Inbox 异步处理。</span></div></div>
 
       <section className="channel-catalog-grid" aria-label="渠道适配器能力目录">
         {(catalog.data?.items ?? []).map((item) => <article className="panel channel-catalog-card" key={item.platform}>

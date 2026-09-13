@@ -180,6 +180,7 @@ export interface ChannelInstance {
   rate_limit_per_minute: number
   settings: Record<string, ConfigValue>
   credential_configured: boolean
+  inbound_webhook_configured: boolean
   capabilities: ChannelCapabilities
   health_status: ChannelHealthStatus
   health_detail: string | null

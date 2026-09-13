@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from secrets import compare_digest
 from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
@@ -65,6 +66,7 @@ class ChannelInstanceView:
     display_name: str
     implementation_status: Literal["ready", "placeholder"]
     credential_configured: bool
+    inbound_webhook_configured: bool
     capabilities: ChannelCapabilities
 
 
@@ -91,6 +93,15 @@ class ChannelDeliveryReceipt:
     idempotent_replay: bool
 
 
+@dataclass(frozen=True, slots=True)
+class TelegramWebhookContext:
+    """已完成密钥校验的 Telegram 公开入站归属，绝不离开应用层。"""
+
+    tenant_id: UUID
+    agent_id: UUID
+    channel_id: UUID
+
+
 class ChannelRepository(Protocol):
     """渠道实例、限流窗口和诊断事件持久化端口。"""
 
@@ -103,6 +114,8 @@ class ChannelRepository(Protocol):
         agent_id: UUID,
         channel_id: UUID,
     ) -> ChannelInstance | None: ...
+
+    async def get_instance_by_id(self, *, channel_id: UUID) -> ChannelInstance | None: ...
 
     async def list_instances(
         self, *, tenant_id: UUID, agent_id: UUID
@@ -156,6 +169,7 @@ _CREDENTIAL_KEYS = {
     ChannelPlatform.DISCORD: "channel.discord.bot_token",
     ChannelPlatform.TELEGRAM: "channel.telegram.bot_token",
 }
+_TELEGRAM_WEBHOOK_SECRET_KEY = "telegram_webhook_secret"
 _SENSITIVE_KEY_PARTS = ("password", "secret", "token", "api_key", "credential")
 
 
@@ -639,6 +653,34 @@ class ChannelService:
             )
         return event
 
+    async def verify_telegram_webhook(
+        self,
+        *,
+        channel_id: UUID,
+        presented_secret: str | None,
+    ) -> TelegramWebhookContext:
+        """校验公开 Webhook 且只返回处理所需的隔离上下文。"""
+        instance = await self._repository.get_instance_by_id(channel_id=channel_id)
+        if (
+            instance is None
+            or instance.platform is not ChannelPlatform.TELEGRAM
+            or instance.status is not ChannelInstanceStatus.ENABLED
+            or presented_secret is None
+        ):
+            raise ChannelNotFoundError("Telegram Webhook 不可用")
+        expected_secret = await self._secret_store.resolve_secret(
+            _TELEGRAM_WEBHOOK_SECRET_KEY,
+            tenant_id=instance.tenant_id,
+            channel_id=instance.id,
+        )
+        if expected_secret is None or not compare_digest(expected_secret, presented_secret):
+            raise ChannelNotFoundError("Telegram Webhook 不可用")
+        return TelegramWebhookContext(
+            tenant_id=instance.tenant_id,
+            agent_id=instance.agent_id,
+            channel_id=instance.id,
+        )
+
     async def events(
         self,
         *,
@@ -690,6 +732,7 @@ class ChannelService:
             display_name=adapter.display_name,
             implementation_status=adapter.implementation_status,
             credential_configured=configured,
+            inbound_webhook_configured=await self._inbound_webhook_configured(instance),
             capabilities=adapter.capabilities,
         )
 
@@ -701,6 +744,17 @@ class ChannelService:
         metadata = await self._secret_store.list_metadata()
         return any(
             item.key == key
+            and item.scope_type is ConfigScope.CHANNEL
+            and item.scope_id == instance.id
+            for item in metadata
+        )
+
+    async def _inbound_webhook_configured(self, instance: ChannelInstance) -> bool:
+        if instance.platform is not ChannelPlatform.TELEGRAM:
+            return False
+        metadata = await self._secret_store.list_metadata()
+        return any(
+            item.key == _TELEGRAM_WEBHOOK_SECRET_KEY
             and item.scope_type is ConfigScope.CHANNEL
             and item.scope_id == instance.id
             for item in metadata

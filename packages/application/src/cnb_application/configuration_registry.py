@@ -956,5 +956,18 @@ def build_default_registry() -> ConfigurationRegistry:
                 scopes=(ConfigScope.CHANNEL,),
                 secret=True,
             ),
+            ConfigDefinition(
+                key="telegram_webhook_secret",
+                section="channel",
+                label="Telegram Webhook Secret",
+                description=(
+                    "Telegram 入站 Webhook 的请求头密钥；仅写入加密存储，"
+                    "不会通过 API、日志、诊断或导出回显。"
+                ),
+                value_kind=ConfigValueKind.SECRET,
+                default=None,
+                scopes=(ConfigScope.CHANNEL,),
+                secret=True,
+            ),
         )
     )
