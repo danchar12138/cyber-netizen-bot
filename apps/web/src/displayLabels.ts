@@ -133,6 +133,7 @@ export const backgroundJobKindLabels = {
   scheduled_action: '主动行为',
   inbound_message: '入站消息路由',
   notification_delivery: '通知投递',
+  channel_connection_test: '渠道连接探测',
 } satisfies Labels<BackgroundJobKind>
 
 export const backgroundJobStatusLabels = {

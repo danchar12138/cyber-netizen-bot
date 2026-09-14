@@ -91,7 +91,7 @@ export interface TaskStatus {
   worker: ComponentHealth
 }
 
-export type BackgroundJobKind = 'reflection' | 'episode_consolidation' | 'memory_extraction' | 'embedding_rebuild' | 'relationship_update' | 'scheduled_action' | 'inbound_message' | 'notification_delivery'
+export type BackgroundJobKind = 'reflection' | 'episode_consolidation' | 'memory_extraction' | 'embedding_rebuild' | 'relationship_update' | 'scheduled_action' | 'inbound_message' | 'notification_delivery' | 'channel_connection_test'
 export type BackgroundJobStatus = 'pending' | 'running' | 'retrying' | 'succeeded' | 'failed' | 'dead_letter' | 'canceled'
 
 export interface BackgroundJob {

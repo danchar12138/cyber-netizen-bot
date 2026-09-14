@@ -253,6 +253,7 @@ _QUEUE_BY_KIND = {
     BackgroundJobKind.SCHEDULED_ACTION: "proactive",
     BackgroundJobKind.INBOUND_MESSAGE: "inbound",
     BackgroundJobKind.NOTIFICATION_DELIVERY: "notification",
+    BackgroundJobKind.CHANNEL_CONNECTION_TEST: "channel",
 }
 _TERMINAL_REPLAYABLE = {
     BackgroundJobStatus.FAILED,

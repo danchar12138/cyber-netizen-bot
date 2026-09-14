@@ -19,6 +19,7 @@ class BackgroundJobKind(StrEnum):
     SCHEDULED_ACTION = "scheduled_action"
     INBOUND_MESSAGE = "inbound_message"
     NOTIFICATION_DELIVERY = "notification_delivery"
+    CHANNEL_CONNECTION_TEST = "channel_connection_test"
 
 
 class BackgroundJobStatus(StrEnum):

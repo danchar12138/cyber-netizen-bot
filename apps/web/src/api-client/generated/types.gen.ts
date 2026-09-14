@@ -717,7 +717,7 @@ export type BackgroundJobDetailResponse = {
  *
  * Worker 可执行的稳定任务种类。
  */
-export type BackgroundJobKind = 'reflection' | 'episode_consolidation' | 'memory_extraction' | 'embedding_rebuild' | 'relationship_update' | 'scheduled_action' | 'inbound_message' | 'notification_delivery';
+export type BackgroundJobKind = 'reflection' | 'episode_consolidation' | 'memory_extraction' | 'embedding_rebuild' | 'relationship_update' | 'scheduled_action' | 'inbound_message' | 'notification_delivery' | 'channel_connection_test';
 
 /**
  * BackgroundJobListResponse

@@ -1177,6 +1177,17 @@ def build_default_registry() -> ConfigurationRegistry:
                 secret=True,
             ),
             ConfigDefinition(
+                key="channel.connection_probe_interval_minutes",
+                section="channel",
+                label="渠道连接探测间隔",
+                description="启用渠道自动连接探测的最小间隔；Worker 按该间隔创建安全探测任务。",
+                value_kind=ConfigValueKind.INTEGER,
+                default=15,
+                scopes=(ConfigScope.CHANNEL,),
+                minimum=1,
+                maximum=1440,
+            ),
+            ConfigDefinition(
                 key="telegram_webhook_secret",
                 section="channel",
                 label="Telegram Webhook Secret",

@@ -36,6 +36,11 @@ from cnb_application.authorization import (
     permissions_for_role,
     require_admin_permission,
 )
+from cnb_application.channel_probe_service import (
+    ChannelConnectionProbeScheduler,
+    ChannelConnectionProbeTaskHandler,
+    ChannelProbeRepository,
+)
 from cnb_application.channel_service import (
     ChannelAlert,
     ChannelCatalogItem,
@@ -214,12 +219,15 @@ __all__ = [
     "ChannelAlert",
     "ChannelCatalogItem",
     "ChannelConflictError",
+    "ChannelConnectionProbeScheduler",
+    "ChannelConnectionProbeTaskHandler",
     "ChannelDeliveryReceipt",
     "ChannelErrorMetrics",
     "ChannelHealthSnapshot",
     "ChannelInstanceView",
     "ChannelNotFoundError",
     "ChannelOperationMetrics",
+    "ChannelProbeRepository",
     "ChannelRepository",
     "ChannelService",
     "ChannelSimulationResult",

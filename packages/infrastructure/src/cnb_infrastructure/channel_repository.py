@@ -112,6 +112,18 @@ class MemoryChannelRepository:
             )
         )
 
+    async def list_probe_candidates(self) -> tuple[ChannelInstance, ...]:
+        return tuple(
+            sorted(
+                (
+                    item
+                    for item in self.instances.values()
+                    if item.status is ChannelInstanceStatus.ENABLED
+                ),
+                key=lambda item: (item.updated_at, str(item.id)),
+            )
+        )
+
     async def update_instance(
         self,
         *,
@@ -529,6 +541,17 @@ class SqlAlchemyChannelRepository:
                         ChannelInstanceModel.agent_id == agent_id,
                     )
                     .order_by(ChannelInstanceModel.created_at, ChannelInstanceModel.id)
+                )
+            ).all()
+        return tuple(self._instance(row) for row in rows)
+
+    async def list_probe_candidates(self) -> tuple[ChannelInstance, ...]:
+        async with self._session_factory() as session:
+            rows = (
+                await session.scalars(
+                    select(ChannelInstanceModel)
+                    .where(ChannelInstanceModel.status == ChannelInstanceStatus.ENABLED.value)
+                    .order_by(ChannelInstanceModel.updated_at, ChannelInstanceModel.id)
                 )
             ).all()
         return tuple(self._instance(row) for row in rows)

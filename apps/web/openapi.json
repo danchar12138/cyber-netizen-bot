@@ -1163,7 +1163,8 @@
           "relationship_update",
           "scheduled_action",
           "inbound_message",
-          "notification_delivery"
+          "notification_delivery",
+          "channel_connection_test"
         ],
         "title": "BackgroundJobKind",
         "type": "string"

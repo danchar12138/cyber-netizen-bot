@@ -1827,7 +1827,7 @@ class BackgroundJobModel(Base):
         CheckConstraint(
             "kind IN ('reflection', 'episode_consolidation', 'memory_extraction', "
             "'embedding_rebuild', 'relationship_update', 'scheduled_action', "
-            "'inbound_message', 'notification_delivery')",
+            "'inbound_message', 'notification_delivery', 'channel_connection_test')",
             name="ck_background_jobs_kind",
         ),
         CheckConstraint(

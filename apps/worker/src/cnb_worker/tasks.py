@@ -19,6 +19,8 @@ from cnb_application import (
     AttachmentService,
     BackgroundJobHandler,
     BackgroundTaskService,
+    ChannelConnectionProbeScheduler,
+    ChannelConnectionProbeTaskHandler,
     ChannelDeliveryReceipt,
     ChannelService,
     CognitionService,
@@ -99,9 +101,22 @@ channel_service = ChannelService(
     build_default_channel_registry(),
     secret_store,
 )
+channel_probe_scheduler = ChannelConnectionProbeScheduler(
+    repository=channel_repository,
+    task_service=task_service,
+    configuration=configuration_service,
+)
 worker_id = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}"
 worker_started_at = datetime.now(UTC)
-worker_queues = ("system", "memory", "reflection", "proactive", "inbound", "notification")
+worker_queues = (
+    "system",
+    "memory",
+    "reflection",
+    "proactive",
+    "inbound",
+    "notification",
+    "channel",
+)
 
 
 class _ActorSender(Protocol):
@@ -230,6 +245,12 @@ async def process_notification_job(job_id: str) -> None:
     await _execute_job(job_id)
 
 
+@dramatiq.actor(queue_name="channel", max_retries=0)  # pyright: ignore[reportUnknownMemberType]
+async def process_channel_job(job_id: str) -> None:
+    """执行渠道连接探测等渠道运维任务。"""
+    await _execute_job(job_id)
+
+
 _handlers: dict[BackgroundJobKind, BackgroundJobHandler] = {
     BackgroundJobKind.REFLECTION: ReflectionTaskHandler(
         memory_service,
@@ -259,6 +280,7 @@ _handlers: dict[BackgroundJobKind, BackgroundJobHandler] = {
         configuration_service,
         secret_store,
     ),
+    BackgroundJobKind.CHANNEL_CONNECTION_TEST: ChannelConnectionProbeTaskHandler(channel_service),
 }
 _actors_by_queue: dict[str, _ActorSender] = {
     "memory": cast(_ActorSender, process_memory_job),
@@ -266,6 +288,7 @@ _actors_by_queue: dict[str, _ActorSender] = {
     "proactive": cast(_ActorSender, process_proactive_job),
     "inbound": cast(_ActorSender, process_inbound_job),
     "notification": cast(_ActorSender, process_notification_job),
+    "channel": cast(_ActorSender, process_channel_job),
 }
 dispatcher = DramatiqTaskDispatcher()
 
@@ -277,6 +300,7 @@ async def _maintenance_once() -> None:
         started_at=worker_started_at,
     )
     await task_service.recover_expired()
+    await channel_probe_scheduler.schedule()
     await task_service.publish_due(dispatcher=dispatcher, worker_id=worker_id)
 
 

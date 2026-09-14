@@ -143,6 +143,8 @@ class ChannelRepository(Protocol):
         self, *, tenant_id: UUID, agent_id: UUID
     ) -> tuple[ChannelInstance, ...]: ...
 
+    async def list_probe_candidates(self) -> tuple[ChannelInstance, ...]: ...
+
     async def update_instance(
         self,
         *,
