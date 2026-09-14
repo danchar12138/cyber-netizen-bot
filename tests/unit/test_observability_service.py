@@ -273,7 +273,11 @@ async def test_observability_lifecycle_reuses_active_event_and_counts_evaluation
     )
 
     assert len(first.active_lifecycles) == 1
+    assert first.activated_lifecycles == first.active_lifecycles
+    assert first.recovered_lifecycles == ()
     assert first.active_lifecycles[0].status is ObservabilityAlertLifecycleStatus.ACTIVE
+    assert second.activated_lifecycles == ()
+    assert second.recovered_lifecycles == ()
     assert second.active_lifecycles[0].id == first.active_lifecycles[0].id
     assert second.active_lifecycles[0].occurrences == 2
     assert second.active_lifecycles[0].first_occurred_at == now
@@ -303,6 +307,9 @@ async def test_observability_lifecycle_resolves_after_window_recovers() -> None:
     )
 
     assert evaluation.active_lifecycles == ()
+    assert evaluation.activated_lifecycles == ()
+    assert len(evaluation.recovered_lifecycles) == 1
+    assert evaluation.recovered_lifecycles[0].resolved_at == recovered_at
     assert len(rows) == 1
     assert rows[0].status is ObservabilityAlertLifecycleStatus.RESOLVED
     assert rows[0].resolved_at == recovered_at

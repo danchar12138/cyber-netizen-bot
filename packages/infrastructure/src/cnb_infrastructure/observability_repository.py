@@ -12,7 +12,7 @@ from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased
 
-from cnb_application import ApiRequestObservation
+from cnb_application import ApiRequestObservation, ObservabilityAlertLifecycleReconciliation
 from cnb_domain import (
     ActiveAlert,
     AgentRunSloMetrics,
@@ -44,7 +44,7 @@ class MemoryObservabilityRepository:
 
     def __init__(self) -> None:
         self._requests: list[ApiRequestObservation] = []
-        self._lifecycles: dict[tuple[UUID, UUID, str, str], ObservabilityAlertLifecycle] = {}
+        self._lifecycles: dict[UUID, ObservabilityAlertLifecycle] = {}
         self._lock = asyncio.Lock()
 
     async def record_api_request(self, observation: ApiRequestObservation) -> None:
@@ -95,18 +95,20 @@ class MemoryObservabilityRepository:
         agent_id: UUID,
         alerts: tuple[ActiveAlert, ...],
         observed_at: datetime,
-    ) -> tuple[ObservabilityAlertLifecycle, ...]:
+    ) -> ObservabilityAlertLifecycleReconciliation:
         async with self._lock:
-            keys = {(tenant_id, agent_id, item.source_type, item.alert_key) for item in alerts}
+            activated: list[ObservabilityAlertLifecycle] = []
+            recovered: list[ObservabilityAlertLifecycle] = []
+            keys = {(item.source_type, item.alert_key) for item in alerts}
             current = {
-                key: item
-                for key, item in self._lifecycles.items()
-                if key[0] == tenant_id
-                and key[1] == agent_id
+                (item.source_type, item.source_key): item
+                for item in self._lifecycles.values()
+                if item.tenant_id == tenant_id
+                and item.agent_id == agent_id
                 and item.status is ObservabilityAlertLifecycleStatus.ACTIVE
             }
             for alert in alerts:
-                key = (tenant_id, agent_id, alert.source_type, alert.alert_key)
+                key = (alert.source_type, alert.alert_key)
                 row = current.get(key)
                 if row is None:
                     row = ObservabilityAlertLifecycle(
@@ -131,6 +133,7 @@ class MemoryObservabilityRepository:
                         created_at=observed_at,
                         updated_at=observed_at,
                     )
+                    activated.append(row)
                 else:
                     row = replace(
                         row,
@@ -142,16 +145,17 @@ class MemoryObservabilityRepository:
                         last_evaluated_at=observed_at,
                         updated_at=observed_at,
                     )
-                self._lifecycles[key] = row
-            for key, row in tuple(self._lifecycles.items()):
+                self._lifecycles[row.id] = row
+            for lifecycle_id, row in tuple(self._lifecycles.items()):
+                key = (row.source_type, row.source_key)
                 if (
-                    key[0] != tenant_id
-                    or key[1] != agent_id
+                    row.tenant_id != tenant_id
+                    or row.agent_id != agent_id
                     or key in keys
                     or row.status is not ObservabilityAlertLifecycleStatus.ACTIVE
                 ):
                     continue
-                self._lifecycles[key] = replace(
+                resolved = replace(
                     row,
                     status=ObservabilityAlertLifecycleStatus.RESOLVED,
                     last_evaluated_at=observed_at,
@@ -161,7 +165,9 @@ class MemoryObservabilityRepository:
                     ),
                     updated_at=observed_at,
                 )
-            return tuple(
+                self._lifecycles[lifecycle_id] = resolved
+                recovered.append(resolved)
+            active = tuple(
                 sorted(
                     (
                         item
@@ -173,6 +179,11 @@ class MemoryObservabilityRepository:
                     key=lambda item: item.first_occurred_at,
                     reverse=True,
                 )
+            )
+            return ObservabilityAlertLifecycleReconciliation(
+                active_lifecycles=active,
+                activated_lifecycles=tuple(activated),
+                recovered_lifecycles=tuple(recovered),
             )
 
     async def list_observability_alert_lifecycles(
@@ -302,7 +313,7 @@ class SqlAlchemyObservabilityRepository:
         agent_id: UUID,
         alerts: tuple[ActiveAlert, ...],
         observed_at: datetime,
-    ) -> tuple[ObservabilityAlertLifecycle, ...]:
+    ) -> ObservabilityAlertLifecycleReconciliation:
         """在 Agent 行锁下对账通用告警，保证重复维护循环不会创建重复活动事件。"""
         async with self._session_factory.begin() as session:
             # 多个 Worker 可能同时维护同一 Agent；事务级 advisory lock 让
@@ -323,6 +334,8 @@ class SqlAlchemyObservabilityRepository:
                     .with_for_update()
                 )
             ).all()
+            activated_rows: list[ObservabilityAlertLifecycleModel] = []
+            recovered_rows: list[ObservabilityAlertLifecycleModel] = []
             current = {(row.source_type, row.source_key): row for row in rows}
             active_keys = {(item.source_type, item.alert_key) for item in alerts}
             for alert in alerts:
@@ -356,6 +369,7 @@ class SqlAlchemyObservabilityRepository:
                         updated_at=observed_at,
                     )
                     session.add(row)
+                    activated_rows.append(row)
                 else:
                     row.severity = alert.severity.value
                     row.occurrences += 1
@@ -375,6 +389,7 @@ class SqlAlchemyObservabilityRepository:
                     0, int((observed_at - row.first_occurred_at).total_seconds())
                 )
                 row.updated_at = observed_at
+                recovered_rows.append(row)
             await session.flush()
             active_rows = (
                 await session.scalars(
@@ -388,7 +403,15 @@ class SqlAlchemyObservabilityRepository:
                     .order_by(ObservabilityAlertLifecycleModel.first_occurred_at.desc())
                 )
             ).all()
-            return tuple(self._observability_lifecycle(row) for row in active_rows)
+            return ObservabilityAlertLifecycleReconciliation(
+                active_lifecycles=tuple(self._observability_lifecycle(row) for row in active_rows),
+                activated_lifecycles=tuple(
+                    self._observability_lifecycle(row) for row in activated_rows
+                ),
+                recovered_lifecycles=tuple(
+                    self._observability_lifecycle(row) for row in recovered_rows
+                ),
+            )
 
     async def list_observability_alert_lifecycles(
         self,

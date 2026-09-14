@@ -174,6 +174,7 @@ from cnb_application.observability_service import (
     ApiRequestObservation,
     ObservabilityAlertEscalationCandidate,
     ObservabilityAlertLifecycleEvaluation,
+    ObservabilityAlertLifecycleReconciliation,
     ObservabilityRepository,
     ObservabilityService,
 )
@@ -336,6 +337,7 @@ __all__ = [
     "ObjectStorage",
     "ObservabilityAlertEscalationCandidate",
     "ObservabilityAlertLifecycleEvaluation",
+    "ObservabilityAlertLifecycleReconciliation",
     "ObservabilityRepository",
     "ObservabilityService",
     "PermanentTaskError",

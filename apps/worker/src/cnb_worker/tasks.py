@@ -329,11 +329,19 @@ async def _maintenance_once() -> None:
                 tenant_id=tenant_id,
                 agent_id=agent_id,
             )
+            for lifecycle in evaluation.activated_lifecycles:
+                await alert_notification_service.enqueue_observability_active(
+                    lifecycle=lifecycle,
+                )
             for candidate in evaluation.due_escalations:
                 await alert_notification_service.enqueue_observability_escalation(
                     lifecycle=candidate.lifecycle,
                     target_level=candidate.target_level,
                     adapter_key=candidate.adapter,
+                )
+            for lifecycle in evaluation.recovered_lifecycles:
+                await alert_notification_service.enqueue_observability_recovery(
+                    lifecycle=lifecycle,
                 )
         _last_observability_bucket = observability_bucket
     await task_service.publish_due(dispatcher=dispatcher, worker_id=worker_id)

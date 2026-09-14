@@ -1,6 +1,7 @@
 """通知队列任务的安全载荷与执行闭环测试。"""
 
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -535,12 +536,18 @@ async def test_alert_notification_timeline_is_isolated_and_counts_consecutive_fa
         BackgroundJobStatus.RETRYING,
         BackgroundJobStatus.DEAD_LETTER,
     )
+    events = (
+        "observability.alerts.active",
+        "channel.alerts.active",
+        "observability.alerts.escalated",
+        "observability.alerts.recovered",
+    )
     own_jobs = [
         _notification_job(
             tenant_id=tenant_id,
             agent_id=agent_id,
             status=job_status,
-            event="channel.alerts.active",
+            event=events[index],
             created_at=started_at + timedelta(minutes=index),
         )
         for index, job_status in enumerate(statuses)
@@ -581,6 +588,12 @@ async def test_alert_notification_timeline_is_isolated_and_counts_consecutive_fa
     assert timeline.dead_letters == 1
     assert timeline.current_consecutive_failures == 2
     assert [item.consecutive_failures for item in timeline.items] == [2, 1, 1, 0]
+    assert [item.event for item in timeline.items] == [
+        "recovery",
+        "escalation",
+        "active",
+        "active",
+    ]
     assert timeline.last_succeeded_at == own_jobs[0].completed_at
     assert not hasattr(timeline.items[0], "payload")
 
@@ -779,25 +792,201 @@ async def _observability_lifecycle(
     agent_id: UUID,
     now: datetime,
 ) -> ObservabilityAlertLifecycle:
-    rows = await repository.reconcile_observability_alert_lifecycles(
+    result = await repository.reconcile_observability_alert_lifecycles(
         tenant_id=tenant_id,
         agent_id=agent_id,
-        alerts=(
-            ActiveAlert(
-                code="api_error_rate",
-                severity=AlertSeverity.CRITICAL,
-                title="API 错误率",
-                summary="安全摘要",
-                current_value=20.0,
-                threshold_value=1.0,
-                unit="%",
-                source_type="api",
-                source_key="api_error_rate",
-            ),
-        ),
+        alerts=(_observability_alert(),),
         observed_at=now,
     )
-    return rows[0]
+    return result.active_lifecycles[0]
+
+
+def _observability_alert() -> ActiveAlert:
+    return ActiveAlert(
+        code="api_error_rate",
+        severity=AlertSeverity.CRITICAL,
+        title="API 错误率",
+        summary="安全摘要",
+        current_value=20.0,
+        threshold_value=1.0,
+        unit="%",
+        source_type="api",
+        source_key="api_error_rate",
+    )
+
+
+async def test_observability_notifications_cover_one_complete_reactivation_cycle() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    configuration = await _configuration(tenant_id, agent_id)
+    secrets = MemorySecretStore()
+    await secrets.set_secret(
+        key="alerts.notification.webhook_signing_secret",
+        scope_type=ConfigScope.AGENT,
+        scope_id=agent_id,
+        plaintext="runtime-secret",
+        actor_id=None,
+    )
+    tasks = InMemoryTaskRepository()
+    repository = MemoryObservabilityRepository()
+    service = AlertNotificationService(
+        channel_service=EmptyAlerts(),  # type: ignore[arg-type]
+        configuration_service=configuration,
+        secret_store=secrets,
+        adapter_registry=NotificationAdapterRegistry((RecordingAdapter(),)),
+        audit_recorder=RecordingAudit(),
+        task_service=BackgroundTaskService(tasks),
+    )
+    started_at = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    lifecycle = await _observability_lifecycle(
+        repository,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=started_at,
+    )
+
+    first = await service.enqueue_observability_active(lifecycle=lifecycle, now=started_at)
+    continued = await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(_observability_alert(),),
+        observed_at=started_at + timedelta(minutes=1),
+    )
+    duplicate = await service.enqueue_observability_active(
+        lifecycle=continued.active_lifecycles[0],
+        now=started_at + timedelta(minutes=1),
+    )
+    escalation = await service.enqueue_observability_escalation(
+        lifecycle=continued.active_lifecycles[0],
+        target_level=1,
+        adapter_key="webhook",
+        now=started_at + timedelta(minutes=1),
+    )
+    resolution = await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(),
+        observed_at=started_at + timedelta(minutes=2),
+    )
+    recovered = await service.enqueue_observability_recovery(
+        lifecycle=resolution.recovered_lifecycles[0],
+        now=started_at + timedelta(minutes=2),
+    )
+    duplicate_recovery = await service.enqueue_observability_recovery(
+        lifecycle=resolution.recovered_lifecycles[0],
+        now=started_at + timedelta(minutes=3),
+    )
+    reopened = await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(_observability_alert(),),
+        observed_at=started_at + timedelta(minutes=4),
+    )
+    reopened_notification = await service.enqueue_observability_active(
+        lifecycle=reopened.activated_lifecycles[0],
+        now=started_at + timedelta(minutes=4),
+    )
+
+    assert first is not None and first.created is True
+    assert duplicate is not None and duplicate.created is False
+    assert escalation is not None and escalation.created is True
+    assert recovered is not None and recovered.created is True
+    assert duplicate_recovery is not None and duplicate_recovery.created is False
+    assert reopened_notification is not None and reopened_notification.created is True
+    assert reopened.activated_lifecycles[0].id != lifecycle.id
+    history = await repository.list_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+    )
+    assert {item.id for item in history} == {lifecycle.id, reopened.activated_lifecycles[0].id}
+    assert len(tasks.jobs) == 4
+    events: set[object] = set()
+    for job in tasks.jobs.values():
+        delivery_payload = job.payload["delivery_payload"]
+        assert isinstance(delivery_payload, dict)
+        events.add(delivery_payload["event"])
+    assert events == {
+        "observability.alerts.active",
+        "observability.alerts.escalated",
+        "observability.alerts.recovered",
+    }
+    assert all("target" not in job.payload for job in tasks.jobs.values())
+    assert all("secret" not in str(job.payload).casefold() for job in tasks.jobs.values())
+    assert all("notify.example.invalid" not in str(job.payload) for job in tasks.jobs.values())
+
+
+async def test_observability_recovery_notification_honors_runtime_setting() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    repository = MemoryObservabilityRepository()
+    started_at = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    await _observability_lifecycle(
+        repository,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=started_at,
+    )
+    resolution = await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(),
+        observed_at=started_at + timedelta(minutes=1),
+    )
+    tasks = InMemoryTaskRepository()
+    service = AlertNotificationService(
+        channel_service=EmptyAlerts(),  # type: ignore[arg-type]
+        configuration_service=await _configuration(tenant_id, agent_id, recovery_enabled=False),
+        secret_store=MemorySecretStore(),
+        adapter_registry=NotificationAdapterRegistry((RecordingAdapter(),)),
+        audit_recorder=RecordingAudit(),
+        task_service=BackgroundTaskService(tasks),
+    )
+
+    result = await service.enqueue_observability_recovery(
+        lifecycle=resolution.recovered_lifecycles[0],
+        now=started_at + timedelta(minutes=1),
+    )
+
+    assert result is None
+    assert tasks.jobs == {}
+
+
+async def test_observability_notification_idempotency_is_agent_isolated() -> None:
+    tenant_id, agent_id, other_agent_id = uuid4(), uuid4(), uuid4()
+    tasks = InMemoryTaskRepository()
+    lifecycle = await _observability_lifecycle(
+        MemoryObservabilityRepository(),
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=datetime(2026, 9, 14, 12, tzinfo=UTC),
+    )
+
+    async def enqueue_for(selected_lifecycle: ObservabilityAlertLifecycle) -> object:
+        configuration = await _configuration(tenant_id, selected_lifecycle.agent_id)
+        secrets = MemorySecretStore()
+        await secrets.set_secret(
+            key="alerts.notification.webhook_signing_secret",
+            scope_type=ConfigScope.AGENT,
+            scope_id=selected_lifecycle.agent_id,
+            plaintext="runtime-secret",
+            actor_id=None,
+        )
+        service = AlertNotificationService(
+            channel_service=EmptyAlerts(),  # type: ignore[arg-type]
+            configuration_service=configuration,
+            secret_store=secrets,
+            adapter_registry=NotificationAdapterRegistry((RecordingAdapter(),)),
+            audit_recorder=RecordingAudit(),
+            task_service=BackgroundTaskService(tasks),
+        )
+        return await service.enqueue_observability_active(lifecycle=selected_lifecycle)
+
+    first = await enqueue_for(lifecycle)
+    second = await enqueue_for(replace(lifecycle, agent_id=other_agent_id))
+
+    assert first is not None
+    assert second is not None
+    assert len(tasks.jobs) == 2
+    assert len({job.deduplication_key for job in tasks.jobs.values()}) == 2
+    assert {job.agent_id for job in tasks.jobs.values()} == {agent_id, other_agent_id}
 
 
 async def test_observability_escalation_enqueue_is_idempotent_and_redacts_delivery_details() -> (

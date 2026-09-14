@@ -31,6 +31,15 @@ class ApiRequestObservation:
     agent_id: UUID | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertLifecycleReconciliation:
+    """仓储在一次原子对账中确认的通用告警生命周期转移。"""
+
+    active_lifecycles: tuple[ObservabilityAlertLifecycle, ...]
+    activated_lifecycles: tuple[ObservabilityAlertLifecycle, ...]
+    recovered_lifecycles: tuple[ObservabilityAlertLifecycle, ...]
+
+
 class ObservabilityRepository(Protocol):
     """请求指标写入及租户隔离聚合边界。"""
 
@@ -52,7 +61,7 @@ class ObservabilityRepository(Protocol):
         agent_id: UUID,
         alerts: tuple[ActiveAlert, ...],
         observed_at: datetime,
-    ) -> tuple[ObservabilityAlertLifecycle, ...]: ...
+    ) -> ObservabilityAlertLifecycleReconciliation: ...
 
     async def list_observability_alert_lifecycles(
         self,
@@ -89,6 +98,8 @@ class ObservabilityAlertLifecycleEvaluation:
 
     alerts: tuple[ActiveAlert, ...]
     active_lifecycles: tuple[ObservabilityAlertLifecycle, ...]
+    activated_lifecycles: tuple[ObservabilityAlertLifecycle, ...]
+    recovered_lifecycles: tuple[ObservabilityAlertLifecycle, ...]
     due_escalations: tuple[ObservabilityAlertEscalationCandidate, ...]
 
 
@@ -186,9 +197,10 @@ class ObservabilityService:
         )
         total_cost = sum(item.estimated_cost_microusd for item in metrics.models)
         alerts = self._lifecycle_alerts(self._alerts(metrics, total_cost, configuration.values))
-        active = await self._repository.reconcile_observability_alert_lifecycles(
+        reconciliation = await self._repository.reconcile_observability_alert_lifecycles(
             tenant_id=tenant_id, agent_id=agent_id, alerts=alerts, observed_at=observed_at
         )
+        active = reconciliation.active_lifecycles
         from cnb_application.alert_policy import AlertEscalationPolicy
 
         policy = AlertEscalationPolicy.from_values(configuration.values)
@@ -212,7 +224,11 @@ class ObservabilityService:
             is not None
         )
         return ObservabilityAlertLifecycleEvaluation(
-            alerts=alerts, active_lifecycles=active, due_escalations=due
+            alerts=alerts,
+            active_lifecycles=active,
+            activated_lifecycles=reconciliation.activated_lifecycles,
+            recovered_lifecycles=reconciliation.recovered_lifecycles,
+            due_escalations=due,
         )
 
     async def alert_lifecycles(
