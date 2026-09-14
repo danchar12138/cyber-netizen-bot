@@ -63,6 +63,7 @@ def _job_response(item: BackgroundJob) -> BackgroundJobResponse:
     return BackgroundJobResponse(
         id=item.id,
         tenant_id=item.tenant_id,
+        agent_id=item.agent_id,
         kind=item.kind,
         queue=item.queue,
         status=item.status,

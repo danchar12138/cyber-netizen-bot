@@ -232,6 +232,7 @@ class AlertNotificationService:
         idempotency_key = hashlib.sha256(material.encode()).hexdigest()
         result = await self._task_service.enqueue(
             tenant_id=lifecycle.tenant_id,
+            agent_id=lifecycle.agent_id,
             kind=BackgroundJobKind.NOTIFICATION_DELIVERY,
             payload={
                 "agent_id": str(lifecycle.agent_id),
@@ -357,6 +358,7 @@ class AlertNotificationService:
         }
         result = await task_service.enqueue(
             tenant_id=tenant_id,
+            agent_id=agent_id,
             kind=BackgroundJobKind.NOTIFICATION_DELIVERY,
             payload=task_payload,
             deduplication_key=f"notification:{idempotency_key}:{selected_adapter}",

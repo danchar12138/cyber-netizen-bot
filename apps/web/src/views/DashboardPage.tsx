@@ -23,6 +23,7 @@ import {
   componentHealthLabels,
   componentLabels,
   displayLabel,
+  observabilityUnitLabel,
 } from '../displayLabels'
 
 const numberFormatter = new Intl.NumberFormat('zh-CN')
@@ -52,7 +53,7 @@ export function DashboardPage() {
     refetchInterval: 15_000,
   })
   const observability = useQuery({
-    queryKey: ['observability-dashboard'],
+    queryKey: ['observability-dashboard', selectedAgentId],
     queryFn: getObservabilityDashboard,
     enabled: session.isSuccess && canReadObservability,
     refetchInterval: 30_000,
@@ -72,9 +73,7 @@ export function DashboardPage() {
     (sum, item) => sum + item.input_tokens + item.output_tokens,
     0,
   ) ?? 0
-  const taskBacklog = taskData
-    ? taskData.pending_jobs + (taskData.retrying_jobs ?? 0)
-    : telemetry?.queue.backlog
+  const taskBacklog = telemetry?.queue.backlog
   const healthyChannels = channelItems.filter(
     (channel) => channel.health_status === 'healthy',
   ).length
@@ -88,7 +87,7 @@ export function DashboardPage() {
 
   const metrics = [
     {
-      label: '租户智能体运行成功率',
+      label: '当前智能体运行成功率',
       value: telemetry ? `${telemetry.agent_runs.success_rate_percent.toFixed(2)}%` : '—',
       detail: canReadObservability
         ? `${telemetry?.agent_runs.completed_runs ?? 0} 成功 · ${telemetry?.agent_runs.unsuccessful_runs ?? 0} 未成功`
@@ -99,22 +98,24 @@ export function DashboardPage() {
       label: '模型冻结估算成本',
       value: telemetry ? formatUsd(telemetry.total_estimated_cost_microusd) : '—',
       detail: canReadObservability
-        ? `${numberFormatter.format(modelTokens)} Token · 租户聚合`
+        ? `${numberFormatter.format(modelTokens)} 词元 · 当前智能体`
         : '当前角色无模型用量权限',
       icon: CircleDollarSign,
     },
     {
-      label: '任务积压',
+      label: '当前智能体任务积压',
       value: taskBacklog === undefined ? '—' : numberFormatter.format(taskBacklog),
-      detail: `${taskData?.running_jobs ?? 0} 运行 · ${taskData?.dead_letter_jobs ?? 0} 死信`,
+      detail: telemetry
+        ? `最老待执行任务已等待 ${numberFormatter.format(telemetry.queue.oldest_wait_seconds)} 秒`
+        : '当前角色无任务指标权限',
       icon: ListTodo,
     },
     {
-      label: 'API 5xx 错误率',
+      label: '应用接口错误率',
       value: telemetry ? `${telemetry.api.error_rate_percent.toFixed(2)}%` : '—',
       detail: canReadObservability
         ? `${telemetry?.api.requests ?? 0} 请求 · ${telemetry?.api.server_errors ?? 0} 次 5xx`
-        : '当前角色无 API 指标权限',
+        : '当前角色无应用接口指标权限',
       icon: Activity,
     },
   ]
@@ -125,7 +126,7 @@ export function DashboardPage() {
         <div>
           <p className="eyebrow">运营控制面</p>
           <h1>系统状态、运行质量与风险，一页掌握。</h1>
-          <p>租户级运行指标与当前智能体的渠道状态会自动刷新；切换智能体后渠道视图同步更新。</p>
+          <p>租户运行状态与当前智能体的质量、成本和渠道指标会自动刷新；切换智能体后相关视图同步更新。</p>
         </div>
         <Link to="/agents" className="primary-button">管理智能体 <ArrowUpRight size={16} /></Link>
       </section>
@@ -194,7 +195,7 @@ export function DashboardPage() {
                 <div>
                   <strong>{alert.title}</strong>
                   <p>{alert.summary}</p>
-                  <small>当前 {alert.current_value.toFixed(2)} {alert.unit} · 阈值 {alert.threshold_value.toFixed(2)} {alert.unit}</small>
+                  <small>当前 {alert.current_value.toFixed(2)} {observabilityUnitLabel(alert.unit)} · 阈值 {alert.threshold_value.toFixed(2)} {observabilityUnitLabel(alert.unit)}</small>
                 </div>
               </article>
             ))}

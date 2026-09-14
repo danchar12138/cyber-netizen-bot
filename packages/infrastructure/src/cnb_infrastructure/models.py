@@ -1871,6 +1871,7 @@ class BackgroundJobModel(Base):
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
+    agent_id: Mapped[UUID | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
     kind: Mapped[str] = mapped_column(String(40), nullable=False)
     queue: Mapped[str] = mapped_column(String(80), nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False)
@@ -1930,6 +1931,13 @@ class BackgroundJobModel(Base):
         Index("ix_background_jobs_queue_due", "status", "queue", "available_at"),
         Index("ix_background_jobs_tenant_created", "tenant_id", "created_at"),
         Index("ix_background_jobs_tenant_status_available", "tenant_id", "status", "available_at"),
+        Index(
+            "ix_background_jobs_tenant_agent_status_available",
+            "tenant_id",
+            "agent_id",
+            "status",
+            "available_at",
+        ),
         Index("ix_background_jobs_lease", "status", "lease_expires_at"),
     )
 

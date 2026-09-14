@@ -24,7 +24,7 @@ class LatencyPercentiles:
 
 @dataclass(frozen=True, slots=True)
 class ApiSloMetrics:
-    """管理 API 的安全聚合 SLO 指标。"""
+    """管理接口的安全服务等级聚合指标。"""
 
     requests: int
     server_errors: int
@@ -86,7 +86,7 @@ class ChannelDeliveryMetrics:
 
 @dataclass(frozen=True, slots=True)
 class NotificationDeliveryMetrics:
-    """窗口内告警通知后台任务的安全状态计数。"""
+    """通知任务窗口计数与尚未安全重放的死信数量。"""
 
     total: int = 0
     pending: int = 0

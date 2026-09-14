@@ -26,6 +26,11 @@ from cnb_infrastructure import MemoryConfigurationRepository, MemoryObservabilit
 class FixedObservabilityRepository(MemoryObservabilityRepository):
     """返回高于默认阈值的固定安全指标。"""
 
+    def __init__(self) -> None:
+        super().__init__()
+        self.alerting = True
+        self.requested_agent_id: UUID | None = None
+
     async def record_api_request(self, observation: ApiRequestObservation) -> None:
         del observation
 
@@ -37,7 +42,28 @@ class FixedObservabilityRepository(MemoryObservabilityRepository):
         window_ended_at: datetime,
         agent_id: UUID | None = None,
     ) -> ObservabilityMetrics:
-        del tenant_id, agent_id
+        del tenant_id
+        self.requested_agent_id = agent_id
+        if not self.alerting:
+            return ObservabilityMetrics(
+                window_started_at=window_started_at,
+                window_ended_at=window_ended_at,
+                api=ApiSloMetrics(
+                    requests=0,
+                    server_errors=0,
+                    error_rate_percent=0,
+                    latency=LatencyPercentiles(0, 0, 0),
+                ),
+                agent_runs=AgentRunSloMetrics(
+                    terminal_runs=0,
+                    completed_runs=0,
+                    unsuccessful_runs=0,
+                    success_rate_percent=100,
+                    latency=LatencyPercentiles(0, 0, 0),
+                ),
+                models=(),
+                queue=QueueMetrics(backlog=0, oldest_wait_seconds=0),
+            )
         return ObservabilityMetrics(
             window_started_at=window_started_at,
             window_ended_at=window_ended_at,
@@ -110,6 +136,83 @@ async def test_dashboard_calculates_all_default_threshold_alerts() -> None:
         "model_cost_budget",
     }
     assert all("正文" not in item.summary for item in dashboard.alerts)
+
+
+async def test_dashboard_uses_selected_agent_scope_for_all_metrics() -> None:
+    repository = FixedObservabilityRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+    agent_id = uuid4()
+
+    await service.dashboard(tenant_id=uuid4(), agent_id=agent_id)
+
+    assert repository.requested_agent_id == agent_id
+
+
+async def test_all_non_channel_sources_share_lifecycle_and_recovery_rules() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    repository = FixedObservabilityRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+    started_at = datetime(2026, 9, 14, 12, tzinfo=UTC)
+
+    first = await service.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=started_at,
+    )
+    second = await service.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=started_at + timedelta(minutes=1),
+    )
+
+    expected_sources = {
+        "api_error_rate": "api",
+        "api_p95_latency": "api",
+        "agent_success_rate": "agent_runtime",
+        "agent_p95_latency": "agent_runtime",
+        "model_failure_rate": "model_runtime",
+        "model_cost_budget": "model_runtime",
+        "queue_backlog": "task_queue",
+        "queue_oldest_wait": "task_queue",
+        "notification_delivery_dead_letters": "notification",
+    }
+    assert {item.code: item.source_type for item in first.active_lifecycles} == expected_sources
+    assert "channel_delivery_failure_rate" not in {item.code for item in first.active_lifecycles}
+    assert {item.id for item in second.active_lifecycles} == {
+        item.id for item in first.active_lifecycles
+    }
+    assert all(item.occurrences == 2 for item in second.active_lifecycles)
+    assert repository.requested_agent_id == agent_id
+
+    escalated = await service.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=started_at + timedelta(minutes=31),
+    )
+    assert {item.lifecycle.code for item in escalated.due_escalations} == set(expected_sources)
+
+    repository.alerting = False
+    recovered_at = started_at + timedelta(minutes=32)
+    recovered = await service.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=recovered_at,
+    )
+    resolved = await service.alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        status=ObservabilityAlertLifecycleStatus.RESOLVED,
+    )
+
+    assert recovered.active_lifecycles == ()
+    assert {item.code for item in resolved} == set(expected_sources)
+    assert all(item.resolved_at == recovered_at for item in resolved)
 
 
 async def test_memory_metrics_are_tenant_isolated_and_use_route_templates() -> None:

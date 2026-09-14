@@ -158,6 +158,39 @@ export const channelAlertLifecycleStatusLabels = {
   resolved: '已恢复',
 } as const
 
+export const observabilityAlertSourceTypeLabels: Readonly<Record<string, string>> = {
+  api: '应用接口',
+  agent_runtime: '智能体运行',
+  model_runtime: '模型运行',
+  task_queue: '后台任务队列',
+  notification: '通知投递',
+}
+
+export const observabilityAlertCodeLabels: Readonly<Record<string, string>> = {
+  api_error_rate: '应用接口错误率超标',
+  api_p95_latency: '应用接口响应偏慢',
+  agent_success_rate: '智能体运行成功率偏低',
+  agent_p95_latency: '智能体运行耗时偏高',
+  model_failure_rate: '模型调用失败率超标',
+  model_cost_budget: '模型成本超出窗口预算',
+  queue_backlog: '后台任务积压',
+  queue_oldest_wait: '后台任务等待过久',
+  notification_delivery_dead_letters: '通知投递出现死信',
+  channel_delivery_failure_rate: '渠道出站失败率超标',
+}
+
+const observabilityUnitLabels: Readonly<Record<string, string>> = {
+  '%': '%',
+  ms: '毫秒',
+  s: '秒',
+  jobs: '项',
+  USD: '美元',
+}
+
+export function observabilityUnitLabel(value: string): string {
+  return observabilityUnitLabels[value] ?? value
+}
+
 export const scheduledActionStatusLabels = {
   pending: '待调度',
   dispatched: '已分发',

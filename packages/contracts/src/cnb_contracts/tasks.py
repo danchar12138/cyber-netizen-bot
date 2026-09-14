@@ -20,6 +20,7 @@ class BackgroundJobResponse(BaseModel):
 
     id: UUID
     tenant_id: UUID
+    agent_id: UUID | None
     kind: BackgroundJobKind
     queue: str
     status: BackgroundJobStatus

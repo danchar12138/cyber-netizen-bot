@@ -379,8 +379,8 @@ def build_default_registry() -> ConfigurationRegistry:
             ConfigDefinition(
                 key="slo.api.maximum_error_rate_percent",
                 section="observability",
-                label="API 最大错误率",
-                description="当前聚合窗口允许的 HTTP 5xx 请求比例上限。",
+                label="应用接口最大错误率",
+                description="当前聚合窗口允许的服务端错误请求比例上限。",
                 value_kind=ConfigValueKind.NUMBER,
                 default=1.0,
                 scopes=system_and_tenant,
@@ -390,8 +390,8 @@ def build_default_registry() -> ConfigurationRegistry:
             ConfigDefinition(
                 key="slo.api.maximum_p95_ms",
                 section="observability",
-                label="API P95 延迟上限",
-                description="当前聚合窗口 API P95 响应时间的毫秒上限。",
+                label="应用接口 P95 延迟上限",
+                description="当前聚合窗口应用接口 P95 响应时间的毫秒上限。",
                 value_kind=ConfigValueKind.INTEGER,
                 default=500,
                 scopes=system_and_tenant,

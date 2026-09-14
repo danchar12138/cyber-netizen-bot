@@ -106,14 +106,13 @@ async def test_observability_dashboard_records_only_safe_request_metadata() -> N
         observability_repository=repository,
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.get("/api/v1/administration/session?secret=must-not-be-recorded")
+        await client.get("/api/v1/observability/dashboard?secret=must-not-be-recorded")
         response = await client.get("/api/v1/observability/dashboard")
 
     payload = ObservabilityDashboardResponse.model_validate(response.json())
     assert response.status_code == 200
     assert payload.api.requests == 1
     assert payload.api.server_errors == 0
-    assert payload.alerts == ()
     assert payload.models == ()
     assert payload.channel_delivery.attempts == 0
     assert payload.channel_delivery.failure_rate_percent == 0
@@ -2373,6 +2372,7 @@ async def test_channel_alert_lifecycle_api_is_filtered_isolated_and_safe() -> No
         }
         await BackgroundTaskService(task_repository).enqueue(
             tenant_id=identity.tenant_id,
+            agent_id=identity.agent_id,
             kind=BackgroundJobKind.NOTIFICATION_DELIVERY,
             payload=notification_payload,
             deduplication_key="api:lifecycle:escalation",

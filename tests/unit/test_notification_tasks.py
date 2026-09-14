@@ -254,6 +254,7 @@ def _notification_job(
     return BackgroundJob(
         id=job_id,
         tenant_id=tenant_id,
+        agent_id=agent_id,
         kind=BackgroundJobKind.NOTIFICATION_DELIVERY,
         queue="notification",
         status=status,

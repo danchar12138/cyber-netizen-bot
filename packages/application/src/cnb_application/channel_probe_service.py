@@ -66,6 +66,7 @@ class ChannelConnectionProbeScheduler:
             bucket = int(ended_at.timestamp()) // (interval * 60)
             result = await self._task_service.enqueue(
                 tenant_id=channel.tenant_id,
+                agent_id=channel.agent_id,
                 kind=BackgroundJobKind.CHANNEL_CONNECTION_TEST,
                 payload={
                     "agent_id": str(channel.agent_id),

@@ -285,6 +285,7 @@ class BackgroundTaskService:
         payload: Mapping[str, JsonValue],
         deduplication_key: str,
         created_by: UUID | None,
+        agent_id: UUID | None = None,
         max_attempts: int = 5,
         lease_seconds: int = 120,
         retry_base_seconds: int = 5,
@@ -306,6 +307,7 @@ class BackgroundTaskService:
         job = BackgroundJob(
             id=resolved_job_id,
             tenant_id=tenant_id,
+            agent_id=agent_id or (source_inbox.agent_id if source_inbox else None),
             kind=kind,
             queue=_QUEUE_BY_KIND[kind],
             status=BackgroundJobStatus.PENDING,
@@ -376,6 +378,7 @@ class BackgroundTaskService:
             payload=normalized_payload,
             deduplication_key=f"inbox:{normalized_key}",
             created_by=created_by,
+            agent_id=inbox.agent_id,
             max_attempts=max_attempts,
             lease_seconds=lease_seconds,
             retry_base_seconds=retry_base_seconds,
@@ -523,6 +526,7 @@ class BackgroundTaskService:
         replayed = BackgroundJob(
             id=replay_id,
             tenant_id=source.tenant_id,
+            agent_id=source.agent_id,
             kind=source.kind,
             queue=source.queue,
             status=BackgroundJobStatus.PENDING,
@@ -893,6 +897,7 @@ class ScheduledActionService:
         job = BackgroundJob(
             id=job_id,
             tenant_id=tenant_id,
+            agent_id=agent_id,
             kind=BackgroundJobKind.SCHEDULED_ACTION,
             queue=_QUEUE_BY_KIND[BackgroundJobKind.SCHEDULED_ACTION],
             status=BackgroundJobStatus.PENDING,

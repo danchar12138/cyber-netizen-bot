@@ -92,6 +92,28 @@ class ObservabilityAlertLifecycleEvaluation:
     due_escalations: tuple[ObservabilityAlertEscalationCandidate, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertSourceAdapter:
+    """把确定性指标告警映射为稳定的通用生命周期来源。"""
+
+    source_type: str
+    codes: tuple[str, ...]
+
+    def adapt(self, alert: ActiveAlert) -> ActiveAlert | None:
+        if alert.code not in self.codes:
+            return None
+        return replace(alert, source_type=self.source_type, source_key=alert.code)
+
+
+_GENERIC_ALERT_SOURCE_ADAPTERS = (
+    ObservabilityAlertSourceAdapter("api", ("api_error_rate", "api_p95_latency")),
+    ObservabilityAlertSourceAdapter("agent_runtime", ("agent_success_rate", "agent_p95_latency")),
+    ObservabilityAlertSourceAdapter("model_runtime", ("model_failure_rate", "model_cost_budget")),
+    ObservabilityAlertSourceAdapter("task_queue", ("queue_backlog", "queue_oldest_wait")),
+    ObservabilityAlertSourceAdapter("notification", ("notification_delivery_dead_letters",)),
+)
+
+
 class ObservabilityService:
     """读取已发布阈值并形成可解释的活动告警。"""
 
@@ -111,13 +133,17 @@ class ObservabilityService:
         now: datetime | None = None,
     ) -> ObservabilityDashboard:
         window_ended_at = now or datetime.now(UTC)
-        configuration = await self._configuration_service.resolve_effective(tenant_id=tenant_id)
+        configuration = await self._configuration_service.resolve_effective(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+        )
         window_minutes = self._integer(
             configuration.values["observability.window_minutes"],
             "observability.window_minutes",
         )
         metrics = await self._repository.get_metrics(
             tenant_id=tenant_id,
+            agent_id=agent_id,
             window_started_at=window_ended_at - timedelta(minutes=window_minutes),
             window_ended_at=window_ended_at,
         )
@@ -159,15 +185,7 @@ class ObservabilityService:
             window_ended_at=observed_at,
         )
         total_cost = sum(item.estimated_cost_microusd for item in metrics.models)
-        alerts = tuple(
-            replace(
-                item,
-                source_type="api",
-                source_key="api_error_rate",
-            )
-            for item in self._alerts(metrics, total_cost, configuration.values)
-            if item.code == "api_error_rate"
-        )
+        alerts = self._lifecycle_alerts(self._alerts(metrics, total_cost, configuration.values))
         active = await self._repository.reconcile_observability_alert_lifecycles(
             tenant_id=tenant_id, agent_id=agent_id, alerts=alerts, observed_at=observed_at
         )
@@ -232,6 +250,18 @@ class ObservabilityService:
             escalated_at=escalated_at.astimezone(UTC),
         )
 
+    @staticmethod
+    def _lifecycle_alerts(alerts: tuple[ActiveAlert, ...]) -> tuple[ActiveAlert, ...]:
+        """按来源适配器生成生命周期输入，渠道来源由专用生命周期处理。"""
+        adapted: list[ActiveAlert] = []
+        for alert in alerts:
+            for adapter in _GENERIC_ALERT_SOURCE_ADAPTERS:
+                item = adapter.adapt(alert)
+                if item is not None:
+                    adapted.append(item)
+                    break
+        return tuple(adapted)
+
     @classmethod
     def _alerts(
         cls,
@@ -282,8 +312,8 @@ class ObservabilityService:
                 cls._alert(
                     "api_error_rate",
                     AlertSeverity.CRITICAL,
-                    "API 错误率超出 SLO",
-                    "当前窗口的 HTTP 5xx 比例高于已发布阈值。",
+                    "应用接口错误率超出服务等级目标",
+                    "当前窗口的服务端错误比例高于已发布阈值。",
                     metrics.api.error_rate_percent,
                     api_error_limit,
                     "%",
@@ -294,8 +324,8 @@ class ObservabilityService:
                 cls._alert(
                     "api_p95_latency",
                     AlertSeverity.WARNING,
-                    "API P95 延迟超出 SLO",
-                    "当前窗口的 API P95 响应时间高于已发布阈值。",
+                    "应用接口 P95 延迟超出服务等级目标",
+                    "当前窗口的应用接口 P95 响应时间高于已发布阈值。",
                     metrics.api.latency.p95_ms,
                     api_p95_limit,
                     "ms",
@@ -309,8 +339,8 @@ class ObservabilityService:
                 cls._alert(
                     "agent_success_rate",
                     AlertSeverity.CRITICAL,
-                    "Agent Run 成功率低于 SLO",
-                    "当前窗口的 Agent Run 完成比例低于已发布阈值。",
+                    "智能体运行成功率低于服务等级目标",
+                    "当前窗口的智能体运行完成比例低于已发布阈值。",
                     metrics.agent_runs.success_rate_percent,
                     agent_success_limit,
                     "%",
@@ -321,8 +351,8 @@ class ObservabilityService:
                 cls._alert(
                     "agent_p95_latency",
                     AlertSeverity.WARNING,
-                    "Agent Run P95 延迟超出 SLO",
-                    "当前窗口的 Agent Run P95 完成时间高于已发布阈值。",
+                    "智能体运行 P95 延迟超出服务等级目标",
+                    "当前窗口的智能体运行 P95 完成时间高于已发布阈值。",
                     metrics.agent_runs.latency.p95_ms,
                     agent_p95_limit,
                     "ms",
@@ -388,7 +418,7 @@ class ObservabilityService:
                     "notification_delivery_dead_letters",
                     AlertSeverity.CRITICAL,
                     "通知投递出现死信",
-                    "告警通知后台任务存在无法自动恢复的死信。",
+                    "告警通知后台任务存在尚未安全重放的死信。",
                     metrics.notification_delivery.dead_letters,
                     0,
                     "jobs",

@@ -21,6 +21,9 @@ import {
   memorySourceKindLabels,
   memoryVisibilityLabels,
   notificationDeliveryEventLabels,
+  observabilityAlertCodeLabels,
+  observabilityAlertSourceTypeLabels,
+  observabilityUnitLabel,
   relationshipStageLabels,
   secretIntegrityLabels,
 } from './displayLabels'
@@ -56,6 +59,9 @@ describe('管理后台中文显示文案', () => {
     expect(notificationDeliveryEventLabels.recovery).toBe('恢复通知')
     expect(notificationDeliveryEventLabels.escalation).toBe('升级通知')
     expect(channelAlertLifecycleStatusLabels.resolved).toBe('已恢复')
+    expect(observabilityAlertSourceTypeLabels.model_runtime).toBe('模型运行')
+    expect(observabilityAlertCodeLabels.model_cost_budget).toBe('模型成本超出窗口预算')
+    expect(observabilityUnitLabel('jobs')).toBe('项')
   })
 
   it('未知协议值保留原值以便定位兼容性问题', () => {

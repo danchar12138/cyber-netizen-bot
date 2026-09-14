@@ -144,6 +144,7 @@ class BackgroundJob:
     started_at: datetime | None
     completed_at: datetime | None
     updated_at: datetime
+    agent_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,4 +1,4 @@
-"""性能、成本、SLO 与活动告警 API 契约。"""
+"""性能、成本、服务等级与活动告警接口契约。"""
 
 from datetime import datetime
 from uuid import UUID
@@ -17,7 +17,7 @@ class LatencyPercentilesResponse(BaseModel):
 
 
 class ApiSloResponse(BaseModel):
-    """API 请求量、5xx 错误率与延迟。"""
+    """应用接口请求量、服务端错误率与延迟。"""
 
     requests: int = Field(ge=0)
     server_errors: int = Field(ge=0)
@@ -67,7 +67,7 @@ class ChannelDeliveryMetricsResponse(BaseModel):
 
 
 class NotificationDeliveryMetricsResponse(BaseModel):
-    """告警通知任务的安全状态计数。"""
+    """告警通知任务窗口计数与尚未安全重放的死信数量。"""
 
     total: int = Field(ge=0)
     pending: int = Field(ge=0)

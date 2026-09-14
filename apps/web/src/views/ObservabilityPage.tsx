@@ -17,6 +17,9 @@ import {
   formatMetadataEntries,
   modelInvocationStatusLabels,
   modelPurposeLabels,
+  observabilityAlertCodeLabels,
+  observabilityAlertSourceTypeLabels,
+  observabilityUnitLabel,
 } from '../displayLabels'
 
 function formatUsd(microusd: number) {
@@ -72,19 +75,19 @@ export function ObservabilityPage() {
 
   return (
     <div className="page">
-      <section className="page-heading compact"><div><p className="eyebrow">SLO、成本与可回放运行</p><h1>可观测性与运行轨迹</h1><p>聚合 API、智能体、模型和队列健康，按已发布阈值形成告警，并保留安全认知回放。</p></div></section>
+      <section className="page-heading compact"><div><p className="eyebrow">服务等级、成本与可回放运行</p><h1>可观测性与运行轨迹</h1><p>聚合当前智能体的应用接口、模型和队列健康，按已发布阈值形成告警，并保留安全认知回放。</p></div></section>
       <div className="notice info"><ShieldCheck size={17} /><div><strong>安全可观测边界</strong><span>指标与链路追踪不保存消息正文、完整提示词、隐藏推理、密钥、访问令牌或对象键。</span></div></div>
 
-      {dashboard.isError && <div className="notice error" role="alert">无法读取可观测聚合，请检查 API、数据库和当前权限。</div>}
+      {dashboard.isError && <div className="notice error" role="alert">无法读取可观测聚合，请检查应用接口、数据库和当前权限。</div>}
       {lifecycleMetrics.isError && <div className="notice error" role="alert">无法读取告警生命周期指标，请检查渠道读取权限与迁移状态。</div>}
       {alertLifecycles.isError && <div className="notice error" role="alert">无法读取通用告警生命周期，请检查当前 Agent 与迁移状态。</div>}
       <section className="metric-grid" aria-label="服务等级与成本指标">
-        <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>API 错误率</p><strong>{data ? `${data.api.error_rate_percent.toFixed(2)}%` : '—'}</strong><span>{data?.api.requests ?? 0} 次请求 · {data?.api.server_errors ?? 0} 次 5xx</span></article>
-        <article className="metric-card"><div className="metric-icon"><Clock3 size={18} /></div><p>API P95 / P99</p><strong>{data ? `${data.api.latency.p95_ms} / ${data.api.latency.p99_ms} ms` : '—'}</strong><span>P50 {data?.api.latency.p50_ms ?? '—'} ms</span></article>
+        <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>应用接口错误率</p><strong>{data ? `${data.api.error_rate_percent.toFixed(2)}%` : '—'}</strong><span>{data?.api.requests ?? 0} 次请求 · {data?.api.server_errors ?? 0} 次服务端错误</span></article>
+        <article className="metric-card"><div className="metric-icon"><Clock3 size={18} /></div><p>应用接口 P95 / P99</p><strong>{data ? `${data.api.latency.p95_ms} / ${data.api.latency.p99_ms} 毫秒` : '—'}</strong><span>P50 {data?.api.latency.p50_ms ?? '—'} 毫秒</span></article>
         <article className="metric-card"><div className="metric-icon"><ShieldCheck size={18} /></div><p>智能体运行成功率</p><strong>{data ? `${data.agent_runs.success_rate_percent.toFixed(2)}%` : '—'}</strong><span>{data?.agent_runs.completed_runs ?? 0} 成功 · {data?.agent_runs.unsuccessful_runs ?? 0} 未成功</span></article>
-        <article className="metric-card"><div className="metric-icon"><CircleDollarSign size={18} /></div><p>模型冻结估算成本</p><strong>{data ? formatUsd(data.total_estimated_cost_microusd) : '—'}</strong><span>{data?.models.reduce((sum, item) => sum + item.input_tokens + item.output_tokens, 0) ?? 0} Token</span></article>
+        <article className="metric-card"><div className="metric-icon"><CircleDollarSign size={18} /></div><p>模型冻结估算成本</p><strong>{data ? formatUsd(data.total_estimated_cost_microusd) : '—'}</strong><span>{data?.models.reduce((sum, item) => sum + item.input_tokens + item.output_tokens, 0) ?? 0} 词元</span></article>
         <article className="metric-card"><div className="metric-icon"><Send size={18} /></div><p>渠道出站失败率</p><strong>{data ? `${data.channel_delivery.failure_rate_percent.toFixed(2)}%` : '—'}</strong><span>{data?.channel_delivery.attempts ?? 0} 次尝试 · 成功 {data?.channel_delivery.delivered ?? 0}</span></article>
-        <article className="metric-card"><div className="metric-icon"><BellRing size={18} /></div><p>通知投递任务</p><strong>{data?.notification_delivery.total ?? '—'}</strong><span>成功 {data?.notification_delivery.succeeded ?? 0} · 重试 {data?.notification_delivery.retrying ?? 0} · 死信 {data?.notification_delivery.dead_letters ?? 0}</span></article>
+        <article className="metric-card"><div className="metric-icon"><BellRing size={18} /></div><p>通知投递任务</p><strong>{data?.notification_delivery.total ?? '—'}</strong><span>成功 {data?.notification_delivery.succeeded ?? 0} · 重试 {data?.notification_delivery.retrying ?? 0} · 待处理死信 {data?.notification_delivery.dead_letters ?? 0}</span></article>
       </section>
 
       <section className="channel-lifecycle-observability" aria-label="告警生命周期指标">
@@ -124,9 +127,9 @@ export function ObservabilityPage() {
           <table className="admin-table">
             <thead><tr><th>来源</th><th>状态</th><th>当前 / 阈值</th><th>升级</th><th>发生时间</th><th>恢复</th></tr></thead>
             <tbody>{alertLifecycles.data?.map((item) => <tr key={item.id}>
-              <td className="table-primary"><strong>{item.code}</strong><code>{item.source_type}:{item.source_key}</code></td>
+              <td className="table-primary"><strong>{displayLabel(observabilityAlertCodeLabels, item.code)}</strong><small>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)}</small><code>{item.source_key}</code></td>
               <td><span className={`entity-status ${item.status}`}>{item.status === 'active' ? '活动' : '已恢复'}</span><small className={`severity-label ${item.severity}`}>{item.severity === 'critical' ? '严重' : '警告'}</small></td>
-              <td><strong>{item.current_value.toFixed(2)} {item.unit}</strong><small>阈值 {item.threshold_value.toFixed(2)} {item.unit} · {item.occurrences} 次评估</small></td>
+              <td><strong>{item.current_value.toFixed(2)} {observabilityUnitLabel(item.unit)}</strong><small>阈值 {item.threshold_value.toFixed(2)} {observabilityUnitLabel(item.unit)} · {item.occurrences} 次评估</small></td>
               <td><strong>L{item.escalation_level}</strong><small>{item.last_escalated_at ? new Date(item.last_escalated_at).toLocaleString('zh-CN') : '尚未升级'}</small></td>
               <td><strong>{new Date(item.first_occurred_at).toLocaleString('zh-CN')}</strong><small>最近 {new Date(item.last_occurred_at).toLocaleString('zh-CN')}</small></td>
               <td><strong>{formatDuration(item.recovery_duration_seconds)}</strong><small>{item.resolved_at ? new Date(item.resolved_at).toLocaleString('zh-CN') : '等待恢复'}</small></td>
@@ -140,7 +143,7 @@ export function ObservabilityPage() {
         <section className="panel alert-panel">
           <div className="panel-heading"><div><p className="eyebrow">确定性阈值</p><h2>活动告警</h2></div><span className="subtle">{data?.alerts.length ?? 0} 项</span></div>
           {!data?.alerts.length && <div className="empty-state">当前窗口没有活动告警。</div>}
-          <div className="alert-list">{data?.alerts.map((alert) => <article className={alert.severity} key={alert.code}><TriangleAlert size={16} /><div><strong>{alert.title}</strong><p>{alert.summary}</p><small>当前 {alert.current_value.toFixed(2)} {alert.unit} · 阈值 {alert.threshold_value.toFixed(2)} {alert.unit}</small></div></article>)}</div>
+          <div className="alert-list">{data?.alerts.map((alert) => <article className={alert.severity} key={alert.code}><TriangleAlert size={16} /><div><strong>{alert.title}</strong><p>{alert.summary}</p><small>当前 {alert.current_value.toFixed(2)} {observabilityUnitLabel(alert.unit)} · 阈值 {alert.threshold_value.toFixed(2)} {observabilityUnitLabel(alert.unit)}</small></div></article>)}</div>
         </section>
         <section className="panel queue-panel">
           <div className="panel-heading"><div><p className="eyebrow">PostgreSQL 真相源</p><h2>队列状态</h2></div></div>
@@ -151,7 +154,7 @@ export function ObservabilityPage() {
       <section className="panel model-cost-panel">
         <div className="panel-heading"><div><p className="eyebrow">调用时价格快照</p><h2>模型用量与成本</h2></div><span className="subtle">按模型服务与模型分组</span></div>
         {!data?.models.length && <div className="empty-state">当前窗口没有模型调用。</div>}
-        <div className="model-cost-list">{data?.models.map((item) => <article key={`${item.provider}/${item.model}`}><div><strong>{item.provider} / {item.model}</strong><span>{item.invocations} 次调用 · {item.failed_invocations} 次失败</span></div><div><strong>{formatUsd(item.estimated_cost_microusd)}</strong><span>输入 {item.input_tokens} · 输出 {item.output_tokens} Token</span></div><div><strong>{item.latency.p95_ms} ms</strong><span>P95 · P99 {item.latency.p99_ms} ms</span></div></article>)}</div>
+        <div className="model-cost-list">{data?.models.map((item) => <article key={`${item.provider}/${item.model}`}><div><strong>{item.provider} / {item.model}</strong><span>{item.invocations} 次调用 · {item.failed_invocations} 次失败</span></div><div><strong>{formatUsd(item.estimated_cost_microusd)}</strong><span>输入 {item.input_tokens} · 输出 {item.output_tokens} 词元</span></div><div><strong>{item.latency.p95_ms} 毫秒</strong><span>P95 · P99 {item.latency.p99_ms} 毫秒</span></div></article>)}</div>
       </section>
 
       <section className="panel trace-search"><label><Activity size={16} /><input aria-label="智能体运行 ID" value={runId} onChange={(event) => setRunId(event.target.value)} placeholder="输入智能体运行 UUID" /></label><button className="primary-button" disabled={!canReadTrace || !runId.trim() || trace.isPending} onClick={() => trace.mutate(runId.trim())}><Search size={14} /> 查询轨迹</button></section>

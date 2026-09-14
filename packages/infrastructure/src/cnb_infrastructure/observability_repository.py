@@ -1,4 +1,4 @@
-"""可观测请求指标写入与 PostgreSQL 租户聚合。"""
+"""可观测请求指标写入与 PostgreSQL 租户、Agent 隔离聚合。"""
 
 import asyncio
 from dataclasses import replace
@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import aliased
 
 from cnb_application import ApiRequestObservation
 from cnb_domain import (
@@ -32,6 +33,7 @@ from cnb_infrastructure.models import (
     ApiRequestMetricModel,
     BackgroundJobModel,
     ChannelDiagnosticEventModel,
+    ChannelInstanceModel,
     ModelInvocationModel,
     ObservabilityAlertLifecycleModel,
 )
@@ -238,7 +240,7 @@ class MemoryObservabilityRepository:
 
 
 class SqlAlchemyObservabilityRepository:
-    """使用数据库侧分位数与分组聚合控制读取规模。"""
+    """使用数据库侧分位数与分组聚合控制读取规模和作用域。"""
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
@@ -270,17 +272,17 @@ class SqlAlchemyObservabilityRepository:
                 session, tenant_id, window_started_at, window_ended_at, agent_id
             )
             agent_runs = await self._agent_run_metrics(
-                session, tenant_id, window_started_at, window_ended_at
+                session, tenant_id, window_started_at, window_ended_at, agent_id
             )
             models = await self._model_metrics(
-                session, tenant_id, window_started_at, window_ended_at
+                session, tenant_id, window_started_at, window_ended_at, agent_id
             )
-            queue = await self._queue_metrics(session, tenant_id, window_ended_at)
+            queue = await self._queue_metrics(session, tenant_id, window_ended_at, agent_id)
             channel_delivery = await self._channel_delivery_metrics(
-                session, tenant_id, window_started_at, window_ended_at
+                session, tenant_id, window_started_at, window_ended_at, agent_id
             )
             notification_delivery = await self._notification_delivery_metrics(
-                session, tenant_id, window_started_at, window_ended_at
+                session, tenant_id, window_started_at, window_ended_at, agent_id
             )
         return ObservabilityMetrics(
             window_started_at=window_started_at,
@@ -491,35 +493,38 @@ class SqlAlchemyObservabilityRepository:
         tenant_id: UUID,
         started_at: datetime,
         ended_at: datetime,
+        agent_id: UUID | None = None,
     ) -> ChannelDeliveryMetrics:
-        row = (
-            await session.execute(
-                select(
-                    func.count(ChannelDiagnosticEventModel.id).filter(
-                        ChannelDiagnosticEventModel.status.in_(
-                            ("delivered", "degraded", "failed", "rejected", "rate_limited")
-                        )
-                    ),
-                    func.count(ChannelDiagnosticEventModel.id).filter(
-                        ChannelDiagnosticEventModel.status == "delivered"
-                    ),
-                    func.count(ChannelDiagnosticEventModel.id).filter(
-                        ChannelDiagnosticEventModel.status == "degraded"
-                    ),
-                    func.count(ChannelDiagnosticEventModel.id).filter(
-                        ChannelDiagnosticEventModel.status.in_(("failed", "rejected"))
-                    ),
-                    func.count(ChannelDiagnosticEventModel.id).filter(
-                        ChannelDiagnosticEventModel.status == "rate_limited"
-                    ),
-                ).where(
-                    ChannelDiagnosticEventModel.tenant_id == tenant_id,
-                    ChannelDiagnosticEventModel.direction == "outbound",
-                    ChannelDiagnosticEventModel.occurred_at >= started_at,
-                    ChannelDiagnosticEventModel.occurred_at <= ended_at,
+        statement = select(
+            func.count(ChannelDiagnosticEventModel.id).filter(
+                ChannelDiagnosticEventModel.status.in_(
+                    ("delivered", "degraded", "failed", "rejected", "rate_limited")
                 )
-            )
-        ).one()
+            ),
+            func.count(ChannelDiagnosticEventModel.id).filter(
+                ChannelDiagnosticEventModel.status == "delivered"
+            ),
+            func.count(ChannelDiagnosticEventModel.id).filter(
+                ChannelDiagnosticEventModel.status == "degraded"
+            ),
+            func.count(ChannelDiagnosticEventModel.id).filter(
+                ChannelDiagnosticEventModel.status.in_(("failed", "rejected"))
+            ),
+            func.count(ChannelDiagnosticEventModel.id).filter(
+                ChannelDiagnosticEventModel.status == "rate_limited"
+            ),
+        ).where(
+            ChannelDiagnosticEventModel.tenant_id == tenant_id,
+            ChannelDiagnosticEventModel.direction == "outbound",
+            ChannelDiagnosticEventModel.occurred_at >= started_at,
+            ChannelDiagnosticEventModel.occurred_at <= ended_at,
+        )
+        if agent_id is not None:
+            statement = statement.join(
+                ChannelInstanceModel,
+                ChannelInstanceModel.id == ChannelDiagnosticEventModel.channel_id,
+            ).where(ChannelInstanceModel.agent_id == agent_id)
+        row = (await session.execute(statement)).one()
         return ChannelDeliveryMetrics(
             attempts=int(row[0] or 0),
             delivered=int(row[1] or 0),
@@ -534,35 +539,39 @@ class SqlAlchemyObservabilityRepository:
         tenant_id: UUID,
         started_at: datetime,
         ended_at: datetime,
+        agent_id: UUID | None = None,
     ) -> NotificationDeliveryMetrics:
-        row = (
-            await session.execute(
-                select(
-                    func.count(BackgroundJobModel.id),
-                    func.count(BackgroundJobModel.id).filter(
-                        BackgroundJobModel.status == "pending"
-                    ),
-                    func.count(BackgroundJobModel.id).filter(
-                        BackgroundJobModel.status == "running"
-                    ),
-                    func.count(BackgroundJobModel.id).filter(
-                        BackgroundJobModel.status == "retrying"
-                    ),
-                    func.count(BackgroundJobModel.id).filter(
-                        BackgroundJobModel.status == "succeeded"
-                    ),
-                    func.count(BackgroundJobModel.id).filter(BackgroundJobModel.status == "failed"),
-                    func.count(BackgroundJobModel.id).filter(
-                        BackgroundJobModel.status == "dead_letter"
-                    ),
-                ).where(
-                    BackgroundJobModel.tenant_id == tenant_id,
-                    BackgroundJobModel.kind == "notification_delivery",
-                    BackgroundJobModel.created_at >= started_at,
-                    BackgroundJobModel.created_at <= ended_at,
-                )
-            )
-        ).one()
+        window_statement = select(
+            func.count(BackgroundJobModel.id),
+            func.count(BackgroundJobModel.id).filter(BackgroundJobModel.status == "pending"),
+            func.count(BackgroundJobModel.id).filter(BackgroundJobModel.status == "running"),
+            func.count(BackgroundJobModel.id).filter(BackgroundJobModel.status == "retrying"),
+            func.count(BackgroundJobModel.id).filter(BackgroundJobModel.status == "succeeded"),
+            func.count(BackgroundJobModel.id).filter(BackgroundJobModel.status == "failed"),
+        ).where(
+            BackgroundJobModel.tenant_id == tenant_id,
+            BackgroundJobModel.kind == "notification_delivery",
+            BackgroundJobModel.created_at >= started_at,
+            BackgroundJobModel.created_at <= ended_at,
+        )
+        replay_job = aliased(BackgroundJobModel)
+        has_replay = (
+            select(replay_job.id)
+            .where(replay_job.replayed_from_id == BackgroundJobModel.id)
+            .exists()
+        )
+        dead_letter_statement = select(func.count(BackgroundJobModel.id)).where(
+            BackgroundJobModel.tenant_id == tenant_id,
+            BackgroundJobModel.kind == "notification_delivery",
+            BackgroundJobModel.status == "dead_letter",
+            ~has_replay,
+        )
+        if agent_id is not None:
+            agent_condition = BackgroundJobModel.agent_id == agent_id
+            window_statement = window_statement.where(agent_condition)
+            dead_letter_statement = dead_letter_statement.where(agent_condition)
+        row = (await session.execute(window_statement)).one()
+        dead_letters = int((await session.scalar(dead_letter_statement)) or 0)
         return NotificationDeliveryMetrics(
             total=int(row[0] or 0),
             pending=int(row[1] or 0),
@@ -570,7 +579,7 @@ class SqlAlchemyObservabilityRepository:
             retrying=int(row[3] or 0),
             succeeded=int(row[4] or 0),
             failed=int(row[5] or 0),
-            dead_letters=int(row[6] or 0),
+            dead_letters=dead_letters,
         )
 
     @staticmethod
@@ -607,27 +616,27 @@ class SqlAlchemyObservabilityRepository:
         tenant_id: UUID,
         started_at: datetime,
         ended_at: datetime,
+        agent_id: UUID | None = None,
     ) -> AgentRunSloMetrics:
         duration_ms = (
             func.extract("epoch", AgentRunModel.completed_at - AgentRunModel.started_at) * 1000
         )
         terminal_statuses = ("completed", "failed", "cancelled")
-        row = (
-            await session.execute(
-                select(
-                    func.count(AgentRunModel.id),
-                    func.count(AgentRunModel.id).filter(AgentRunModel.status == "completed"),
-                    func.count(AgentRunModel.id).filter(AgentRunModel.status != "completed"),
-                    *_percentile_columns(duration_ms),
-                ).where(
-                    AgentRunModel.tenant_id == tenant_id,
-                    AgentRunModel.status.in_(terminal_statuses),
-                    AgentRunModel.started_at.is_not(None),
-                    AgentRunModel.completed_at >= started_at,
-                    AgentRunModel.completed_at <= ended_at,
-                )
-            )
-        ).one()
+        statement = select(
+            func.count(AgentRunModel.id),
+            func.count(AgentRunModel.id).filter(AgentRunModel.status == "completed"),
+            func.count(AgentRunModel.id).filter(AgentRunModel.status != "completed"),
+            *_percentile_columns(duration_ms),
+        ).where(
+            AgentRunModel.tenant_id == tenant_id,
+            AgentRunModel.status.in_(terminal_statuses),
+            AgentRunModel.started_at.is_not(None),
+            AgentRunModel.completed_at >= started_at,
+            AgentRunModel.completed_at <= ended_at,
+        )
+        if agent_id is not None:
+            statement = statement.where(AgentRunModel.agent_id == agent_id)
+        row = (await session.execute(statement)).one()
         total, completed, unsuccessful = int(row[0]), int(row[1]), int(row[2])
         return AgentRunSloMetrics(
             terminal_runs=total,
@@ -643,30 +652,35 @@ class SqlAlchemyObservabilityRepository:
         tenant_id: UUID,
         started_at: datetime,
         ended_at: datetime,
+        agent_id: UUID | None = None,
     ) -> tuple[ModelUsageMetrics, ...]:
-        rows = (
-            await session.execute(
-                select(
-                    ModelInvocationModel.provider,
-                    ModelInvocationModel.model,
-                    func.count(ModelInvocationModel.id),
-                    func.count(ModelInvocationModel.id).filter(
-                        ModelInvocationModel.status != "completed"
-                    ),
-                    func.coalesce(func.sum(ModelInvocationModel.input_tokens), 0),
-                    func.coalesce(func.sum(ModelInvocationModel.output_tokens), 0),
-                    func.coalesce(func.sum(ModelInvocationModel.estimated_cost_microusd), 0),
-                    *_percentile_columns(ModelInvocationModel.latency_ms),
-                )
-                .where(
-                    ModelInvocationModel.tenant_id == tenant_id,
-                    ModelInvocationModel.created_at >= started_at,
-                    ModelInvocationModel.created_at <= ended_at,
-                )
-                .group_by(ModelInvocationModel.provider, ModelInvocationModel.model)
-                .order_by(func.sum(ModelInvocationModel.estimated_cost_microusd).desc())
+        statement = (
+            select(
+                ModelInvocationModel.provider,
+                ModelInvocationModel.model,
+                func.count(ModelInvocationModel.id),
+                func.count(ModelInvocationModel.id).filter(
+                    ModelInvocationModel.status.in_(("failed", "timed_out"))
+                ),
+                func.coalesce(func.sum(ModelInvocationModel.input_tokens), 0),
+                func.coalesce(func.sum(ModelInvocationModel.output_tokens), 0),
+                func.coalesce(func.sum(ModelInvocationModel.estimated_cost_microusd), 0),
+                *_percentile_columns(ModelInvocationModel.latency_ms),
             )
-        ).all()
+            .where(
+                ModelInvocationModel.tenant_id == tenant_id,
+                ModelInvocationModel.created_at >= started_at,
+                ModelInvocationModel.created_at <= ended_at,
+            )
+            .group_by(ModelInvocationModel.provider, ModelInvocationModel.model)
+            .order_by(func.sum(ModelInvocationModel.estimated_cost_microusd).desc())
+        )
+        if agent_id is not None:
+            statement = statement.join(
+                AgentRunModel,
+                AgentRunModel.id == ModelInvocationModel.run_id,
+            ).where(AgentRunModel.agent_id == agent_id)
+        rows = (await session.execute(statement)).all()
         return tuple(
             ModelUsageMetrics(
                 provider=str(row[0]),
@@ -686,18 +700,18 @@ class SqlAlchemyObservabilityRepository:
         session: AsyncSession,
         tenant_id: UUID,
         now: datetime,
+        agent_id: UUID | None = None,
     ) -> QueueMetrics:
-        row = (
-            await session.execute(
-                select(
-                    func.count(BackgroundJobModel.id),
-                    func.min(BackgroundJobModel.available_at),
-                ).where(
-                    BackgroundJobModel.tenant_id == tenant_id,
-                    BackgroundJobModel.status.in_(("pending", "retrying")),
-                )
-            )
-        ).one()
+        statement = select(
+            func.count(BackgroundJobModel.id),
+            func.min(BackgroundJobModel.available_at),
+        ).where(
+            BackgroundJobModel.tenant_id == tenant_id,
+            BackgroundJobModel.status.in_(("pending", "retrying")),
+        )
+        if agent_id is not None:
+            statement = statement.where(BackgroundJobModel.agent_id == agent_id)
+        row = (await session.execute(statement)).one()
         oldest = row[1]
         wait_seconds = (
             max(0, int((now - oldest).total_seconds())) if isinstance(oldest, datetime) else 0

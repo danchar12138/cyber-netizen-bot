@@ -1,4 +1,4 @@
-"""性能、成本、SLO 与活动告警管理 API。"""
+"""性能、成本、服务等级与活动告警管理接口。"""
 
 from typing import Annotated
 
@@ -42,7 +42,7 @@ async def dashboard(
     service: Annotated[ObservabilityService, Depends(get_observability_service)],
     identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
 ) -> ObservabilityDashboardResponse:
-    """返回当前租户的聚合指标、冻结成本和确定性活动告警。"""
+    """返回当前 Agent 的隔离指标、冻结成本和确定性活动告警。"""
     result = await service.dashboard(
         tenant_id=principal.tenant_id,
         agent_id=identity.agent_id,

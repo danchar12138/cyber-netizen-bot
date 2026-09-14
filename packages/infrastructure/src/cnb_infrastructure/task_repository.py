@@ -153,7 +153,7 @@ class InMemoryTaskRepository:
                 for item in self.jobs.values()
                 if item.tenant_id == tenant_id
                 and item.kind is BackgroundJobKind.NOTIFICATION_DELIVERY
-                and item.payload.get("agent_id") == str(agent_id)
+                and item.agent_id == agent_id
             ]
             rows.sort(key=lambda item: (item.created_at, str(item.id)), reverse=True)
             return tuple(rows[:limit])
@@ -934,7 +934,7 @@ class SqlAlchemyTaskRepository:
             .where(
                 BackgroundJobModel.tenant_id == tenant_id,
                 BackgroundJobModel.kind == BackgroundJobKind.NOTIFICATION_DELIVERY.value,
-                BackgroundJobModel.payload["agent_id"].astext == str(agent_id),
+                BackgroundJobModel.agent_id == agent_id,
             )
             .order_by(BackgroundJobModel.created_at.desc(), BackgroundJobModel.id.desc())
             .limit(limit)
@@ -1738,6 +1738,7 @@ class SqlAlchemyTaskRepository:
         return BackgroundJobModel(
             id=item.id,
             tenant_id=item.tenant_id,
+            agent_id=item.agent_id,
             kind=item.kind.value,
             queue=item.queue,
             status=item.status.value,
@@ -1854,6 +1855,7 @@ class SqlAlchemyTaskRepository:
         return BackgroundJob(
             id=row.id,
             tenant_id=row.tenant_id,
+            agent_id=row.agent_id,
             kind=BackgroundJobKind(row.kind),
             queue=row.queue,
             status=BackgroundJobStatus(row.status),

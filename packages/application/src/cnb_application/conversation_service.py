@@ -1103,6 +1103,7 @@ class ConversationService:
             retry_base_seconds = self._integer_setting(configuration, "tasks.retry_base_seconds")
             await self._task_service.enqueue(
                 tenant_id=pending.run.tenant_id,
+                agent_id=pending.run.agent_id,
                 kind=BackgroundJobKind.REFLECTION,
                 payload={
                     "run_id": str(pending.run.id),
