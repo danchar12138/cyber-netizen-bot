@@ -5,6 +5,7 @@ import {
   auditActionLabels,
   auditResourceLabels,
   backgroundJobStatusLabels,
+  channelAlertLifecycleStatusLabels,
   channelCapabilityLabels,
   channelDegradationLabels,
   cognitiveActionLabels,
@@ -53,6 +54,8 @@ describe('管理后台中文显示文案', () => {
     expect(channelDegradationLabels.streaming_to_buffered).toBe('流式响应改为缓冲后发送')
     expect(backgroundJobStatusLabels.dead_letter).toBe('死信')
     expect(notificationDeliveryEventLabels.recovery).toBe('恢复通知')
+    expect(notificationDeliveryEventLabels.escalation).toBe('升级通知')
+    expect(channelAlertLifecycleStatusLabels.resolved).toBe('已恢复')
   })
 
   it('未知协议值保留原值以便定位兼容性问题', () => {

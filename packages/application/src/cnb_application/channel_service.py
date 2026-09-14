@@ -26,6 +26,8 @@ from cnb_domain import (
     ChannelAlert,
     ChannelAlertDisposition,
     ChannelAlertDispositionStatus,
+    ChannelAlertLifecycle,
+    ChannelAlertLifecycleStatus,
     ChannelCapabilities,
     ChannelDiagnosticEvent,
     ChannelErrorMetrics,
@@ -122,6 +124,40 @@ class TelegramWebhookStatus:
     last_error_present: bool
     allowed_updates: tuple[str, ...]
     checked_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelAlertLifecycleEvaluation:
+    """一次告警评估得到的活动事件与待升级事件。"""
+
+    alerts: tuple[ChannelAlert, ...]
+    active_lifecycles: tuple[ChannelAlertLifecycle, ...]
+    due_escalations: tuple[ChannelAlertLifecycle, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelAlertLifecycleTrendPoint:
+    """一个固定时间桶内的生命周期变化计数。"""
+
+    bucket_started_at: datetime
+    opened: int
+    resolved: int
+    escalated: int
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelAlertLifecycleMetrics:
+    """当前 Agent 的告警生命周期聚合与趋势。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    active: int
+    opened: int
+    resolved: int
+    escalated: int
+    mean_recovery_seconds: float
+    p95_recovery_seconds: int
+    trend: tuple[ChannelAlertLifecycleTrendPoint, ...]
 
 
 class ChannelRepository(Protocol):
@@ -243,6 +279,44 @@ class ChannelRepository(Protocol):
         alert_key: str,
         actor_id: UUID | None = None,
     ) -> None: ...
+
+    async def reconcile_alert_lifecycles(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        alerts: tuple[ChannelAlert, ...],
+        observed_at: datetime,
+    ) -> tuple[ChannelAlertLifecycle, ...]: ...
+
+    async def mark_alert_lifecycles_escalated(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_ids: tuple[UUID, ...],
+        escalated_at: datetime,
+    ) -> tuple[ChannelAlertLifecycle, ...]: ...
+
+    async def list_alert_lifecycles(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        status: ChannelAlertLifecycleStatus | None,
+        severity: AlertSeverity | None,
+        limit: int,
+    ) -> tuple[ChannelAlertLifecycle, ...]: ...
+
+    async def list_alert_lifecycles_in_window(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+    ) -> tuple[ChannelAlertLifecycle, ...]: ...
 
 
 _CREDENTIAL_KEYS = {
@@ -1144,6 +1218,7 @@ class ChannelService:
                     current_value=failure_rate,
                     threshold_value=failure_rate_threshold,
                     unit="%",
+                    first_occurred_at=metric.first_occurred_at,
                     last_occurred_at=metric.last_occurred_at,
                     cooldown_until=metric.last_occurred_at + timedelta(minutes=cooldown_minutes),
                 )
@@ -1185,6 +1260,7 @@ class ChannelService:
                     current_value=round(degraded_for, 4),
                     threshold_value=float(degraded_minutes),
                     unit="minutes",
+                    first_occurred_at=consecutive[-1].sampled_at,
                     last_occurred_at=newest.sampled_at,
                     cooldown_until=newest.sampled_at + timedelta(minutes=cooldown_minutes),
                 )
@@ -1213,6 +1289,171 @@ class ChannelService:
                 key=lambda item: (item.last_occurred_at, str(item.channel_id), item.code),
                 reverse=True,
             )
+        )
+
+    async def reconcile_alert_lifecycles(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        values: Mapping[str, JsonValue],
+        window_minutes: int,
+        now: datetime | None = None,
+    ) -> ChannelAlertLifecycleEvaluation:
+        """评估并原子对账生命周期；升级仅在通知成功入队后另行确认。"""
+        observed_at = (now or datetime.now(UTC)).astimezone(UTC)
+        alerts = await self.alerts(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=None,
+            values=values,
+            window_minutes=window_minutes,
+            now=observed_at,
+        )
+        active = await self._repository.reconcile_alert_lifecycles(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            alerts=alerts,
+            observed_at=observed_at,
+        )
+        escalation_enabled = self._boolean(
+            values["alerts.notification.escalation_enabled"],
+            "alerts.notification.escalation_enabled",
+        )
+        escalation_minutes = self._integer(
+            values["alerts.notification.escalation_after_minutes"],
+            "alerts.notification.escalation_after_minutes",
+        )
+        cutoff = observed_at - timedelta(minutes=escalation_minutes)
+        due = (
+            tuple(
+                item
+                for item in active
+                if item.escalated_at is None and item.first_occurred_at <= cutoff
+            )
+            if escalation_enabled
+            else ()
+        )
+        return ChannelAlertLifecycleEvaluation(
+            alerts=alerts,
+            active_lifecycles=active,
+            due_escalations=due,
+        )
+
+    async def mark_alert_lifecycles_escalated(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_ids: tuple[UUID, ...],
+        escalated_at: datetime,
+    ) -> tuple[ChannelAlertLifecycle, ...]:
+        if not lifecycle_ids:
+            return ()
+        return await self._repository.mark_alert_lifecycles_escalated(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lifecycle_ids=lifecycle_ids,
+            escalated_at=escalated_at.astimezone(UTC),
+        )
+
+    async def alert_lifecycles(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        status: ChannelAlertLifecycleStatus | None,
+        severity: AlertSeverity | None,
+        limit: int = 100,
+    ) -> tuple[ChannelAlertLifecycle, ...]:
+        if not 1 <= limit <= 500:
+            raise ChannelValidationError("告警生命周期数量必须位于 1 到 500 之间")
+        if channel_id is not None:
+            await self._required(tenant_id=tenant_id, agent_id=agent_id, channel_id=channel_id)
+        return await self._repository.list_alert_lifecycles(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=channel_id,
+            status=status,
+            severity=severity,
+            limit=limit,
+        )
+
+    async def alert_lifecycle_metrics(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_minutes: int,
+        bucket_minutes: int,
+        now: datetime | None = None,
+    ) -> ChannelAlertLifecycleMetrics:
+        if not 5 <= window_minutes <= 10_080:
+            raise ChannelValidationError("生命周期统计窗口必须位于 5 到 10080 分钟之间")
+        if not 5 <= bucket_minutes <= 1_440 or bucket_minutes > window_minutes:
+            raise ChannelValidationError("生命周期趋势时间桶必须位于 5 分钟到统计窗口之间")
+        ended_at = (now or datetime.now(UTC)).astimezone(UTC)
+        started_at = ended_at - timedelta(minutes=window_minutes)
+        rows = await self._repository.list_alert_lifecycles_in_window(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            window_started_at=started_at,
+            window_ended_at=ended_at,
+        )
+        bucket_seconds = bucket_minutes * 60
+        bucket_count = (window_minutes + bucket_minutes - 1) // bucket_minutes
+        buckets = [
+            ChannelAlertLifecycleTrendPoint(
+                bucket_started_at=started_at + timedelta(minutes=index * bucket_minutes),
+                opened=0,
+                resolved=0,
+                escalated=0,
+            )
+            for index in range(bucket_count)
+        ]
+
+        def add_event(
+            event_at: datetime | None,
+            field: Literal["opened", "resolved", "escalated"],
+        ) -> None:
+            if event_at is None or not started_at <= event_at <= ended_at:
+                return
+            index = min(
+                bucket_count - 1,
+                int((event_at - started_at).total_seconds()) // bucket_seconds,
+            )
+            point = buckets[index]
+            buckets[index] = replace(point, **{field: getattr(point, field) + 1})
+
+        for row in rows:
+            add_event(row.first_occurred_at, "opened")
+            add_event(row.resolved_at, "resolved")
+            add_event(row.escalated_at, "escalated")
+        recovery = sorted(
+            row.recovery_duration_seconds
+            for row in rows
+            if row.resolved_at is not None
+            and started_at <= row.resolved_at <= ended_at
+            and row.recovery_duration_seconds is not None
+        )
+        p95_index = max(0, (95 * len(recovery) + 99) // 100 - 1) if recovery else 0
+        return ChannelAlertLifecycleMetrics(
+            window_started_at=started_at,
+            window_ended_at=ended_at,
+            active=sum(item.status is ChannelAlertLifecycleStatus.ACTIVE for item in rows),
+            opened=sum(started_at <= item.first_occurred_at <= ended_at for item in rows),
+            resolved=sum(
+                item.resolved_at is not None and started_at <= item.resolved_at <= ended_at
+                for item in rows
+            ),
+            escalated=sum(
+                item.escalated_at is not None and started_at <= item.escalated_at <= ended_at
+                for item in rows
+            ),
+            mean_recovery_seconds=(sum(recovery) / len(recovery) if recovery else 0.0),
+            p95_recovery_seconds=recovery[p95_index] if recovery else 0,
+            trend=tuple(buckets),
         )
 
     async def set_alert_disposition(

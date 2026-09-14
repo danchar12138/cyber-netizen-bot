@@ -148,8 +148,14 @@ export const backgroundJobStatusLabels = {
 
 export const notificationDeliveryEventLabels = {
   active: '活动告警',
+  escalation: '升级通知',
   recovery: '恢复通知',
   unknown: '未知事件',
+} as const
+
+export const channelAlertLifecycleStatusLabels = {
+  active: '活动中',
+  resolved: '已恢复',
 } as const
 
 export const scheduledActionStatusLabels = {

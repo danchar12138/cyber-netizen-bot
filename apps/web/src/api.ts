@@ -6,6 +6,10 @@ import type {
   AttachmentReservationResponse,
   BackgroundJobReplayChainItem as BackgroundJobReplayChainItemResponse,
   BackgroundJobReplayChainResponse,
+  ChannelAlertLifecycleListResponse,
+  ChannelAlertLifecycleMetricsResponse,
+  ChannelAlertLifecycleResponse,
+  ChannelAlertLifecycleStatus,
   ChannelAlertListResponse,
   ChannelAlertDispositionResponse,
   ChannelAlertResponse,
@@ -247,6 +251,10 @@ export type ChannelHealthSnapshot = ChannelHealthSnapshotResponse
 export type ChannelHealthTrend = ChannelHealthTrendResponse
 export type ChannelAlert = ChannelAlertResponse
 export type ChannelAlertList = ChannelAlertListResponse
+export type ChannelAlertLifecycle = ChannelAlertLifecycleResponse
+export type ChannelAlertLifecycleList = ChannelAlertLifecycleListResponse
+export type ChannelAlertLifecycleMetrics = ChannelAlertLifecycleMetricsResponse
+export type { ChannelAlertLifecycleStatus }
 export type ChannelAlertDisposition = ChannelAlertDispositionResponse
 export type ChannelAlertNotification = ChannelAlertNotificationResponse
 export type ChannelAlertNotificationJob = ChannelAlertNotificationJobResponse
@@ -1349,6 +1357,22 @@ export const getChannelAlerts = (channelId?: string, windowMinutes = 60) =>
   apiSdk.getApiV1ChannelsOperationsAlerts({
     query: { channel_id: channelId, window_minutes: windowMinutes },
   })
+
+export const getChannelAlertLifecycles = (filters: {
+  channel_id?: string
+  status?: ChannelAlertLifecycleStatus
+  severity?: 'warning' | 'critical'
+  limit?: number
+} = {}) => apiSdk.getApiV1ChannelsOperationsAlertsLifecycles({
+  query: filters,
+})
+
+export const getChannelAlertLifecycleMetrics = (
+  windowMinutes = 1_440,
+  bucketMinutes = 60,
+) => apiSdk.getApiV1ChannelsOperationsAlertsLifecyclesMetrics({
+  query: { window_minutes: windowMinutes, bucket_minutes: bucketMinutes },
+})
 
 export const getChannelNotificationTimeline = (filters: {
   status?: BackgroundJobStatus

@@ -11,6 +11,7 @@ import {
   getChannelCatalog,
   getChannelEvents,
   getChannelAlerts,
+  getChannelAlertLifecycles,
   getChannelErrorMetrics,
   getChannelHealthTrend,
   getChannelInstances,
@@ -30,6 +31,8 @@ import {
   updateChannelInstance,
   type ChannelDiagnosticEvent,
   type ChannelAlert,
+  type ChannelAlertLifecycle,
+  type ChannelAlertLifecycleStatus,
   type ChannelErrorMetric,
   type ChannelHealthSnapshot,
   type ChannelInstance,
@@ -44,6 +47,7 @@ import { useSelectedAgentId } from '../agentSelection'
 import { AdminDataTable, type AdminTableColumn } from '../components/AdminDataTable'
 import {
   channelCapabilityLabels,
+  channelAlertLifecycleStatusLabels,
   channelDegradationLabels,
   channelEventDirectionLabels,
   channelEventStatusLabels,
@@ -123,6 +127,9 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
   const [deliveryEditMessageId, setDeliveryEditMessageId] = useState('')
   const [metricsWindow, setMetricsWindow] = useState(60)
   const [alertNotificationWindow, setAlertNotificationWindow] = useState(60)
+  const [lifecycleStatus, setLifecycleStatus] = useState<ChannelAlertLifecycleStatus | ''>('')
+  const [lifecycleSeverity, setLifecycleSeverity] = useState<'warning' | 'critical' | ''>('')
+  const [lifecycleChannelId, setLifecycleChannelId] = useState('')
   const [notificationStatus, setNotificationStatus] = useState<BackgroundJobStatus | ''>('')
   const [notificationAdapter, setNotificationAdapter] = useState('')
   const [notificationEvent, setNotificationEvent] = useState<NotificationDeliveryEvent | ''>('')
@@ -166,6 +173,21 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     queryKey: ['channel-alerts', selectedAgentId, metricsWindow],
     queryFn: () => getChannelAlerts(undefined, metricsWindow),
   })
+  const alertLifecycles = useQuery({
+    queryKey: [
+      'channel-alert-lifecycles',
+      selectedAgentId,
+      lifecycleStatus,
+      lifecycleSeverity,
+      lifecycleChannelId,
+    ],
+    queryFn: () => getChannelAlertLifecycles({
+      status: lifecycleStatus || undefined,
+      severity: lifecycleSeverity || undefined,
+      channel_id: lifecycleChannelId || undefined,
+      limit: 200,
+    }),
+  })
   const notificationTimeline = useQuery({
     queryKey: [
       'channel-alert-notifications',
@@ -197,6 +219,7 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       invalidateAcrossTabs(queryClient, ['channel-error-metrics', selectedAgentId, metricsWindow]),
       invalidateAcrossTabs(queryClient, ['channel-health-trend', selectedAgentId, metricsWindow]),
       invalidateAcrossTabs(queryClient, ['channel-alerts', selectedAgentId, metricsWindow]),
+      invalidateAcrossTabs(queryClient, ['channel-alert-lifecycles', selectedAgentId]),
       invalidateAcrossTabs(queryClient, ['channel-alert-notifications', selectedAgentId]),
       ...(selectedTelegramChannelId
         ? [invalidateAcrossTabs(queryClient, ['telegram-webhook', selectedTelegramChannelId])]
@@ -436,6 +459,33 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       </div>,
     },
   ], [alertDispositionMutation.isPending, canManageAlerts, instanceNames, runAlertDisposition, runUnsuppress, unsuppressMutation.isPending])
+  const lifecycleColumns = useMemo<Array<AdminTableColumn<ChannelAlertLifecycle>>>(() => [
+    {
+      key: 'alert', label: '规则 / 渠道',
+      render: (row) => <div className="table-primary"><strong><code>{row.code}</code></strong><span>{instanceNames.get(row.channel_id) ?? row.channel_id}</span></div>,
+    },
+    { key: 'status', label: '状态', render: (row) => <span className={`entity-status task-${row.status}`}>{channelAlertLifecycleStatusLabels[row.status]}</span> },
+    { key: 'severity', label: '级别', render: (row) => <span className={`entity-status task-${row.severity}`}>{alertSeverityLabels[row.severity]}</span> },
+    { key: 'error-code', label: '安全错误码', render: (row) => row.error_code ? <code>{row.error_code}</code> : '无' },
+    { key: 'occurrences', label: '次数', render: (row) => row.occurrences.toLocaleString('zh-CN') },
+    { key: 'first', label: '首次发生', render: (row) => new Date(row.first_occurred_at).toLocaleString('zh-CN') },
+    { key: 'latest', label: '最近发生', render: (row) => new Date(row.last_occurred_at).toLocaleString('zh-CN') },
+    {
+      key: 'duration', label: '持续 / 恢复',
+      render: (row) => {
+        const seconds = row.recovery_duration_seconds
+          ?? Math.max(0, (Date.now() - new Date(row.first_occurred_at).getTime()) / 1_000)
+        const minutes = Math.round(seconds / 60)
+        return `${row.status === 'resolved' ? '恢复耗时' : '已持续'} ${minutes.toLocaleString('zh-CN')} 分钟`
+      },
+    },
+    {
+      key: 'escalation', label: '升级',
+      render: (row) => row.escalated_at
+        ? <div className="table-primary"><strong>已升级</strong><small>{new Date(row.escalated_at).toLocaleString('zh-CN')}</small></div>
+        : '未升级',
+    },
+  ], [instanceNames])
   const notificationColumns = useMemo<Array<AdminTableColumn<NotificationDeliveryTimelineItem>>>(() => [
     {
       key: 'event', label: '事件',
@@ -500,7 +550,7 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
         <span className="phase-tag">Telegram 入站已接通</span>
       </section>
 
-      {(catalog.isError || models.isError || instances.isError || events.isError || operationMetrics.isError || errorMetrics.isError || healthTrend.isError || alerts.isError || notificationTimeline.isError) && <div className="notice error">渠道数据读取失败，请检查 API 与迁移状态。</div>}
+      {(catalog.isError || models.isError || instances.isError || events.isError || operationMetrics.isError || errorMetrics.isError || healthTrend.isError || alerts.isError || alertLifecycles.isError || notificationTimeline.isError) && <div className="notice error">渠道数据读取失败，请检查 API 与迁移状态。</div>}
       {(formError || operationError) && <div className="notice error">{formError || operationError?.message}</div>}
       <div className="notice info"><ShieldCheck size={17} /><div><strong>凭证只写入信封加密存储</strong><span>API、页面、诊断事件和审计记录只展示是否已配置；能力降级会明确列出，不会静默丢弃图片、文件、线程或流式语义。</span></div></div>
       <div className="notice info"><RadioTower size={17} /><div><strong>渠道严格归属当前智能体</strong><span>创建、凭证、连接测试、收发模拟和诊断事件均按全局选择隔离；当前标识：{selectedAgentId ?? '默认智能体'}。</span></div></div>
@@ -582,6 +632,11 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       <section className="panel table-panel" aria-label="渠道告警">
         <div className="panel-heading task-panel-heading"><div><span>策略聚合 · 不含远端错误正文</span><h2><BellRing size={18} />活动告警</h2></div><div className="table-actions"><select value={alertNotificationWindow} onChange={(event) => setAlertNotificationWindow(Number(event.target.value))} aria-label="告警通知时间窗"><option value={15}>最近 15 分钟</option><option value={60}>最近 1 小时</option><option value={360}>最近 6 小时</option><option value={1440}>最近 24 小时</option></select><button disabled={!canManageNotifications || alertNotificationQueueMutation.isPending} onClick={notifyAlerts}><Send size={12} />加入通知队列</button><small>{alerts.data?.items.length ?? 0} 条</small></div></div>
         <AdminDataTable rows={alerts.data?.items ?? []} columns={alertColumns} rowKey={(row) => `${row.channel_id}:${row.code}:${row.error_code ?? ''}`} searchableText={(row) => `${row.title} ${row.code} ${row.error_code ?? ''} ${row.severity}`} searchPlaceholder="搜索告警规则、错误码或级别" emptyMessage={alerts.isLoading ? '正在读取告警…' : '当前窗口没有活动告警'} />
+      </section>
+
+      <section className="panel table-panel" aria-label="告警生命周期">
+        <div className="panel-heading task-panel-heading"><div><span>PostgreSQL 持久化历史 · 不含业务正文</span><h2><Activity size={18} />告警生命周期</h2></div><div className="table-actions lifecycle-filters"><label className="status-filter"><span>状态</span><select value={lifecycleStatus} onChange={(event) => setLifecycleStatus(event.target.value as ChannelAlertLifecycleStatus | '')}><option value="">全部状态</option>{Object.entries(channelAlertLifecycleStatusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label className="status-filter"><span>级别</span><select value={lifecycleSeverity} onChange={(event) => setLifecycleSeverity(event.target.value as 'warning' | 'critical' | '')}><option value="">全部级别</option>{Object.entries(alertSeverityLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label className="status-filter"><span>渠道</span><select value={lifecycleChannelId} onChange={(event) => setLifecycleChannelId(event.target.value)}><option value="">全部渠道</option>{instances.data?.items.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><small>{alertLifecycles.data?.items.length ?? 0} 条</small></div></div>
+        <AdminDataTable rows={alertLifecycles.data?.items ?? []} columns={lifecycleColumns} rowKey={(row) => row.id} searchableText={(row) => `${row.code} ${row.error_code ?? ''} ${row.status} ${row.severity} ${instanceNames.get(row.channel_id) ?? row.channel_id}`} searchPlaceholder="搜索规则、渠道、错误码或状态" emptyMessage={alertLifecycles.isLoading ? '正在读取告警生命周期…' : '暂无匹配的告警生命周期'} />
       </section>
 
       <section className="channel-operation-section" aria-label="告警通知投递">

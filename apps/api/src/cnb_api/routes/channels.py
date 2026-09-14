@@ -35,6 +35,9 @@ from cnb_contracts import (
     ChannelAlertDispositionClearCommand,
     ChannelAlertDispositionCommand,
     ChannelAlertDispositionResponse,
+    ChannelAlertLifecycleListResponse,
+    ChannelAlertLifecycleMetricsResponse,
+    ChannelAlertLifecycleResponse,
     ChannelAlertListResponse,
     ChannelAlertNotificationCommand,
     ChannelAlertNotificationJobResponse,
@@ -76,9 +79,11 @@ from cnb_contracts import (
 from cnb_domain import (
     AdminPermission,
     AdminPrincipal,
+    AlertSeverity,
     BackgroundJobStatus,
     ChannelAlertDisposition,
     ChannelAlertDispositionStatus,
+    ChannelAlertLifecycleStatus,
     ChannelCapabilities,
     ChannelDiagnosticEvent,
     DevelopmentIdentity,
@@ -177,6 +182,7 @@ def _error_metric_response(value: ChannelErrorMetrics) -> ChannelErrorMetricResp
         channel_id=value.channel_id,
         error_code=value.error_code,
         occurrences=value.occurrences,
+        first_occurred_at=value.first_occurred_at,
         last_occurred_at=value.last_occurred_at,
     )
 
@@ -440,6 +446,71 @@ async def channel_alerts(
 
 
 @router.get(
+    "/operations/alerts/lifecycles",
+    response_model=ChannelAlertLifecycleListResponse,
+    dependencies=[Depends(require_permission(AdminPermission.CHANNEL_READ))],
+)
+async def channel_alert_lifecycles(
+    principal: Annotated[AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_READ))],
+    service: Annotated[ChannelService, Depends(get_channel_service)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    channel_id: Annotated[UUID | None, Query()] = None,
+    lifecycle_status: Annotated[ChannelAlertLifecycleStatus | None, Query(alias="status")] = None,
+    severity: Annotated[AlertSeverity | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> ChannelAlertLifecycleListResponse:
+    """查询当前 Agent 的安全告警生命周期历史。"""
+    try:
+        rows = await service.alert_lifecycles(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            channel_id=channel_id,
+            status=lifecycle_status,
+            severity=severity,
+            limit=limit,
+        )
+    except ChannelNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except ChannelValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return ChannelAlertLifecycleListResponse(
+        items=tuple(
+            ChannelAlertLifecycleResponse.model_validate(item, from_attributes=True)
+            for item in rows
+        )
+    )
+
+
+@router.get(
+    "/operations/alerts/lifecycles/metrics",
+    response_model=ChannelAlertLifecycleMetricsResponse,
+    dependencies=[Depends(require_permission(AdminPermission.CHANNEL_READ))],
+)
+async def channel_alert_lifecycle_metrics(
+    principal: Annotated[AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_READ))],
+    service: Annotated[ChannelService, Depends(get_channel_service)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    window_minutes: Annotated[int, Query(ge=5, le=10_080)] = 1_440,
+    bucket_minutes: Annotated[int, Query(ge=5, le=1_440)] = 60,
+) -> ChannelAlertLifecycleMetricsResponse:
+    """查询当前 Agent 的生命周期聚合、恢复耗时与时间桶趋势。"""
+    try:
+        metrics = await service.alert_lifecycle_metrics(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            window_minutes=window_minutes,
+            bucket_minutes=bucket_minutes,
+        )
+    except ChannelValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return ChannelAlertLifecycleMetricsResponse.model_validate(metrics, from_attributes=True)
+
+
+@router.get(
     "/operations/alerts/notifications",
     response_model=NotificationDeliveryTimelineResponse,
     dependencies=[Depends(require_permission(AdminPermission.CHANNEL_READ))],
@@ -453,7 +524,7 @@ async def notification_delivery_timeline(
         Query(alias="status"),
     ] = None,
     adapter: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
-    event: Literal["active", "recovery", "unknown"] | None = None,
+    event: Literal["active", "escalation", "recovery", "unknown"] | None = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> NotificationDeliveryTimelineResponse:
     """查询当前 Agent 的通知状态、连续失败计数和安全投递时间线。"""

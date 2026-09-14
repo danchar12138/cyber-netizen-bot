@@ -24,6 +24,7 @@ from cnb_domain import (
     BackgroundJobStatus,
     ChannelAlert,
     ChannelAlertDispositionStatus,
+    ChannelAlertLifecycle,
     JsonValue,
 )
 
@@ -96,6 +97,7 @@ class PreparedAlertNotification:
     payload: dict[str, JsonValue]
     idempotency_key: str
     recovery_enabled: bool
+    escalated_lifecycle_ids: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,6 +263,13 @@ class AlertNotificationService:
             deduplication_key=f"notification:{idempotency_key}:{selected_adapter}",
             created_by=actor_id,
         )
+        if prepared.escalated_lifecycle_ids:
+            await self._channel_service.mark_alert_lifecycles_escalated(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                lifecycle_ids=prepared.escalated_lifecycle_ids,
+                escalated_at=datetime.now(UTC),
+            )
         await self._audit(
             tenant_id=tenant_id,
             actor_id=actor_id,
@@ -294,7 +303,7 @@ class AlertNotificationService:
         if selected_adapter == "":
             raise AlertNotificationValidationError("通知适配器不能为空")
         selected_event = event.strip().casefold() if event else None
-        if selected_event not in {None, "active", "recovery", "unknown"}:
+        if selected_event not in {None, "active", "escalation", "recovery", "unknown"}:
             raise AlertNotificationValidationError("通知事件类型无效")
         jobs = await self._task_service.list_notification_jobs(
             tenant_id=tenant_id,
@@ -354,6 +363,14 @@ class AlertNotificationService:
             agent_id=agent_id,
         )
         values = effective.values
+        generated_at = (now or datetime.now(UTC)).astimezone(UTC)
+        evaluation = await self._channel_service.reconcile_alert_lifecycles(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            values=values,
+            window_minutes=window_minutes,
+            now=generated_at,
+        )
         if not self._boolean(
             values.get("alerts.notification.enabled"), "alerts.notification.enabled"
         ):
@@ -380,22 +397,26 @@ class AlertNotificationService:
             minimum=0,
             maximum=5,
         )
-        alerts = await self._channel_service.alerts(
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            channel_id=None,
-            values=values,
-            window_minutes=window_minutes,
-            now=now,
+        suppressed_keys = {
+            item.alert_key
+            for item in evaluation.alerts
+            if item.disposition_status is ChannelAlertDispositionStatus.SUPPRESSED
+        }
+        active_lifecycles = tuple(
+            item for item in evaluation.active_lifecycles if item.alert_key not in suppressed_keys
         )
-        active_alerts = tuple(
-            item
-            for item in alerts
-            if item.disposition_status is not ChannelAlertDispositionStatus.SUPPRESSED
+        due_escalations = tuple(
+            item for item in evaluation.due_escalations if item.alert_key not in suppressed_keys
         )
-        generated_at = (now or datetime.now(UTC)).astimezone(UTC)
-        payload = self._payload(active_alerts, generated_at)
-        idempotency_key = self._idempotency_key(tenant_id, agent_id, active_alerts)
+        event = "channel.alerts.escalated" if due_escalations else "channel.alerts.active"
+        selected_lifecycles = due_escalations or active_lifecycles
+        payload = self._lifecycle_payload(selected_lifecycles, generated_at, event=event)
+        idempotency_key = self._lifecycle_idempotency_key(
+            tenant_id,
+            agent_id,
+            selected_lifecycles,
+            event=event,
+        )
         secret = await self._secret_store.resolve_secret(
             secret_key,
             tenant_id=tenant_id,
@@ -423,7 +444,7 @@ class AlertNotificationService:
                 detail={
                     "agent_id": str(agent_id),
                     "adapter": selected_adapter,
-                    "alert_count": len(active_alerts),
+                    "alert_count": len(selected_lifecycles),
                     "error_code": error.code,
                     "idempotency_key": idempotency_key,
                 },
@@ -437,7 +458,7 @@ class AlertNotificationService:
                 detail={
                     "agent_id": str(agent_id),
                     "adapter": selected_adapter,
-                    "alert_count": len(active_alerts),
+                    "alert_count": len(selected_lifecycles),
                     "error_code": "notification_validation_error",
                     "idempotency_key": idempotency_key,
                 },
@@ -450,16 +471,23 @@ class AlertNotificationService:
             detail={
                 "agent_id": str(agent_id),
                 "adapter": selected_adapter,
-                "alert_count": len(active_alerts),
+                "alert_count": len(selected_lifecycles),
                 "attempts": delivery.attempts,
                 "status_code": delivery.status_code,
                 "elapsed_ms": delivery.elapsed_ms,
                 "idempotency_key": delivery.idempotency_key,
             },
         )
+        if due_escalations:
+            await self._channel_service.mark_alert_lifecycles_escalated(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                lifecycle_ids=tuple(item.id for item in due_escalations),
+                escalated_at=generated_at,
+            )
         return AlertNotificationResult(
             delivered=delivery.delivered,
-            alert_count=len(active_alerts),
+            alert_count=len(selected_lifecycles),
             attempts=delivery.attempts,
             idempotency_key=delivery.idempotency_key,
             elapsed_ms=delivery.elapsed_ms,
@@ -483,6 +511,14 @@ class AlertNotificationService:
             agent_id=agent_id,
         )
         values = effective.values
+        generated_at = (now or datetime.now(UTC)).astimezone(UTC)
+        evaluation = await self._channel_service.reconcile_alert_lifecycles(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            values=values,
+            window_minutes=window_minutes,
+            now=generated_at,
+        )
         if not self._boolean(
             values.get("alerts.notification.enabled"), "alerts.notification.enabled"
         ):
@@ -510,22 +546,26 @@ class AlertNotificationService:
             minimum=0,
             maximum=5,
         )
-        alerts = await self._channel_service.alerts(
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            channel_id=None,
-            values=values,
-            window_minutes=window_minutes,
-            now=now,
+        suppressed_keys = {
+            item.alert_key
+            for item in evaluation.alerts
+            if item.disposition_status is ChannelAlertDispositionStatus.SUPPRESSED
+        }
+        active_lifecycles = tuple(
+            item for item in evaluation.active_lifecycles if item.alert_key not in suppressed_keys
         )
-        active_alerts = tuple(
-            item
-            for item in alerts
-            if item.disposition_status is not ChannelAlertDispositionStatus.SUPPRESSED
+        due_escalations = tuple(
+            item for item in evaluation.due_escalations if item.alert_key not in suppressed_keys
         )
-        generated_at = (now or datetime.now(UTC)).astimezone(UTC)
-        payload = self._payload(active_alerts, generated_at)
-        idempotency_key = self._idempotency_key(tenant_id, agent_id, active_alerts)
+        event = "channel.alerts.escalated" if due_escalations else "channel.alerts.active"
+        selected_lifecycles = due_escalations or active_lifecycles
+        payload = self._lifecycle_payload(selected_lifecycles, generated_at, event=event)
+        idempotency_key = self._lifecycle_idempotency_key(
+            tenant_id,
+            agent_id,
+            selected_lifecycles,
+            event=event,
+        )
         if require_secret:
             secret = await self._secret_store.resolve_secret(
                 secret_key,
@@ -547,6 +587,7 @@ class AlertNotificationService:
                 values.get("alerts.notification.recovery_enabled", True),
                 "alerts.notification.recovery_enabled",
             ),
+            escalated_lifecycle_ids=tuple(item.id for item in due_escalations),
         )
 
     async def _prepare_recovery(
@@ -573,7 +614,10 @@ class AlertNotificationService:
             delivery_payload = job.payload.get("delivery_payload")
             if not isinstance(delivery_payload, dict):
                 continue
-            if delivery_payload.get("event") != "channel.alerts.active":
+            if delivery_payload.get("event") not in {
+                "channel.alerts.active",
+                "channel.alerts.escalated",
+            }:
                 return None
             count = delivery_payload.get("alert_count")
             if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
@@ -627,6 +671,8 @@ class AlertNotificationService:
         event = (
             "active"
             if event_value == "channel.alerts.active"
+            else "escalation"
+            if event_value == "channel.alerts.escalated"
             else "recovery"
             if event_value == "channel.alerts.recovered"
             else "unknown"
@@ -746,6 +792,55 @@ class AlertNotificationService:
                 for item in alerts
             ],
         }
+
+    @staticmethod
+    def _lifecycle_payload(
+        lifecycles: tuple[ChannelAlertLifecycle, ...],
+        generated_at: datetime,
+        *,
+        event: str,
+    ) -> dict[str, JsonValue]:
+        return {
+            "schema_version": "1",
+            "event": event,
+            "generated_at": generated_at.isoformat(),
+            "alert_count": len(lifecycles),
+            "alerts": [
+                {
+                    "lifecycle_id": str(item.id),
+                    "alert_key": item.alert_key,
+                    "channel_id": str(item.channel_id),
+                    "code": item.code,
+                    "error_code": item.error_code,
+                    "severity": item.severity.value,
+                    "occurrences": item.occurrences,
+                    "current_value": item.current_value,
+                    "threshold_value": item.threshold_value,
+                    "unit": item.unit,
+                    "first_occurred_at": item.first_occurred_at.isoformat(),
+                    "last_occurred_at": item.last_occurred_at.isoformat(),
+                }
+                for item in lifecycles
+            ],
+        }
+
+    @staticmethod
+    def _lifecycle_idempotency_key(
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycles: tuple[ChannelAlertLifecycle, ...],
+        *,
+        event: str,
+    ) -> str:
+        material = {
+            "tenant_id": str(tenant_id),
+            "agent_id": str(agent_id),
+            "event": event,
+            "lifecycle_ids": sorted(str(item.id) for item in lifecycles),
+        }
+        return hashlib.sha256(
+            json.dumps(material, separators=(",", ":"), sort_keys=True).encode()
+        ).hexdigest()
 
     @staticmethod
     def _idempotency_key(tenant_id: UUID, agent_id: UUID, alerts: tuple[ChannelAlert, ...]) -> str:

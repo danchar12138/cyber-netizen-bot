@@ -4,16 +4,20 @@ import asyncio
 from dataclasses import replace
 from datetime import datetime
 from typing import TypedDict, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from cnb_domain import (
+    AlertSeverity,
+    ChannelAlert,
     ChannelAlertDisposition,
     ChannelAlertDispositionStatus,
+    ChannelAlertLifecycle,
+    ChannelAlertLifecycleStatus,
     ChannelDiagnosticEvent,
     ChannelErrorMetrics,
     ChannelEventDirection,
@@ -27,8 +31,10 @@ from cnb_domain import (
     JsonValue,
 )
 from cnb_infrastructure.models import (
+    Agent,
     AuditLog,
     ChannelAlertDispositionModel,
+    ChannelAlertLifecycleModel,
     ChannelDiagnosticEventModel,
     ChannelHealthSnapshotModel,
     ChannelInstanceModel,
@@ -66,6 +72,7 @@ class MemoryChannelRepository:
         self.events: dict[UUID, ChannelDiagnosticEvent] = {}
         self.health_snapshots: dict[UUID, ChannelHealthSnapshot] = {}
         self.alert_dispositions: dict[str, ChannelAlertDisposition] = {}
+        self.alert_lifecycles: dict[UUID, ChannelAlertLifecycle] = {}
         self.rate_windows: dict[tuple[UUID, datetime], int] = {}
         self._lock = asyncio.Lock()
 
@@ -347,7 +354,7 @@ class MemoryChannelRepository:
             and item.agent_id == agent_id
             and (channel_id is None or item.id == channel_id)
         }
-        aggregates: dict[tuple[UUID, str], tuple[int, datetime]] = {}
+        aggregates: dict[tuple[UUID, str], tuple[int, datetime, datetime]] = {}
         for event in self.events.values():
             if (
                 event.channel_id not in visible_channels
@@ -363,18 +370,23 @@ class MemoryChannelRepository:
             ):
                 continue
             key = (event.channel_id, event.error_code)
-            count, latest = aggregates.get(key, (0, event.occurred_at))
-            aggregates[key] = (count + 1, max(latest, event.occurred_at))
+            count, earliest, latest = aggregates.get(key, (0, event.occurred_at, event.occurred_at))
+            aggregates[key] = (
+                count + 1,
+                min(earliest, event.occurred_at),
+                max(latest, event.occurred_at),
+            )
         return tuple(
             ChannelErrorMetrics(
                 channel_id=key[0],
                 error_code=key[1],
                 occurrences=value[0],
-                last_occurred_at=value[1],
+                first_occurred_at=value[1],
+                last_occurred_at=value[2],
             )
             for key, value in sorted(
                 aggregates.items(),
-                key=lambda item: (item[1][1], str(item[0][0]), item[0][1]),
+                key=lambda item: (item[1][2], str(item[0][0]), item[0][1]),
                 reverse=True,
             )
         )
@@ -483,6 +495,169 @@ class MemoryChannelRepository:
             item = self.alert_dispositions.get(alert_key)
             if item is not None and item.tenant_id == tenant_id and item.agent_id == agent_id:
                 del self.alert_dispositions[alert_key]
+
+    async def reconcile_alert_lifecycles(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        alerts: tuple[ChannelAlert, ...],
+        observed_at: datetime,
+    ) -> tuple[ChannelAlertLifecycle, ...]:
+        """在内存锁内原子开启、更新和恢复当前 Agent 的告警事件。"""
+        async with self._lock:
+            current = {
+                item.alert_key: item
+                for item in self.alert_lifecycles.values()
+                if item.tenant_id == tenant_id
+                and item.agent_id == agent_id
+                and item.status is ChannelAlertLifecycleStatus.ACTIVE
+            }
+            active_keys = {item.alert_key for item in alerts}
+            for alert in alerts:
+                existing = current.get(alert.alert_key)
+                first_occurred_at = min(alert.first_occurred_at, observed_at)
+                if existing is None:
+                    lifecycle = ChannelAlertLifecycle(
+                        id=uuid4(),
+                        tenant_id=tenant_id,
+                        agent_id=agent_id,
+                        channel_id=alert.channel_id,
+                        alert_key=alert.alert_key,
+                        code=alert.code,
+                        error_code=alert.error_code,
+                        status=ChannelAlertLifecycleStatus.ACTIVE,
+                        severity=alert.severity,
+                        occurrences=alert.occurrences,
+                        current_value=alert.current_value,
+                        threshold_value=alert.threshold_value,
+                        unit=alert.unit,
+                        first_occurred_at=first_occurred_at,
+                        last_occurred_at=alert.last_occurred_at,
+                        last_evaluated_at=observed_at,
+                        escalated_at=None,
+                        resolved_at=None,
+                        recovery_duration_seconds=None,
+                        created_at=observed_at,
+                        updated_at=observed_at,
+                    )
+                else:
+                    lifecycle = replace(
+                        existing,
+                        severity=alert.severity,
+                        occurrences=max(existing.occurrences, alert.occurrences),
+                        current_value=alert.current_value,
+                        threshold_value=alert.threshold_value,
+                        unit=alert.unit,
+                        first_occurred_at=min(existing.first_occurred_at, first_occurred_at),
+                        last_occurred_at=max(existing.last_occurred_at, alert.last_occurred_at),
+                        last_evaluated_at=observed_at,
+                        updated_at=observed_at,
+                    )
+                self.alert_lifecycles[lifecycle.id] = lifecycle
+            for lifecycle in current.values():
+                if lifecycle.alert_key in active_keys:
+                    continue
+                self.alert_lifecycles[lifecycle.id] = replace(
+                    lifecycle,
+                    status=ChannelAlertLifecycleStatus.RESOLVED,
+                    last_evaluated_at=observed_at,
+                    resolved_at=observed_at,
+                    recovery_duration_seconds=max(
+                        0, int((observed_at - lifecycle.first_occurred_at).total_seconds())
+                    ),
+                    updated_at=observed_at,
+                )
+            return tuple(
+                sorted(
+                    (
+                        item
+                        for item in self.alert_lifecycles.values()
+                        if item.tenant_id == tenant_id
+                        and item.agent_id == agent_id
+                        and item.status is ChannelAlertLifecycleStatus.ACTIVE
+                    ),
+                    key=lambda item: (item.first_occurred_at, str(item.id)),
+                    reverse=True,
+                )
+            )
+
+    async def mark_alert_lifecycles_escalated(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_ids: tuple[UUID, ...],
+        escalated_at: datetime,
+    ) -> tuple[ChannelAlertLifecycle, ...]:
+        """只在可靠通知已入队后，为仍活动的事件确认首次升级。"""
+        async with self._lock:
+            marked: list[ChannelAlertLifecycle] = []
+            for lifecycle_id in lifecycle_ids:
+                item = self.alert_lifecycles.get(lifecycle_id)
+                if (
+                    item is None
+                    or item.tenant_id != tenant_id
+                    or item.agent_id != agent_id
+                    or item.status is not ChannelAlertLifecycleStatus.ACTIVE
+                    or item.escalated_at is not None
+                ):
+                    continue
+                updated = replace(item, escalated_at=escalated_at, updated_at=escalated_at)
+                self.alert_lifecycles[lifecycle_id] = updated
+                marked.append(updated)
+            return tuple(marked)
+
+    async def list_alert_lifecycles(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        status: ChannelAlertLifecycleStatus | None,
+        severity: AlertSeverity | None,
+        limit: int,
+    ) -> tuple[ChannelAlertLifecycle, ...]:
+        rows = [
+            item
+            for item in self.alert_lifecycles.values()
+            if item.tenant_id == tenant_id
+            and item.agent_id == agent_id
+            and (channel_id is None or item.channel_id == channel_id)
+            and (status is None or item.status is status)
+            and (severity is None or item.severity is severity)
+        ]
+        rows.sort(key=lambda item: (item.first_occurred_at, str(item.id)), reverse=True)
+        return tuple(rows[:limit])
+
+    async def list_alert_lifecycles_in_window(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+    ) -> tuple[ChannelAlertLifecycle, ...]:
+        rows = [
+            item
+            for item in self.alert_lifecycles.values()
+            if item.tenant_id == tenant_id
+            and item.agent_id == agent_id
+            and (
+                item.status is ChannelAlertLifecycleStatus.ACTIVE
+                or window_started_at <= item.first_occurred_at <= window_ended_at
+                or (
+                    item.resolved_at is not None
+                    and window_started_at <= item.resolved_at <= window_ended_at
+                )
+                or (
+                    item.escalated_at is not None
+                    and window_started_at <= item.escalated_at <= window_ended_at
+                )
+            )
+        ]
+        rows.sort(key=lambda item: (item.first_occurred_at, str(item.id)), reverse=True)
+        return tuple(rows)
 
 
 class SqlAlchemyChannelRepository:
@@ -918,6 +1093,7 @@ class SqlAlchemyChannelRepository:
                 ChannelDiagnosticEventModel.channel_id,
                 ChannelDiagnosticEventModel.error_code,
                 func.count().label("occurrences"),
+                func.min(ChannelDiagnosticEventModel.occurred_at).label("first_occurred_at"),
                 func.max(ChannelDiagnosticEventModel.occurred_at).label("last_occurred_at"),
             )
             .join(
@@ -959,7 +1135,8 @@ class SqlAlchemyChannelRepository:
                 channel_id=row[0],
                 error_code=row[1],
                 occurrences=int(row[2]),
-                last_occurred_at=row[3],
+                first_occurred_at=row[3],
+                last_occurred_at=row[4],
             )
             for row in rows
             if row[1] is not None
@@ -1167,6 +1344,201 @@ class SqlAlchemyChannelRepository:
             )
             await session.delete(row)
 
+    async def reconcile_alert_lifecycles(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        alerts: tuple[ChannelAlert, ...],
+        observed_at: datetime,
+    ) -> tuple[ChannelAlertLifecycle, ...]:
+        """锁定 Agent 后原子对账，避免并发探测创建重复活动事件。"""
+        async with self._session_factory.begin() as session:
+            locked_agent = await session.scalar(
+                select(Agent.id)
+                .where(Agent.id == agent_id, Agent.tenant_id == tenant_id)
+                .with_for_update()
+            )
+            if locked_agent is None:
+                raise LookupError(f"Agent 不存在：{agent_id}")
+            rows = (
+                await session.scalars(
+                    select(ChannelAlertLifecycleModel)
+                    .where(
+                        ChannelAlertLifecycleModel.tenant_id == tenant_id,
+                        ChannelAlertLifecycleModel.agent_id == agent_id,
+                        ChannelAlertLifecycleModel.status
+                        == ChannelAlertLifecycleStatus.ACTIVE.value,
+                    )
+                    .with_for_update()
+                )
+            ).all()
+            current = {row.alert_key: row for row in rows}
+            active_keys = {item.alert_key for item in alerts}
+            for alert in alerts:
+                row = current.get(alert.alert_key)
+                first_occurred_at = min(alert.first_occurred_at, observed_at)
+                if row is None:
+                    row = ChannelAlertLifecycleModel(
+                        id=uuid4(),
+                        tenant_id=tenant_id,
+                        agent_id=agent_id,
+                        channel_id=alert.channel_id,
+                        alert_key=alert.alert_key,
+                        code=alert.code,
+                        error_code=alert.error_code,
+                        status=ChannelAlertLifecycleStatus.ACTIVE.value,
+                        severity=alert.severity.value,
+                        occurrences=alert.occurrences,
+                        current_value=alert.current_value,
+                        threshold_value=alert.threshold_value,
+                        unit=alert.unit,
+                        first_occurred_at=first_occurred_at,
+                        last_occurred_at=alert.last_occurred_at,
+                        last_evaluated_at=observed_at,
+                        escalated_at=None,
+                        resolved_at=None,
+                        recovery_duration_seconds=None,
+                        created_at=observed_at,
+                        updated_at=observed_at,
+                    )
+                    session.add(row)
+                else:
+                    row.severity = alert.severity.value
+                    row.occurrences = max(row.occurrences, alert.occurrences)
+                    row.current_value = alert.current_value
+                    row.threshold_value = alert.threshold_value
+                    row.unit = alert.unit
+                    row.first_occurred_at = min(row.first_occurred_at, first_occurred_at)
+                    row.last_occurred_at = max(row.last_occurred_at, alert.last_occurred_at)
+                    row.last_evaluated_at = observed_at
+                    row.updated_at = observed_at
+            for row in rows:
+                if row.alert_key in active_keys:
+                    continue
+                row.status = ChannelAlertLifecycleStatus.RESOLVED.value
+                row.last_evaluated_at = observed_at
+                row.resolved_at = observed_at
+                row.recovery_duration_seconds = max(
+                    0, int((observed_at - row.first_occurred_at).total_seconds())
+                )
+                row.updated_at = observed_at
+            await session.flush()
+            active_rows = (
+                await session.scalars(
+                    select(ChannelAlertLifecycleModel)
+                    .where(
+                        ChannelAlertLifecycleModel.tenant_id == tenant_id,
+                        ChannelAlertLifecycleModel.agent_id == agent_id,
+                        ChannelAlertLifecycleModel.status
+                        == ChannelAlertLifecycleStatus.ACTIVE.value,
+                    )
+                    .order_by(
+                        ChannelAlertLifecycleModel.first_occurred_at.desc(),
+                        ChannelAlertLifecycleModel.id.desc(),
+                    )
+                )
+            ).all()
+            return tuple(self._lifecycle(row) for row in active_rows)
+
+    async def mark_alert_lifecycles_escalated(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_ids: tuple[UUID, ...],
+        escalated_at: datetime,
+    ) -> tuple[ChannelAlertLifecycle, ...]:
+        if not lifecycle_ids:
+            return ()
+        async with self._session_factory.begin() as session:
+            rows = (
+                await session.scalars(
+                    select(ChannelAlertLifecycleModel)
+                    .where(
+                        ChannelAlertLifecycleModel.tenant_id == tenant_id,
+                        ChannelAlertLifecycleModel.agent_id == agent_id,
+                        ChannelAlertLifecycleModel.id.in_(lifecycle_ids),
+                        ChannelAlertLifecycleModel.status
+                        == ChannelAlertLifecycleStatus.ACTIVE.value,
+                        ChannelAlertLifecycleModel.escalated_at.is_(None),
+                    )
+                    .with_for_update()
+                )
+            ).all()
+            for row in rows:
+                row.escalated_at = escalated_at
+                row.updated_at = escalated_at
+            await session.flush()
+            return tuple(self._lifecycle(row) for row in rows)
+
+    async def list_alert_lifecycles(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        channel_id: UUID | None,
+        status: ChannelAlertLifecycleStatus | None,
+        severity: AlertSeverity | None,
+        limit: int,
+    ) -> tuple[ChannelAlertLifecycle, ...]:
+        statement = (
+            select(ChannelAlertLifecycleModel)
+            .where(
+                ChannelAlertLifecycleModel.tenant_id == tenant_id,
+                ChannelAlertLifecycleModel.agent_id == agent_id,
+            )
+            .order_by(
+                ChannelAlertLifecycleModel.first_occurred_at.desc(),
+                ChannelAlertLifecycleModel.id.desc(),
+            )
+            .limit(limit)
+        )
+        if channel_id is not None:
+            statement = statement.where(ChannelAlertLifecycleModel.channel_id == channel_id)
+        if status is not None:
+            statement = statement.where(ChannelAlertLifecycleModel.status == status.value)
+        if severity is not None:
+            statement = statement.where(ChannelAlertLifecycleModel.severity == severity.value)
+        async with self._session_factory() as session:
+            rows = (await session.scalars(statement)).all()
+        return tuple(self._lifecycle(row) for row in rows)
+
+    async def list_alert_lifecycles_in_window(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+    ) -> tuple[ChannelAlertLifecycle, ...]:
+        statement = (
+            select(ChannelAlertLifecycleModel)
+            .where(
+                ChannelAlertLifecycleModel.tenant_id == tenant_id,
+                ChannelAlertLifecycleModel.agent_id == agent_id,
+                or_(
+                    ChannelAlertLifecycleModel.status == ChannelAlertLifecycleStatus.ACTIVE.value,
+                    ChannelAlertLifecycleModel.first_occurred_at.between(
+                        window_started_at, window_ended_at
+                    ),
+                    ChannelAlertLifecycleModel.resolved_at.between(
+                        window_started_at, window_ended_at
+                    ),
+                    ChannelAlertLifecycleModel.escalated_at.between(
+                        window_started_at, window_ended_at
+                    ),
+                ),
+            )
+            .order_by(
+                ChannelAlertLifecycleModel.first_occurred_at.desc(),
+                ChannelAlertLifecycleModel.id.desc(),
+            )
+        )
+        async with self._session_factory() as session:
+            rows = (await session.scalars(statement)).all()
+        return tuple(self._lifecycle(row) for row in rows)
+
     @staticmethod
     def _instance_model(item: ChannelInstance) -> ChannelInstanceModel:
         return ChannelInstanceModel(
@@ -1303,6 +1675,32 @@ class SqlAlchemyChannelRepository:
             reason=row.reason,
             actor_id=row.actor_id,
             expires_at=row.expires_at,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
+    @staticmethod
+    def _lifecycle(row: ChannelAlertLifecycleModel) -> ChannelAlertLifecycle:
+        return ChannelAlertLifecycle(
+            id=row.id,
+            tenant_id=row.tenant_id,
+            agent_id=row.agent_id,
+            channel_id=row.channel_id,
+            alert_key=row.alert_key,
+            code=row.code,
+            error_code=row.error_code,
+            status=ChannelAlertLifecycleStatus(row.status),
+            severity=AlertSeverity(row.severity),
+            occurrences=row.occurrences,
+            current_value=row.current_value,
+            threshold_value=row.threshold_value,
+            unit=row.unit,
+            first_occurred_at=row.first_occurred_at,
+            last_occurred_at=row.last_occurred_at,
+            last_evaluated_at=row.last_evaluated_at,
+            escalated_at=row.escalated_at,
+            resolved_at=row.resolved_at,
+            recovery_duration_seconds=row.recovery_duration_seconds,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

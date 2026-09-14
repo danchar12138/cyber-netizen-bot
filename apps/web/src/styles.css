@@ -314,6 +314,7 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .channel-operation-metrics { margin-bottom: 13px; }
 .channel-operation-table { margin-top: 0; }
 .channel-operation-section > .notice { margin-bottom: 13px; }
+.lifecycle-filters { flex-wrap: wrap; justify-content: flex-end; }
 .channel-create-form { display: grid; grid-template-columns: 1fr .8fr .7fr 1.2fr auto; align-items: end; gap: 12px; }
 .channel-create-form label, .channel-credential-form label, .channel-simulator-form > label { display: grid; gap: 6px; color: #78998d; font-size: 9px; }
 .channel-create-form input, .channel-create-form select, .channel-create-form textarea, .channel-credential-form input, .channel-credential-form select, .channel-simulator select, .channel-simulator textarea { min-height: 38px; padding: 8px 10px; color: #b8d0c6; border: 1px solid #294a3f; background: #0b1b16; border-radius: 7px; }
@@ -553,6 +554,20 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .candidate-list span, .model-invocations span, .model-invocations small { margin-top: 4px; color: #78998d; font-size: 8px; }
 .candidate-list p { margin: 6px 0 0; color: #78998d; font-size: 9px; }
 .observability-grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 13px; margin-bottom: 13px; }
+.channel-lifecycle-observability { margin-bottom: 13px; }
+.lifecycle-observability-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.lifecycle-trend-panel { padding-top: 12px; }
+.lifecycle-trend-legend { display: flex; justify-content: flex-end; gap: 14px; margin-bottom: 10px; color: #78998d; font-size: 8px; }
+.lifecycle-trend-legend span { display: flex; align-items: center; gap: 5px; }
+.lifecycle-trend-legend i { width: 7px; height: 7px; border-radius: 2px; }
+.lifecycle-trend { display: grid; grid-template-columns: repeat(24, minmax(12px, 1fr)); gap: 5px; min-height: 150px; overflow-x: auto; }
+.lifecycle-trend-bucket { display: grid; grid-template-rows: 120px auto; gap: 5px; min-width: 12px; }
+.lifecycle-trend-bars { display: flex; align-items: end; justify-content: center; gap: 2px; min-height: 120px; padding-top: 4px; border-bottom: 1px solid #294a3f; }
+.lifecycle-trend-bars i { width: 24%; max-width: 7px; min-height: 0; border-radius: 2px 2px 0 0; }
+.lifecycle-trend .opened, .lifecycle-trend-legend .opened { background: #66d996; }
+.lifecycle-trend .resolved, .lifecycle-trend-legend .resolved { background: #69aee0; }
+.lifecycle-trend .escalated, .lifecycle-trend-legend .escalated { background: #e3a45e; }
+.lifecycle-trend time { color: #66877b; font-size: 7px; text-align: center; writing-mode: vertical-rl; }
 .alert-list { display: grid; gap: 8px; }
 .alert-list article { display: grid; grid-template-columns: 22px 1fr; gap: 9px; padding: 11px; border: 1px solid #604c2d; background: #211a11; border-radius: 7px; }
 .alert-list article.critical { border-color: #754033; background: #271512; }
@@ -664,6 +679,7 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .brand, .nav-item { justify-content: center; }
   .environment-switcher { grid-template-columns: 1fr; justify-items: center; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
+  .lifecycle-observability-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .overview-counts, .status-summary, .task-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .configuration-layout { grid-template-columns: 1fr; }
   .memory-layout, .relationship-grid { grid-template-columns: 1fr; }
@@ -698,6 +714,8 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .page { width: calc(100% - 28px); padding-top: 28px; padding-bottom: 90px; }
   .page-heading { align-items: flex-start; flex-direction: column; }
   .metric-grid, .dashboard-grid { grid-template-columns: 1fr; }
+  .lifecycle-observability-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lifecycle-filters { width: 100%; justify-content: flex-start; }
   .overview-counts, .status-summary, .task-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settings-grid { grid-template-columns: 1fr; }
   .cognition-form-row, .cognition-version, .trace-grid, .observability-grid { grid-template-columns: 1fr; }

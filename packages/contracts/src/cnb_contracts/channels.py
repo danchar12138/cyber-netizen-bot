@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, SecretStr, model_validator
 from cnb_domain import (
     AlertSeverity,
     BackgroundJobStatus,
+    ChannelAlertLifecycleStatus,
     ChannelEventDirection,
     ChannelEventStatus,
     ChannelHealthStatus,
@@ -305,6 +306,7 @@ class ChannelErrorMetricResponse(BaseModel):
     channel_id: UUID
     error_code: str = Field(min_length=1, max_length=160)
     occurrences: int = Field(ge=1)
+    first_occurred_at: datetime
     last_occurred_at: datetime
 
 
@@ -350,6 +352,7 @@ class ChannelAlertResponse(BaseModel):
     current_value: float = Field(ge=0)
     threshold_value: float = Field(ge=0)
     unit: str = Field(min_length=1, max_length=24)
+    first_occurred_at: datetime
     last_occurred_at: datetime
     cooldown_until: datetime
     alert_key: str = Field(min_length=1, max_length=400)
@@ -393,6 +396,57 @@ class ChannelAlertListResponse(BaseModel):
     items: tuple[ChannelAlertResponse, ...]
 
 
+class ChannelAlertLifecycleResponse(BaseModel):
+    """渠道告警持久化生命周期，不包含业务正文或通知目标。"""
+
+    id: UUID
+    channel_id: UUID
+    alert_key: str = Field(min_length=1, max_length=255)
+    code: str = Field(min_length=1, max_length=120)
+    error_code: str | None = Field(default=None, max_length=160)
+    status: ChannelAlertLifecycleStatus
+    severity: AlertSeverity
+    occurrences: int = Field(ge=1)
+    current_value: float = Field(ge=0)
+    threshold_value: float = Field(ge=0)
+    unit: str = Field(min_length=1, max_length=24)
+    first_occurred_at: datetime
+    last_occurred_at: datetime
+    last_evaluated_at: datetime
+    escalated_at: datetime | None
+    resolved_at: datetime | None
+    recovery_duration_seconds: int | None = Field(default=None, ge=0)
+
+
+class ChannelAlertLifecycleListResponse(BaseModel):
+    """当前 Agent 的可筛选告警生命周期。"""
+
+    items: tuple[ChannelAlertLifecycleResponse, ...]
+
+
+class ChannelAlertLifecycleTrendPointResponse(BaseModel):
+    """一个固定时间桶内的生命周期变化。"""
+
+    bucket_started_at: datetime
+    opened: int = Field(ge=0)
+    resolved: int = Field(ge=0)
+    escalated: int = Field(ge=0)
+
+
+class ChannelAlertLifecycleMetricsResponse(BaseModel):
+    """当前 Agent 的生命周期聚合与趋势。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    active: int = Field(ge=0)
+    opened: int = Field(ge=0)
+    resolved: int = Field(ge=0)
+    escalated: int = Field(ge=0)
+    mean_recovery_seconds: float = Field(ge=0)
+    p95_recovery_seconds: int = Field(ge=0)
+    trend: tuple[ChannelAlertLifecycleTrendPointResponse, ...]
+
+
 class ChannelAlertNotificationCommand(BaseModel):
     """告警摘要 Webhook 投递命令，必须显式确认。"""
 
@@ -429,7 +483,7 @@ class NotificationDeliveryTimelineItemResponse(BaseModel):
     job_id: UUID
     status: BackgroundJobStatus
     adapter: str = Field(min_length=1, max_length=64)
-    event: Literal["active", "recovery", "unknown"]
+    event: Literal["active", "escalation", "recovery", "unknown"]
     alert_count: int = Field(ge=0)
     attempt_count: int = Field(ge=0)
     max_attempts: int = Field(ge=1, le=20)

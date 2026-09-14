@@ -14,6 +14,7 @@ from cnb_adapters import (
 from cnb_application import (
     AlertNotificationService,
     BackgroundTaskService,
+    ChannelAlertLifecycleEvaluation,
     ConfigurationService,
     NotificationDeliveryTaskHandler,
     build_default_registry,
@@ -24,6 +25,8 @@ from cnb_domain import (
     BackgroundJobKind,
     BackgroundJobStatus,
     ChannelAlert,
+    ChannelAlertLifecycle,
+    ChannelAlertLifecycleStatus,
     ConfigEntry,
     ConfigScope,
     JsonValue,
@@ -84,8 +87,23 @@ class EmptyAlerts:
     async def alerts(self, **_: object) -> tuple[object, ...]:
         return ()
 
+    async def reconcile_alert_lifecycles(self, **_: object) -> ChannelAlertLifecycleEvaluation:
+        return ChannelAlertLifecycleEvaluation(
+            alerts=(),
+            active_lifecycles=(),
+            due_escalations=(),
+        )
+
+    async def mark_alert_lifecycles_escalated(self, **_: object) -> tuple[object, ...]:
+        return ()
+
 
 class ActiveAlerts:
+    def __init__(self, *, escalation_due: bool = False) -> None:
+        self.escalation_due = escalation_due
+        self.lifecycle_id = uuid4()
+        self.escalation_calls: list[dict[str, object]] = []
+
     async def alerts(self, **_: object) -> tuple[ChannelAlert, ...]:
         now = datetime.now(UTC)
         return (
@@ -100,10 +118,60 @@ class ActiveAlerts:
                 current_value=100.0,
                 threshold_value=5.0,
                 unit="%",
+                first_occurred_at=now,
                 last_occurred_at=now,
                 cooldown_until=now,
             ),
         )
+
+    async def reconcile_alert_lifecycles(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        now: datetime | None = None,
+        **_: object,
+    ) -> ChannelAlertLifecycleEvaluation:
+        observed_at = now or datetime.now(UTC)
+        alerts = await self.alerts()
+        alert = alerts[0]
+        lifecycle = ChannelAlertLifecycle(
+            id=self.lifecycle_id,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            channel_id=alert.channel_id,
+            alert_key=alert.alert_key,
+            code=alert.code,
+            error_code=alert.error_code,
+            status=ChannelAlertLifecycleStatus.ACTIVE,
+            severity=alert.severity,
+            occurrences=alert.occurrences,
+            current_value=alert.current_value,
+            threshold_value=alert.threshold_value,
+            unit=alert.unit,
+            first_occurred_at=observed_at - timedelta(hours=1),
+            last_occurred_at=observed_at,
+            last_evaluated_at=observed_at,
+            escalated_at=None,
+            resolved_at=None,
+            recovery_duration_seconds=None,
+            created_at=observed_at - timedelta(hours=1),
+            updated_at=observed_at,
+        )
+        return ChannelAlertLifecycleEvaluation(
+            alerts=alerts,
+            active_lifecycles=(lifecycle,),
+            due_escalations=(lifecycle,) if self.escalation_due else (),
+        )
+
+    async def mark_alert_lifecycles_escalated(self, **values: object) -> tuple[object, ...]:
+        self.escalation_calls.append(values)
+        return ()
+
+
+class FailingTasks:
+    async def enqueue(self, **_: object) -> object:
+        raise RuntimeError("任务真相源暂不可用")
 
 
 def _notification_job(
@@ -177,6 +245,8 @@ async def _configuration(
     agent_id: UUID,
     *,
     recovery_enabled: bool | None = None,
+    escalation_enabled: bool | None = None,
+    escalation_after_minutes: int | None = None,
 ) -> ConfigurationService:
     del tenant_id
     repository = MemoryConfigurationRepository()
@@ -196,6 +266,24 @@ async def _configuration(
                 "alerts.notification.recovery_enabled",
                 ConfigScope.AGENT,
                 recovery_enabled,
+                agent_id,
+            )
+        )
+    if escalation_enabled is not None:
+        values.append(
+            ConfigEntry(
+                "alerts.notification.escalation_enabled",
+                ConfigScope.AGENT,
+                escalation_enabled,
+                agent_id,
+            )
+        )
+    if escalation_after_minutes is not None:
+        values.append(
+            ConfigEntry(
+                "alerts.notification.escalation_after_minutes",
+                ConfigScope.AGENT,
+                escalation_after_minutes,
                 agent_id,
             )
         )
@@ -306,6 +394,82 @@ async def test_alert_notification_enqueue_if_active_queues_active_alerts() -> No
 
     assert result is not None
     assert result.job.kind is BackgroundJobKind.NOTIFICATION_DELIVERY
+
+
+@pytest.mark.asyncio
+async def test_alert_notification_marks_escalation_only_after_task_is_enqueued() -> None:
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
+    alerts = ActiveAlerts(escalation_due=True)
+    configuration = await _configuration(tenant_id, agent_id)
+    secrets = MemorySecretStore()
+    await secrets.set_secret(
+        key="alerts.notification.webhook_signing_secret",
+        scope_type=ConfigScope.AGENT,
+        scope_id=agent_id,
+        plaintext="runtime-secret",
+        actor_id=actor_id,
+    )
+    tasks = InMemoryTaskRepository()
+    service = AlertNotificationService(
+        channel_service=alerts,  # type: ignore[arg-type]
+        configuration_service=configuration,
+        secret_store=secrets,
+        adapter_registry=NotificationAdapterRegistry((RecordingAdapter(),)),
+        audit_recorder=RecordingAudit(),
+        task_service=BackgroundTaskService(tasks),
+    )
+    observed_at = datetime(2026, 9, 14, 10, 0, tzinfo=UTC)
+
+    result = await service.enqueue_if_active(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        actor_id=actor_id,
+        now=observed_at,
+    )
+
+    assert result is not None
+    delivery_payload = result.job.payload["delivery_payload"]
+    assert isinstance(delivery_payload, dict)
+    assert delivery_payload["event"] == "channel.alerts.escalated"
+    assert len(tasks.jobs) == 1
+    assert len(alerts.escalation_calls) == 1
+    escalation_call = alerts.escalation_calls[0]
+    assert escalation_call["tenant_id"] == tenant_id
+    assert escalation_call["agent_id"] == agent_id
+    assert escalation_call["lifecycle_ids"] == (alerts.lifecycle_id,)
+    assert isinstance(escalation_call["escalated_at"], datetime)
+
+
+@pytest.mark.asyncio
+async def test_alert_notification_does_not_mark_escalation_when_enqueue_fails() -> None:
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
+    alerts = ActiveAlerts(escalation_due=True)
+    configuration = await _configuration(tenant_id, agent_id)
+    secrets = MemorySecretStore()
+    await secrets.set_secret(
+        key="alerts.notification.webhook_signing_secret",
+        scope_type=ConfigScope.AGENT,
+        scope_id=agent_id,
+        plaintext="runtime-secret",
+        actor_id=actor_id,
+    )
+    service = AlertNotificationService(
+        channel_service=alerts,  # type: ignore[arg-type]
+        configuration_service=configuration,
+        secret_store=secrets,
+        adapter_registry=NotificationAdapterRegistry((RecordingAdapter(),)),
+        audit_recorder=RecordingAudit(),
+        task_service=FailingTasks(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(RuntimeError, match="真相源"):
+        await service.enqueue_if_active(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            actor_id=actor_id,
+        )
+
+    assert alerts.escalation_calls == []
 
 
 @pytest.mark.asyncio

@@ -1214,6 +1214,163 @@ export type ChannelAlertDispositionResponse = {
 };
 
 /**
+ * ChannelAlertLifecycleListResponse
+ *
+ * 当前 Agent 的可筛选告警生命周期。
+ */
+export type ChannelAlertLifecycleListResponse = {
+    /**
+     * Items
+     */
+    items: Array<ChannelAlertLifecycleResponse>;
+};
+
+/**
+ * ChannelAlertLifecycleMetricsResponse
+ *
+ * 当前 Agent 的生命周期聚合与趋势。
+ */
+export type ChannelAlertLifecycleMetricsResponse = {
+    /**
+     * Active
+     */
+    active: number;
+    /**
+     * Escalated
+     */
+    escalated: number;
+    /**
+     * Mean Recovery Seconds
+     */
+    mean_recovery_seconds: number;
+    /**
+     * Opened
+     */
+    opened: number;
+    /**
+     * P95 Recovery Seconds
+     */
+    p95_recovery_seconds: number;
+    /**
+     * Resolved
+     */
+    resolved: number;
+    /**
+     * Trend
+     */
+    trend: Array<ChannelAlertLifecycleTrendPointResponse>;
+    /**
+     * Window Ended At
+     */
+    window_ended_at: string;
+    /**
+     * Window Started At
+     */
+    window_started_at: string;
+};
+
+/**
+ * ChannelAlertLifecycleResponse
+ *
+ * 渠道告警持久化生命周期，不包含业务正文或通知目标。
+ */
+export type ChannelAlertLifecycleResponse = {
+    /**
+     * Alert Key
+     */
+    alert_key: string;
+    /**
+     * Channel Id
+     */
+    channel_id: string;
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Current Value
+     */
+    current_value: number;
+    /**
+     * Error Code
+     */
+    error_code?: string | null;
+    /**
+     * Escalated At
+     */
+    escalated_at: string | null;
+    /**
+     * First Occurred At
+     */
+    first_occurred_at: string;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Last Evaluated At
+     */
+    last_evaluated_at: string;
+    /**
+     * Last Occurred At
+     */
+    last_occurred_at: string;
+    /**
+     * Occurrences
+     */
+    occurrences: number;
+    /**
+     * Recovery Duration Seconds
+     */
+    recovery_duration_seconds?: number | null;
+    /**
+     * Resolved At
+     */
+    resolved_at: string | null;
+    severity: AlertSeverity;
+    status: ChannelAlertLifecycleStatus;
+    /**
+     * Threshold Value
+     */
+    threshold_value: number;
+    /**
+     * Unit
+     */
+    unit: string;
+};
+
+/**
+ * ChannelAlertLifecycleStatus
+ *
+ * 持久化告警事件的生命周期状态。
+ */
+export type ChannelAlertLifecycleStatus = 'active' | 'resolved';
+
+/**
+ * ChannelAlertLifecycleTrendPointResponse
+ *
+ * 一个固定时间桶内的生命周期变化。
+ */
+export type ChannelAlertLifecycleTrendPointResponse = {
+    /**
+     * Bucket Started At
+     */
+    bucket_started_at: string;
+    /**
+     * Escalated
+     */
+    escalated: number;
+    /**
+     * Opened
+     */
+    opened: number;
+    /**
+     * Resolved
+     */
+    resolved: number;
+};
+
+/**
  * ChannelAlertListResponse
  *
  * 渠道活动告警及其统一聚合窗口。
@@ -1356,6 +1513,10 @@ export type ChannelAlertResponse = {
      * Error Code
      */
     error_code?: string | null;
+    /**
+     * First Occurred At
+     */
+    first_occurred_at: string;
     /**
      * Last Occurred At
      */
@@ -1692,6 +1853,10 @@ export type ChannelErrorMetricResponse = {
      * Error Code
      */
     error_code: string;
+    /**
+     * First Occurred At
+     */
+    first_occurred_at: string;
     /**
      * Last Occurred At
      */
@@ -5777,7 +5942,7 @@ export type NotificationDeliveryTimelineItemResponse = {
     /**
      * Event
      */
-    event: 'active' | 'recovery' | 'unknown';
+    event: 'active' | 'escalation' | 'recovery' | 'unknown';
     /**
      * Job Id
      */
@@ -8384,6 +8549,146 @@ export type GetApiV1ChannelsOperationsAlertsResponses = {
 
 export type GetApiV1ChannelsOperationsAlertsResponse = GetApiV1ChannelsOperationsAlertsResponses[keyof GetApiV1ChannelsOperationsAlertsResponses];
 
+export type GetApiV1ChannelsOperationsAlertsLifecyclesData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Channel Id
+         */
+        channel_id?: string | null;
+        /**
+         * Status
+         */
+        status?: ChannelAlertLifecycleStatus | null;
+        /**
+         * Severity
+         */
+        severity?: AlertSeverity | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/channels/operations/alerts/lifecycles';
+};
+
+export type GetApiV1ChannelsOperationsAlertsLifecyclesErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ChannelsOperationsAlertsLifecyclesError = GetApiV1ChannelsOperationsAlertsLifecyclesErrors[keyof GetApiV1ChannelsOperationsAlertsLifecyclesErrors];
+
+export type GetApiV1ChannelsOperationsAlertsLifecyclesResponses = {
+    /**
+     * 请求成功
+     */
+    200: ChannelAlertLifecycleListResponse;
+};
+
+export type GetApiV1ChannelsOperationsAlertsLifecyclesResponse = GetApiV1ChannelsOperationsAlertsLifecyclesResponses[keyof GetApiV1ChannelsOperationsAlertsLifecyclesResponses];
+
+export type GetApiV1ChannelsOperationsAlertsLifecyclesMetricsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Window Minutes
+         */
+        window_minutes?: number;
+        /**
+         * Bucket Minutes
+         */
+        bucket_minutes?: number;
+    };
+    url: '/api/v1/channels/operations/alerts/lifecycles/metrics';
+};
+
+export type GetApiV1ChannelsOperationsAlertsLifecyclesMetricsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ChannelsOperationsAlertsLifecyclesMetricsError = GetApiV1ChannelsOperationsAlertsLifecyclesMetricsErrors[keyof GetApiV1ChannelsOperationsAlertsLifecyclesMetricsErrors];
+
+export type GetApiV1ChannelsOperationsAlertsLifecyclesMetricsResponses = {
+    /**
+     * 请求成功
+     */
+    200: ChannelAlertLifecycleMetricsResponse;
+};
+
+export type GetApiV1ChannelsOperationsAlertsLifecyclesMetricsResponse = GetApiV1ChannelsOperationsAlertsLifecyclesMetricsResponses[keyof GetApiV1ChannelsOperationsAlertsLifecyclesMetricsResponses];
+
 export type GetApiV1ChannelsOperationsAlertsNotificationsData = {
     body?: never;
     path?: never;
@@ -8399,7 +8704,7 @@ export type GetApiV1ChannelsOperationsAlertsNotificationsData = {
         /**
          * Event
          */
-        event?: 'active' | 'recovery' | 'unknown' | null;
+        event?: 'active' | 'escalation' | 'recovery' | 'unknown' | null;
         /**
          * Limit
          */

@@ -179,6 +179,7 @@ class ChannelErrorMetrics:
     channel_id: UUID
     error_code: str
     occurrences: int
+    first_occurred_at: datetime
     last_occurred_at: datetime
 
 
@@ -219,6 +220,7 @@ class ChannelAlert:
     current_value: float
     threshold_value: float
     unit: str
+    first_occurred_at: datetime
     last_occurred_at: datetime
     cooldown_until: datetime
     disposition_status: ChannelAlertDispositionStatus | None = None
@@ -229,6 +231,40 @@ class ChannelAlert:
     def alert_key(self) -> str:
         """稳定告警键，不依赖易变的标题或聚合数值。"""
         return f"{self.channel_id}:{self.code}:{self.error_code or '-'}"
+
+
+class ChannelAlertLifecycleStatus(StrEnum):
+    """持久化告警事件的生命周期状态。"""
+
+    ACTIVE = "active"
+    RESOLVED = "resolved"
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelAlertLifecycle:
+    """不含业务正文的渠道告警事件生命周期。"""
+
+    id: UUID
+    tenant_id: UUID
+    agent_id: UUID
+    channel_id: UUID
+    alert_key: str
+    code: str
+    error_code: str | None
+    status: ChannelAlertLifecycleStatus
+    severity: AlertSeverity
+    occurrences: int
+    current_value: float
+    threshold_value: float
+    unit: str
+    first_occurred_at: datetime
+    last_occurred_at: datetime
+    last_evaluated_at: datetime
+    escalated_at: datetime | None
+    resolved_at: datetime | None
+    recovery_duration_seconds: int | None
+    created_at: datetime
+    updated_at: datetime
 
 
 @dataclass(frozen=True, slots=True)

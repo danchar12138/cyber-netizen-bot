@@ -25,6 +25,8 @@ from cnb_adapters import (
 from cnb_application import ChannelNotFoundError, ChannelService, ChannelValidationError
 from cnb_domain import (
     AlertSeverity,
+    ChannelAlert,
+    ChannelAlertLifecycleStatus,
     ChannelDiagnosticEvent,
     ChannelEventDirection,
     ChannelEventStatus,
@@ -41,6 +43,30 @@ from cnb_domain import (
 from cnb_infrastructure import MemoryChannelRepository, MemorySecretStore
 
 _TELEGRAM_TOKEN = "123456789:" + ("A" * 35)
+
+
+def _channel_alert(
+    *,
+    channel_id: UUID,
+    first_occurred_at: datetime,
+    last_occurred_at: datetime,
+    occurrences: int = 1,
+) -> ChannelAlert:
+    return ChannelAlert(
+        channel_id=channel_id,
+        code="channel_error_rate",
+        error_code="telegram_http_429",
+        severity=AlertSeverity.CRITICAL,
+        title="渠道错误率过高",
+        summary="安全聚合摘要",
+        occurrences=occurrences,
+        current_value=25.0,
+        threshold_value=5.0,
+        unit="%",
+        first_occurred_at=first_occurred_at,
+        last_occurred_at=last_occurred_at,
+        cooldown_until=last_occurred_at + timedelta(minutes=30),
+    )
 
 
 class RecordingTelegramTransport:
@@ -1245,3 +1271,269 @@ async def test_channel_alerts_apply_error_code_severity_and_degraded_thresholds(
     assert {item.code for item in alerts} == {"channel_error_rate", "channel_health_degraded"}
     assert all(item.severity in {AlertSeverity.WARNING, AlertSeverity.CRITICAL} for item in alerts)
     assert all(item.channel_id == channel.instance.id for item in alerts)
+
+
+@pytest.mark.asyncio
+async def test_alert_lifecycle_opens_updates_resolves_and_reopens() -> None:
+    tenant_id, agent_id, channel_id = uuid4(), uuid4(), uuid4()
+    repository = MemoryChannelRepository()
+    started_at = datetime(2026, 9, 14, 8, 0, tzinfo=UTC)
+    first_alert = _channel_alert(
+        channel_id=channel_id,
+        first_occurred_at=started_at - timedelta(minutes=5),
+        last_occurred_at=started_at,
+    )
+
+    opened = await repository.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(first_alert,),
+        observed_at=started_at,
+    )
+    updated = await repository.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(
+            _channel_alert(
+                channel_id=channel_id,
+                first_occurred_at=started_at - timedelta(minutes=5),
+                last_occurred_at=started_at + timedelta(minutes=10),
+                occurrences=3,
+            ),
+        ),
+        observed_at=started_at + timedelta(minutes=10),
+    )
+    active_after_resolution = await repository.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(),
+        observed_at=started_at + timedelta(minutes=20),
+    )
+    reopened = await repository.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(
+            _channel_alert(
+                channel_id=channel_id,
+                first_occurred_at=started_at + timedelta(minutes=25),
+                last_occurred_at=started_at + timedelta(minutes=25),
+            ),
+        ),
+        observed_at=started_at + timedelta(minutes=25),
+    )
+    history = await repository.list_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        channel_id=None,
+        status=None,
+        severity=None,
+        limit=100,
+    )
+
+    assert opened[0].id == updated[0].id
+    assert updated[0].occurrences == 3
+    assert active_after_resolution == ()
+    assert reopened[0].id != opened[0].id
+    assert [item.status for item in history] == [
+        ChannelAlertLifecycleStatus.ACTIVE,
+        ChannelAlertLifecycleStatus.RESOLVED,
+    ]
+    assert history[1].resolved_at == started_at + timedelta(minutes=20)
+    assert history[1].recovery_duration_seconds == 25 * 60
+
+
+@pytest.mark.asyncio
+async def test_alert_lifecycle_queries_and_escalation_are_tenant_agent_isolated() -> None:
+    tenant_id, other_tenant_id = uuid4(), uuid4()
+    agent_id, other_agent_id, channel_id = uuid4(), uuid4(), uuid4()
+    repository = MemoryChannelRepository()
+    observed_at = datetime(2026, 9, 14, 9, 0, tzinfo=UTC)
+    alert = _channel_alert(
+        channel_id=channel_id,
+        first_occurred_at=observed_at - timedelta(hours=1),
+        last_occurred_at=observed_at,
+    )
+    own = await repository.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(alert,),
+        observed_at=observed_at,
+    )
+    await repository.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=other_agent_id,
+        alerts=(alert,),
+        observed_at=observed_at,
+    )
+    await repository.reconcile_alert_lifecycles(
+        tenant_id=other_tenant_id,
+        agent_id=agent_id,
+        alerts=(alert,),
+        observed_at=observed_at,
+    )
+
+    cross_tenant_mark = await repository.mark_alert_lifecycles_escalated(
+        tenant_id=other_tenant_id,
+        agent_id=agent_id,
+        lifecycle_ids=(own[0].id,),
+        escalated_at=observed_at + timedelta(minutes=1),
+    )
+    marked = await repository.mark_alert_lifecycles_escalated(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_ids=(own[0].id,),
+        escalated_at=observed_at + timedelta(minutes=2),
+    )
+    own_history = await repository.list_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        channel_id=None,
+        status=None,
+        severity=None,
+        limit=100,
+    )
+
+    assert cross_tenant_mark == ()
+    assert len(marked) == 1
+    assert marked[0].escalated_at == observed_at + timedelta(minutes=2)
+    assert own_history == marked
+
+
+async def test_alert_lifecycle_escalation_configuration_and_metrics() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    repository = MemoryChannelRepository()
+    service = ChannelService(repository, build_default_channel_registry(), MemorySecretStore())
+    channel = await service.create(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        name="生命周期 Web",
+        platform=ChannelPlatform.WEB,
+        status=ChannelInstanceStatus.ENABLED,
+        rate_limit_per_minute=60,
+        settings={},
+        credential=None,
+        actor_id=uuid4(),
+    )
+    evaluated_at = datetime(2026, 9, 14, 12, 0, tzinfo=UTC)
+    await repository.record_event(
+        ChannelDiagnosticEvent(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            channel_id=channel.instance.id,
+            direction=ChannelEventDirection.OUTBOUND,
+            event_type="lifecycle.test",
+            status=ChannelEventStatus.FAILED,
+            external_event_id=None,
+            idempotency_key="lifecycle-escalation",
+            external_message_id=None,
+            payload_summary={},
+            error_code="telegram_http_429",
+            degradations=(),
+            occurred_at=evaluated_at - timedelta(minutes=30),
+        )
+    )
+    values: dict[str, JsonValue] = {
+        "alerts.channel.enabled": True,
+        "alerts.channel.enabled_error_codes": ["telegram_http_429"],
+        "alerts.channel.minimum_severity": "warning",
+        "alerts.channel.cooldown_minutes": 30,
+        "alerts.channel.failure_rate_percent": 1,
+        "alerts.channel.health_degraded_minutes": 15,
+        "alerts.notification.escalation_enabled": False,
+        "alerts.notification.escalation_after_minutes": 15,
+    }
+
+    disabled = await service.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        values=values,
+        window_minutes=60,
+        now=evaluated_at,
+    )
+    enabled = await service.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        values={**values, "alerts.notification.escalation_enabled": True},
+        window_minutes=60,
+        now=evaluated_at,
+    )
+
+    assert disabled.due_escalations == ()
+    assert len(enabled.due_escalations) == 1
+    assert enabled.due_escalations[0].first_occurred_at == evaluated_at - timedelta(minutes=30)
+
+    metrics_repository = MemoryChannelRepository()
+    first_opened = evaluated_at - timedelta(hours=3)
+    first = await metrics_repository.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(
+            _channel_alert(
+                channel_id=uuid4(), first_occurred_at=first_opened, last_occurred_at=first_opened
+            ),
+        ),
+        observed_at=first_opened,
+    )
+    await metrics_repository.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(),
+        observed_at=first_opened + timedelta(minutes=10),
+    )
+    second_opened = first_opened + timedelta(hours=1)
+    await metrics_repository.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(
+            _channel_alert(
+                channel_id=uuid4(), first_occurred_at=second_opened, last_occurred_at=second_opened
+            ),
+        ),
+        observed_at=second_opened,
+    )
+    await metrics_repository.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(),
+        observed_at=second_opened + timedelta(minutes=30),
+    )
+    third_opened = second_opened + timedelta(hours=1)
+    third = await metrics_repository.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(
+            _channel_alert(
+                channel_id=uuid4(), first_occurred_at=third_opened, last_occurred_at=third_opened
+            ),
+        ),
+        observed_at=third_opened,
+    )
+    await metrics_repository.mark_alert_lifecycles_escalated(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_ids=(third[0].id,),
+        escalated_at=third_opened + timedelta(minutes=30),
+    )
+    metrics_service = ChannelService(
+        metrics_repository,
+        build_default_channel_registry(),
+        MemorySecretStore(),
+    )
+    metrics = await metrics_service.alert_lifecycle_metrics(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        window_minutes=240,
+        bucket_minutes=60,
+        now=evaluated_at,
+    )
+
+    assert first[0].status is ChannelAlertLifecycleStatus.ACTIVE
+    assert metrics.active == 1
+    assert metrics.opened == 3
+    assert metrics.resolved == 2
+    assert metrics.escalated == 1
+    assert metrics.mean_recovery_seconds == 1_200
+    assert metrics.p95_recovery_seconds == 1_800
+    assert sum(point.opened for point in metrics.trend) == 3
+    assert sum(point.resolved for point in metrics.trend) == 2
+    assert sum(point.escalated for point in metrics.trend) == 1

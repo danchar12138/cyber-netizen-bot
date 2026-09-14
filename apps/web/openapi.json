@@ -2019,6 +2019,266 @@
         "title": "ChannelAlertDispositionResponse",
         "type": "object"
       },
+      "ChannelAlertLifecycleListResponse": {
+        "description": "当前 Agent 的可筛选告警生命周期。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ChannelAlertLifecycleResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ChannelAlertLifecycleListResponse",
+        "type": "object"
+      },
+      "ChannelAlertLifecycleMetricsResponse": {
+        "description": "当前 Agent 的生命周期聚合与趋势。",
+        "properties": {
+          "active": {
+            "minimum": 0.0,
+            "title": "Active",
+            "type": "integer"
+          },
+          "escalated": {
+            "minimum": 0.0,
+            "title": "Escalated",
+            "type": "integer"
+          },
+          "mean_recovery_seconds": {
+            "minimum": 0.0,
+            "title": "Mean Recovery Seconds",
+            "type": "number"
+          },
+          "opened": {
+            "minimum": 0.0,
+            "title": "Opened",
+            "type": "integer"
+          },
+          "p95_recovery_seconds": {
+            "minimum": 0.0,
+            "title": "P95 Recovery Seconds",
+            "type": "integer"
+          },
+          "resolved": {
+            "minimum": 0.0,
+            "title": "Resolved",
+            "type": "integer"
+          },
+          "trend": {
+            "items": {
+              "$ref": "#/components/schemas/ChannelAlertLifecycleTrendPointResponse"
+            },
+            "title": "Trend",
+            "type": "array"
+          },
+          "window_ended_at": {
+            "format": "date-time",
+            "title": "Window Ended At",
+            "type": "string"
+          },
+          "window_started_at": {
+            "format": "date-time",
+            "title": "Window Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_started_at",
+          "window_ended_at",
+          "active",
+          "opened",
+          "resolved",
+          "escalated",
+          "mean_recovery_seconds",
+          "p95_recovery_seconds",
+          "trend"
+        ],
+        "title": "ChannelAlertLifecycleMetricsResponse",
+        "type": "object"
+      },
+      "ChannelAlertLifecycleResponse": {
+        "description": "渠道告警持久化生命周期，不包含业务正文或通知目标。",
+        "properties": {
+          "alert_key": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Alert Key",
+            "type": "string"
+          },
+          "channel_id": {
+            "format": "uuid",
+            "title": "Channel Id",
+            "type": "string"
+          },
+          "code": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "current_value": {
+            "minimum": 0.0,
+            "title": "Current Value",
+            "type": "number"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "escalated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalated At"
+          },
+          "first_occurred_at": {
+            "format": "date-time",
+            "title": "First Occurred At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_evaluated_at": {
+            "format": "date-time",
+            "title": "Last Evaluated At",
+            "type": "string"
+          },
+          "last_occurred_at": {
+            "format": "date-time",
+            "title": "Last Occurred At",
+            "type": "string"
+          },
+          "occurrences": {
+            "minimum": 1.0,
+            "title": "Occurrences",
+            "type": "integer"
+          },
+          "recovery_duration_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recovery Duration Seconds"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AlertSeverity"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChannelAlertLifecycleStatus"
+          },
+          "threshold_value": {
+            "minimum": 0.0,
+            "title": "Threshold Value",
+            "type": "number"
+          },
+          "unit": {
+            "maxLength": 24,
+            "minLength": 1,
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "channel_id",
+          "alert_key",
+          "code",
+          "status",
+          "severity",
+          "occurrences",
+          "current_value",
+          "threshold_value",
+          "unit",
+          "first_occurred_at",
+          "last_occurred_at",
+          "last_evaluated_at",
+          "escalated_at",
+          "resolved_at"
+        ],
+        "title": "ChannelAlertLifecycleResponse",
+        "type": "object"
+      },
+      "ChannelAlertLifecycleStatus": {
+        "description": "持久化告警事件的生命周期状态。",
+        "enum": [
+          "active",
+          "resolved"
+        ],
+        "title": "ChannelAlertLifecycleStatus",
+        "type": "string"
+      },
+      "ChannelAlertLifecycleTrendPointResponse": {
+        "description": "一个固定时间桶内的生命周期变化。",
+        "properties": {
+          "bucket_started_at": {
+            "format": "date-time",
+            "title": "Bucket Started At",
+            "type": "string"
+          },
+          "escalated": {
+            "minimum": 0.0,
+            "title": "Escalated",
+            "type": "integer"
+          },
+          "opened": {
+            "minimum": 0.0,
+            "title": "Opened",
+            "type": "integer"
+          },
+          "resolved": {
+            "minimum": 0.0,
+            "title": "Resolved",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bucket_started_at",
+          "opened",
+          "resolved",
+          "escalated"
+        ],
+        "title": "ChannelAlertLifecycleTrendPointResponse",
+        "type": "object"
+      },
       "ChannelAlertListResponse": {
         "description": "渠道活动告警及其统一聚合窗口。",
         "properties": {
@@ -2254,6 +2514,11 @@
             ],
             "title": "Error Code"
           },
+          "first_occurred_at": {
+            "format": "date-time",
+            "title": "First Occurred At",
+            "type": "string"
+          },
           "last_occurred_at": {
             "format": "date-time",
             "title": "Last Occurred At",
@@ -2297,6 +2562,7 @@
           "current_value",
           "threshold_value",
           "unit",
+          "first_occurred_at",
           "last_occurred_at",
           "cooldown_until",
           "alert_key"
@@ -2776,6 +3042,11 @@
             "title": "Error Code",
             "type": "string"
           },
+          "first_occurred_at": {
+            "format": "date-time",
+            "title": "First Occurred At",
+            "type": "string"
+          },
           "last_occurred_at": {
             "format": "date-time",
             "title": "Last Occurred At",
@@ -2791,6 +3062,7 @@
           "channel_id",
           "error_code",
           "occurrences",
+          "first_occurred_at",
           "last_occurred_at"
         ],
         "title": "ChannelErrorMetricResponse",
@@ -9694,6 +9966,7 @@
           "event": {
             "enum": [
               "active",
+              "escalation",
               "recovery",
               "unknown"
             ],
@@ -14701,6 +14974,319 @@
         ]
       }
     },
+    "/api/v1/channels/operations/alerts/lifecycles": {
+      "get": {
+        "description": "查询当前 Agent 的安全告警生命周期历史。",
+        "operationId": "get_api_v1_channels_operations_alerts_lifecycles",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "channel_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Channel Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ChannelAlertLifecycleStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AlertSeverity"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Severity"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelAlertLifecycleListResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "查询当前 Agent 的安全告警生命周期历史",
+        "tags": [
+          "渠道与适配器"
+        ]
+      }
+    },
+    "/api/v1/channels/operations/alerts/lifecycles/metrics": {
+      "get": {
+        "description": "查询当前 Agent 的生命周期聚合、恢复耗时与时间桶趋势。",
+        "operationId": "get_api_v1_channels_operations_alerts_lifecycles_metrics",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window_minutes",
+            "required": false,
+            "schema": {
+              "default": 1440,
+              "maximum": 10080,
+              "minimum": 5,
+              "title": "Window Minutes",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bucket_minutes",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "maximum": 1440,
+              "minimum": 5,
+              "title": "Bucket Minutes",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelAlertLifecycleMetricsResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "查询当前 Agent 的生命周期聚合、恢复耗时与时间桶趋势",
+        "tags": [
+          "渠道与适配器"
+        ]
+      }
+    },
     "/api/v1/channels/operations/alerts/notifications": {
       "get": {
         "description": "查询当前 Agent 的通知状态、连续失败计数和安全投递时间线。",
@@ -14749,6 +15335,7 @@
                 {
                   "enum": [
                     "active",
+                    "escalation",
                     "recovery",
                     "unknown"
                   ],

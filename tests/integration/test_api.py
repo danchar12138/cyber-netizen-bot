@@ -13,13 +13,15 @@ from pydantic import SecretStr
 
 from cnb_adapters import ChannelAdapterRegistry, TelegramChannelAdapter
 from cnb_api.main import create_app
-from cnb_application import AuthenticationError, permissions_for_role
+from cnb_application import AuthenticationError, BackgroundTaskService, permissions_for_role
 from cnb_contracts import (
     AdminRoleListResponse,
     AdminSessionResponse,
     AgentLifecycleImpactResponse,
     ApiErrorResponse,
     BootstrapSettingsResponse,
+    ChannelAlertLifecycleListResponse,
+    ChannelAlertLifecycleMetricsResponse,
     ChannelOperationMetricsListResponse,
     CognitionResourceListResponse,
     CognitionResourceResponse,
@@ -51,14 +53,20 @@ from cnb_contracts import (
 from cnb_domain import (
     AdminPrincipal,
     AdminRole,
+    AlertSeverity,
+    BackgroundJobKind,
+    ChannelAlert,
+    ChannelAlertLifecycleStatus,
     DevelopmentIdentity,
     JsonValue,
     ManagedAdminSession,
 )
 from cnb_infrastructure import (
     InMemoryMemoryRepository,
+    InMemoryTaskRepository,
     MemoryAdministrationRepository,
     MemoryAttachmentRepository,
+    MemoryChannelRepository,
     MemoryConfigurationRepository,
     MemoryConversationRepository,
     MemoryDataLifecycleRepository,
@@ -2212,6 +2220,194 @@ async def test_channel_management_simulation_delivery_and_secret_boundary_api() 
     assert all("text" not in item["payload_summary"] for item in events.json()["items"])
     assert other_events.json()["items"] == []
     assert viewer_create.status_code == 403
+
+
+async def test_channel_alert_lifecycle_api_is_filtered_isolated_and_safe() -> None:
+    channel_repository = MemoryChannelRepository()
+    task_repository = InMemoryTaskRepository()
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        channel_repository=channel_repository,
+        conversation_repository=MemoryConversationRepository(),
+        task_repository=task_repository,
+    )
+    identity = cast(DevelopmentIdentity, app.state.development_identity)
+    now = datetime.now(UTC).replace(microsecond=0)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        other_agent = await client.post(
+            "/api/v1/administration/agents",
+            json={"name": "生命周期隔离伙伴"},
+        )
+        other_agent_id = UUID(other_agent.json()["id"])
+        own_channel = await client.post(
+            "/api/v1/channels",
+            json={
+                "name": "生命周期 Web",
+                "platform": "web",
+                "status": "enabled",
+                "rate_limit_per_minute": 60,
+            },
+        )
+        other_channel = await client.post(
+            "/api/v1/channels",
+            headers={"X-CNB-Agent-ID": str(other_agent_id)},
+            json={
+                "name": "隔离生命周期 Web",
+                "platform": "web",
+                "status": "enabled",
+                "rate_limit_per_minute": 60,
+            },
+        )
+        own_channel_id = UUID(own_channel.json()["id"])
+        other_channel_id = UUID(other_channel.json()["id"])
+        active_alert = ChannelAlert(
+            channel_id=own_channel_id,
+            code="channel_error_rate",
+            error_code="web_http_503",
+            severity=AlertSeverity.CRITICAL,
+            title="渠道错误率过高",
+            summary="仅用于仓储构造的安全聚合摘要",
+            occurrences=4,
+            current_value=20.0,
+            threshold_value=5.0,
+            unit="%",
+            first_occurred_at=now - timedelta(minutes=40),
+            last_occurred_at=now - timedelta(minutes=10),
+            cooldown_until=now + timedelta(minutes=20),
+        )
+        resolved_alert = ChannelAlert(
+            channel_id=own_channel_id,
+            code="channel_health_degraded",
+            error_code=None,
+            severity=AlertSeverity.WARNING,
+            title="渠道健康状态持续降级",
+            summary="不得通过生命周期接口返回的内部摘要",
+            occurrences=2,
+            current_value=30.0,
+            threshold_value=15.0,
+            unit="minutes",
+            first_occurred_at=now - timedelta(minutes=35),
+            last_occurred_at=now - timedelta(minutes=10),
+            cooldown_until=now + timedelta(minutes=20),
+        )
+        other_alert = ChannelAlert(
+            channel_id=other_channel_id,
+            code="channel_error_rate",
+            error_code="isolated_http_500",
+            severity=AlertSeverity.CRITICAL,
+            title="隔离渠道错误率过高",
+            summary="其他 Agent 的安全聚合摘要",
+            occurrences=3,
+            current_value=15.0,
+            threshold_value=5.0,
+            unit="%",
+            first_occurred_at=now - timedelta(minutes=25),
+            last_occurred_at=now - timedelta(minutes=10),
+            cooldown_until=now + timedelta(minutes=20),
+        )
+        opened = await channel_repository.reconcile_alert_lifecycles(
+            tenant_id=identity.tenant_id,
+            agent_id=identity.agent_id,
+            alerts=(active_alert, resolved_alert),
+            observed_at=now - timedelta(minutes=10),
+        )
+        active_lifecycle = next(item for item in opened if item.alert_key == active_alert.alert_key)
+        await channel_repository.reconcile_alert_lifecycles(
+            tenant_id=identity.tenant_id,
+            agent_id=identity.agent_id,
+            alerts=(active_alert,),
+            observed_at=now - timedelta(minutes=5),
+        )
+        await channel_repository.mark_alert_lifecycles_escalated(
+            tenant_id=identity.tenant_id,
+            agent_id=identity.agent_id,
+            lifecycle_ids=(active_lifecycle.id,),
+            escalated_at=now - timedelta(minutes=3),
+        )
+        await channel_repository.reconcile_alert_lifecycles(
+            tenant_id=identity.tenant_id,
+            agent_id=other_agent_id,
+            alerts=(other_alert,),
+            observed_at=now - timedelta(minutes=5),
+        )
+        notification_payload: dict[str, JsonValue] = {
+            "agent_id": str(identity.agent_id),
+            "adapter": "webhook",
+            "delivery_payload": {
+                "event": "channel.alerts.escalated",
+                "alert_count": 1,
+                "alerts": [{"alert_key": active_alert.alert_key}],
+            },
+            "idempotency_key": "api-lifecycle-escalation",
+        }
+        await BackgroundTaskService(task_repository).enqueue(
+            tenant_id=identity.tenant_id,
+            kind=BackgroundJobKind.NOTIFICATION_DELIVERY,
+            payload=notification_payload,
+            deduplication_key="api:lifecycle:escalation",
+            created_by=identity.user_id,
+        )
+
+        lifecycle_response = await client.get("/api/v1/channels/operations/alerts/lifecycles")
+        filtered_response = await client.get(
+            "/api/v1/channels/operations/alerts/lifecycles",
+            params={
+                "channel_id": str(own_channel_id),
+                "status": "resolved",
+                "severity": "warning",
+            },
+        )
+        cross_agent_response = await client.get(
+            "/api/v1/channels/operations/alerts/lifecycles",
+            params={"channel_id": str(own_channel_id)},
+            headers={"X-CNB-Agent-ID": str(other_agent_id)},
+        )
+        metrics_response = await client.get(
+            "/api/v1/channels/operations/alerts/lifecycles/metrics",
+            params={"window_minutes": 60, "bucket_minutes": 5},
+        )
+        timeline_response = await client.get(
+            "/api/v1/channels/operations/alerts/notifications",
+            params={"event": "escalation", "limit": 20},
+        )
+
+    lifecycles = ChannelAlertLifecycleListResponse.model_validate(lifecycle_response.json())
+    filtered = ChannelAlertLifecycleListResponse.model_validate(filtered_response.json())
+    metrics = ChannelAlertLifecycleMetricsResponse.model_validate(metrics_response.json())
+    assert lifecycle_response.status_code == filtered_response.status_code == 200
+    assert len(lifecycles.items) == 2
+    assert {item.status for item in lifecycles.items} == {
+        ChannelAlertLifecycleStatus.ACTIVE,
+        ChannelAlertLifecycleStatus.RESOLVED,
+    }
+    assert len(filtered.items) == 1
+    assert filtered.items[0].status is ChannelAlertLifecycleStatus.RESOLVED
+    assert filtered.items[0].severity is AlertSeverity.WARNING
+    assert filtered.items[0].channel_id == own_channel_id
+    assert cross_agent_response.status_code == 404
+    assert metrics_response.status_code == 200
+    assert metrics.active == 1
+    assert metrics.opened == 2
+    assert metrics.resolved == 1
+    assert metrics.escalated == 1
+    assert metrics.mean_recovery_seconds == 30 * 60
+    assert metrics.p95_recovery_seconds == 30 * 60
+    assert sum(item.opened for item in metrics.trend) == 2
+    assert sum(item.resolved for item in metrics.trend) == 1
+    assert sum(item.escalated for item in metrics.trend) == 1
+    timeline = timeline_response.json()
+    assert timeline_response.status_code == 200
+    assert timeline["total"] == timeline["pending"] == 1
+    assert len(timeline["items"]) == 1
+    assert timeline["items"][0]["event"] == "escalation"
+    assert timeline["items"][0]["adapter"] == "webhook"
+    assert timeline["items"][0]["alert_count"] == 1
+    combined_response = lifecycle_response.text + metrics_response.text + timeline_response.text
+    assert other_alert.alert_key not in combined_response
+    assert active_alert.alert_key not in timeline_response.text
+    assert active_alert.summary not in combined_response
+    assert resolved_alert.summary not in combined_response
 
 
 async def test_telegram_remote_rate_limit_is_safe_and_recorded_by_api() -> None:

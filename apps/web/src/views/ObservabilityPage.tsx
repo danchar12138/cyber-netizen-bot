@@ -2,7 +2,13 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { Activity, BellRing, CircleDollarSign, Clock3, Search, Send, ShieldCheck, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
 
-import { getAdminSession, getCognitiveRunTrace, getObservabilityDashboard } from '../api'
+import {
+  getAdminSession,
+  getChannelAlertLifecycleMetrics,
+  getCognitiveRunTrace,
+  getObservabilityDashboard,
+} from '../api'
+import { useSelectedAgentId } from '../agentSelection'
 import {
   cognitiveActionLabels,
   cognitiveStageLabels,
@@ -23,16 +29,29 @@ function formatUsd(microusd: number) {
 
 export function ObservabilityPage() {
   const [runId, setRunId] = useState('')
+  const selectedAgentId = useSelectedAgentId()
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
-  const canRead = session.data?.permissions.includes('trace:read') ?? false
+  const canReadTrace = session.data?.permissions.includes('trace:read') ?? false
+  const canReadChannels = session.data?.permissions.includes('channel:read') ?? false
   const dashboard = useQuery({
-    queryKey: ['observability-dashboard'],
+    queryKey: ['observability-dashboard', selectedAgentId],
     queryFn: getObservabilityDashboard,
-    enabled: canRead,
+    enabled: canReadTrace,
+    refetchInterval: 30_000,
+  })
+  const lifecycleMetrics = useQuery({
+    queryKey: ['channel-alert-lifecycle-metrics', selectedAgentId, 1_440, 60],
+    queryFn: () => getChannelAlertLifecycleMetrics(1_440, 60),
+    enabled: canReadChannels,
     refetchInterval: 30_000,
   })
   const trace = useMutation({ mutationFn: getCognitiveRunTrace })
   const data = dashboard.data
+  const lifecycle = lifecycleMetrics.data
+  const trendMaximum = Math.max(
+    1,
+    ...(lifecycle?.trend.map((point) => point.opened + point.resolved + point.escalated) ?? []),
+  )
 
   return (
     <div className="page">
@@ -40,6 +59,7 @@ export function ObservabilityPage() {
       <div className="notice info"><ShieldCheck size={17} /><div><strong>安全可观测边界</strong><span>指标与链路追踪不保存消息正文、完整提示词、隐藏推理、密钥、访问令牌或对象键。</span></div></div>
 
       {dashboard.isError && <div className="notice error" role="alert">无法读取可观测聚合，请检查 API、数据库和当前权限。</div>}
+      {lifecycleMetrics.isError && <div className="notice error" role="alert">无法读取告警生命周期指标，请检查渠道读取权限与迁移状态。</div>}
       <section className="metric-grid" aria-label="服务等级与成本指标">
         <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>API 错误率</p><strong>{data ? `${data.api.error_rate_percent.toFixed(2)}%` : '—'}</strong><span>{data?.api.requests ?? 0} 次请求 · {data?.api.server_errors ?? 0} 次 5xx</span></article>
         <article className="metric-card"><div className="metric-icon"><Clock3 size={18} /></div><p>API P95 / P99</p><strong>{data ? `${data.api.latency.p95_ms} / ${data.api.latency.p99_ms} ms` : '—'}</strong><span>P50 {data?.api.latency.p50_ms ?? '—'} ms</span></article>
@@ -47,6 +67,28 @@ export function ObservabilityPage() {
         <article className="metric-card"><div className="metric-icon"><CircleDollarSign size={18} /></div><p>模型冻结估算成本</p><strong>{data ? formatUsd(data.total_estimated_cost_microusd) : '—'}</strong><span>{data?.models.reduce((sum, item) => sum + item.input_tokens + item.output_tokens, 0) ?? 0} Token</span></article>
         <article className="metric-card"><div className="metric-icon"><Send size={18} /></div><p>渠道出站失败率</p><strong>{data ? `${data.channel_delivery.failure_rate_percent.toFixed(2)}%` : '—'}</strong><span>{data?.channel_delivery.attempts ?? 0} 次尝试 · 成功 {data?.channel_delivery.delivered ?? 0}</span></article>
         <article className="metric-card"><div className="metric-icon"><BellRing size={18} /></div><p>通知投递任务</p><strong>{data?.notification_delivery.total ?? '—'}</strong><span>成功 {data?.notification_delivery.succeeded ?? 0} · 重试 {data?.notification_delivery.retrying ?? 0} · 死信 {data?.notification_delivery.dead_letters ?? 0}</span></article>
+      </section>
+
+      <section className="channel-lifecycle-observability" aria-label="告警生命周期指标">
+        <div className="panel-heading channel-operation-heading"><div><p className="eyebrow">最近 24 小时 · 每小时固定桶</p><h2>告警生命周期趋势</h2></div><span className="subtle">当前 Agent</span></div>
+        <div className="metric-grid lifecycle-observability-metrics">
+          <article className="metric-card"><div className="metric-icon"><TriangleAlert size={18} /></div><p>活动事件</p><strong>{lifecycle?.active ?? '—'}</strong><span>当前仍未恢复</span></article>
+          <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>新开启</p><strong>{lifecycle?.opened ?? '—'}</strong><span>窗口内首次发生</span></article>
+          <article className="metric-card"><div className="metric-icon"><ShieldCheck size={18} /></div><p>已恢复</p><strong>{lifecycle?.resolved ?? '—'}</strong><span>窗口内完成恢复</span></article>
+          <article className="metric-card"><div className="metric-icon"><BellRing size={18} /></div><p>已升级</p><strong>{lifecycle?.escalated ?? '—'}</strong><span>窗口内升级通知</span></article>
+          <article className="metric-card"><div className="metric-icon"><Clock3 size={18} /></div><p>平均恢复耗时</p><strong>{lifecycle ? `${Math.round(lifecycle.mean_recovery_seconds / 60)} 分钟` : '—'}</strong><span>仅统计已恢复事件</span></article>
+          <article className="metric-card"><div className="metric-icon"><Clock3 size={18} /></div><p>P95 恢复耗时</p><strong>{lifecycle ? `${Math.round(lifecycle.p95_recovery_seconds / 60)} 分钟` : '—'}</strong><span>仅统计已恢复事件</span></article>
+        </div>
+        <div className="panel lifecycle-trend-panel">
+          <div className="lifecycle-trend-legend"><span><i className="opened" />开启</span><span><i className="resolved" />恢复</span><span><i className="escalated" />升级</span></div>
+          {!lifecycle?.trend.length && <div className="empty-state">当前窗口暂无生命周期变化。</div>}
+          {lifecycle?.trend.length ? <div className="lifecycle-trend" role="img" aria-label="每小时告警开启、恢复与升级数量趋势">
+            {lifecycle.trend.map((point) => <div className="lifecycle-trend-bucket" key={point.bucket_started_at} title={`${new Date(point.bucket_started_at).toLocaleString('zh-CN')}：开启 ${point.opened}，恢复 ${point.resolved}，升级 ${point.escalated}`}>
+              <div className="lifecycle-trend-bars"><i className="opened" style={{ height: `${Math.max(point.opened ? 8 : 0, point.opened / trendMaximum * 100)}%` }} /><i className="resolved" style={{ height: `${Math.max(point.resolved ? 8 : 0, point.resolved / trendMaximum * 100)}%` }} /><i className="escalated" style={{ height: `${Math.max(point.escalated ? 8 : 0, point.escalated / trendMaximum * 100)}%` }} /></div>
+              <time dateTime={point.bucket_started_at}>{new Date(point.bucket_started_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time>
+            </div>)}
+          </div> : null}
+        </div>
       </section>
 
       <div className="observability-grid">
@@ -67,7 +109,7 @@ export function ObservabilityPage() {
         <div className="model-cost-list">{data?.models.map((item) => <article key={`${item.provider}/${item.model}`}><div><strong>{item.provider} / {item.model}</strong><span>{item.invocations} 次调用 · {item.failed_invocations} 次失败</span></div><div><strong>{formatUsd(item.estimated_cost_microusd)}</strong><span>输入 {item.input_tokens} · 输出 {item.output_tokens} Token</span></div><div><strong>{item.latency.p95_ms} ms</strong><span>P95 · P99 {item.latency.p99_ms} ms</span></div></article>)}</div>
       </section>
 
-      <section className="panel trace-search"><label><Activity size={16} /><input aria-label="智能体运行 ID" value={runId} onChange={(event) => setRunId(event.target.value)} placeholder="输入智能体运行 UUID" /></label><button className="primary-button" disabled={!canRead || !runId.trim() || trace.isPending} onClick={() => trace.mutate(runId.trim())}><Search size={14} /> 查询轨迹</button></section>
+      <section className="panel trace-search"><label><Activity size={16} /><input aria-label="智能体运行 ID" value={runId} onChange={(event) => setRunId(event.target.value)} placeholder="输入智能体运行 UUID" /></label><button className="primary-button" disabled={!canReadTrace || !runId.trim() || trace.isPending} onClick={() => trace.mutate(runId.trim())}><Search size={14} /> 查询轨迹</button></section>
       {trace.error && <div className="notice error" role="alert">{trace.error.message}</div>}
       {trace.data && <div className="trace-grid">
         <section className="panel"><div className="panel-heading"><h2>认知阶段</h2><span className="subtle">{trace.data.steps.length} 步</span></div><div className="trace-list">{trace.data.steps.map((step) => <article key={step.sequence}><span>{step.sequence}</span><div><strong>{displayLabel(cognitiveStageLabels, step.stage)}</strong><p>{step.summary}</p><code>{formatMetadataEntries(step.detail)}</code></div></article>)}</div></section>

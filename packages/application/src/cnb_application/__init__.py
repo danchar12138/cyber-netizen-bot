@@ -47,6 +47,9 @@ from cnb_application.channel_probe_service import (
 )
 from cnb_application.channel_service import (
     ChannelAlert,
+    ChannelAlertLifecycleEvaluation,
+    ChannelAlertLifecycleMetrics,
+    ChannelAlertLifecycleTrendPoint,
     ChannelCatalogItem,
     ChannelConflictError,
     ChannelDeliveryReceipt,
@@ -221,6 +224,9 @@ __all__ = [
     "BackgroundJobHandler",
     "BackgroundTaskService",
     "ChannelAlert",
+    "ChannelAlertLifecycleEvaluation",
+    "ChannelAlertLifecycleMetrics",
+    "ChannelAlertLifecycleTrendPoint",
     "ChannelAlertNotificationPort",
     "ChannelCatalogItem",
     "ChannelConflictError",

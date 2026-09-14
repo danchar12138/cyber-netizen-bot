@@ -2344,6 +2344,82 @@ class ChannelAlertDispositionModel(Base):
     )
 
 
+class ChannelAlertLifecycleModel(Base):
+    """渠道告警事件的安全生命周期，不保存消息或通知正文。"""
+
+    __tablename__ = "channel_alert_lifecycles"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    channel_id: Mapped[UUID] = mapped_column(
+        ForeignKey("channel_instances.id", ondelete="CASCADE"), nullable=False
+    )
+    alert_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    code: Mapped[str] = mapped_column(String(120), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    severity: Mapped[str] = mapped_column(String(24), nullable=False)
+    occurrences: Mapped[int] = mapped_column(Integer, nullable=False)
+    current_value: Mapped[float] = mapped_column(nullable=False)
+    threshold_value: Mapped[float] = mapped_column(nullable=False)
+    unit: Mapped[str] = mapped_column(String(24), nullable=False)
+    first_occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    recovery_duration_seconds: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'resolved')",
+            name="ck_channel_alert_lifecycles_status",
+        ),
+        CheckConstraint(
+            "severity IN ('warning', 'critical')",
+            name="ck_channel_alert_lifecycles_severity",
+        ),
+        CheckConstraint("occurrences >= 1", name="ck_channel_alert_lifecycles_occurrences"),
+        CheckConstraint(
+            "recovery_duration_seconds IS NULL OR recovery_duration_seconds >= 0",
+            name="ck_channel_alert_lifecycles_recovery_duration",
+        ),
+        CheckConstraint(
+            "(status = 'active' AND resolved_at IS NULL AND recovery_duration_seconds IS NULL) "
+            "OR (status = 'resolved' AND resolved_at IS NOT NULL "
+            "AND recovery_duration_seconds IS NOT NULL)",
+            name="ck_channel_alert_lifecycles_resolution",
+        ),
+        Index(
+            "uq_channel_alert_lifecycles_active_key",
+            "tenant_id",
+            "agent_id",
+            "alert_key",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+        Index(
+            "ix_channel_alert_lifecycles_tenant_agent_time",
+            "tenant_id",
+            "agent_id",
+            "first_occurred_at",
+        ),
+        Index(
+            "ix_channel_alert_lifecycles_tenant_status",
+            "tenant_id",
+            "status",
+            "updated_at",
+        ),
+    )
+
+
 class ChannelRateLimitWindowModel(Base):
     """数据库原子维护的分钟级渠道发送预算。"""
 
