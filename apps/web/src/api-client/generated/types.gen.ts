@@ -717,7 +717,7 @@ export type BackgroundJobDetailResponse = {
  *
  * Worker 可执行的稳定任务种类。
  */
-export type BackgroundJobKind = 'reflection' | 'episode_consolidation' | 'memory_extraction' | 'embedding_rebuild' | 'relationship_update' | 'scheduled_action' | 'inbound_message';
+export type BackgroundJobKind = 'reflection' | 'episode_consolidation' | 'memory_extraction' | 'embedding_rebuild' | 'relationship_update' | 'scheduled_action' | 'inbound_message' | 'notification_delivery';
 
 /**
  * BackgroundJobListResponse
@@ -1240,6 +1240,10 @@ export type ChannelAlertListResponse = {
  */
 export type ChannelAlertNotificationCommand = {
     /**
+     * Adapter
+     */
+    adapter?: string | null;
+    /**
      * Confirmed
      */
     confirmed?: boolean;
@@ -1247,6 +1251,35 @@ export type ChannelAlertNotificationCommand = {
      * Window Minutes
      */
     window_minutes?: number;
+};
+
+/**
+ * ChannelAlertNotificationJobResponse
+ *
+ * 已加入可靠通知队列的任务摘要。
+ */
+export type ChannelAlertNotificationJobResponse = {
+    /**
+     * Available At
+     */
+    available_at: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Deduplication Key
+     */
+    deduplication_key: string;
+    /**
+     * Job Id
+     */
+    job_id: string;
+    /**
+     * Queue
+     */
+    queue: string;
+    status: BackgroundJobStatus;
 };
 
 /**
@@ -8216,6 +8249,63 @@ export type PostApiV1ChannelsOperationsAlertsNotifyResponses = {
 };
 
 export type PostApiV1ChannelsOperationsAlertsNotifyResponse = PostApiV1ChannelsOperationsAlertsNotifyResponses[keyof PostApiV1ChannelsOperationsAlertsNotifyResponses];
+
+export type PostApiV1ChannelsOperationsAlertsNotifyQueueData = {
+    body: ChannelAlertNotificationCommand;
+    path?: never;
+    query?: never;
+    url: '/api/v1/channels/operations/alerts/notify/queue';
+};
+
+export type PostApiV1ChannelsOperationsAlertsNotifyQueueErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1ChannelsOperationsAlertsNotifyQueueError = PostApiV1ChannelsOperationsAlertsNotifyQueueErrors[keyof PostApiV1ChannelsOperationsAlertsNotifyQueueErrors];
+
+export type PostApiV1ChannelsOperationsAlertsNotifyQueueResponses = {
+    /**
+     * 请求成功
+     */
+    202: ChannelAlertNotificationJobResponse;
+};
+
+export type PostApiV1ChannelsOperationsAlertsNotifyQueueResponse = PostApiV1ChannelsOperationsAlertsNotifyQueueResponses[keyof PostApiV1ChannelsOperationsAlertsNotifyQueueResponses];
 
 export type PostApiV1ChannelsOperationsAlertsByChannelIdAcknowledgeData = {
     body: ChannelAlertDispositionCommand;

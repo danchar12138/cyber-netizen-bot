@@ -6,7 +6,13 @@ from typing import Protocol
 from uuid import UUID, uuid5
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from cnb_application.configuration_service import ConfigurationService
+from cnb_adapters import (
+    NotificationAdapterError,
+    NotificationAdapterRegistry,
+    NotificationAdapterValidationError,
+    NotificationDeliveryCommand,
+)
+from cnb_application.configuration_service import ConfigurationService, SecretStore
 from cnb_application.memory_service import MemoryService, MemorySourceDraft
 from cnb_application.task_service import (
     PermanentTaskError,
@@ -33,6 +39,73 @@ from cnb_domain import (
     PendingAgentRun,
     ScheduledActionStatus,
 )
+
+
+class NotificationDeliveryTaskHandler:
+    """从安全任务摘要解析配置引用并执行通知 Adapter 投递。"""
+
+    def __init__(
+        self,
+        adapters: NotificationAdapterRegistry,
+        configuration: ConfigurationService,
+        secret_store: SecretStore,
+    ) -> None:
+        self._adapters = adapters
+        self._configuration = configuration
+        self._secret_store = secret_store
+
+    async def handle(self, job: BackgroundJob) -> dict[str, JsonValue]:
+        adapter_key = _string(job, "adapter")
+        agent_id = _uuid(job, "agent_id")
+        try:
+            adapter = self._adapters.get(adapter_key)
+        except NotificationAdapterValidationError as error:
+            raise PermanentTaskError(str(error)) from error
+        snapshot = await self._configuration.resolve_effective(
+            tenant_id=job.tenant_id,
+            agent_id=agent_id,
+        )
+        payload = job.payload.get("delivery_payload")
+        if not isinstance(payload, dict):
+            raise PermanentTaskError("通知任务安全摘要无效")
+        target, secret_key, settings = _notification_target(adapter_key, snapshot.values)
+        if not target:
+            raise PermanentTaskError("通知目标尚未配置")
+        secret = None
+        if secret_key is not None:
+            secret = await self._secret_store.resolve_secret(
+                secret_key,
+                tenant_id=job.tenant_id,
+                agent_id=agent_id,
+            )
+            if not secret and adapter_key != "email":
+                raise PermanentTaskError("通知密钥尚未配置")
+        try:
+            result = await adapter.deliver(
+                command=NotificationDeliveryCommand(
+                    target=target,
+                    payload=payload,
+                    idempotency_key=_string(job, "idempotency_key"),
+                    timeout_seconds=_number(job, "timeout_seconds"),
+                    max_retries=_integer(job, "max_retries"),
+                    settings=settings,
+                ),
+                secret=secret,
+            )
+        except NotificationAdapterValidationError as error:
+            raise PermanentTaskError(str(error)) from error
+        except NotificationAdapterError as error:
+            if error.retryable:
+                raise RuntimeError(error.code) from error
+            raise PermanentTaskError(error.code) from error
+        return {
+            "adapter": adapter.key,
+            "delivered": result.delivered,
+            "attempts": result.attempts,
+            "status_code": result.status_code,
+            "idempotency_key": result.idempotency_key,
+            "elapsed_ms": result.elapsed_ms,
+        }
 
 
 class ReflectionSourceRepository(Protocol):
@@ -445,6 +518,48 @@ def _number(job: BackgroundJob, key: str) -> float:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise PermanentTaskError(f"任务载荷字段不是有效数值：{key}")
     return float(value)
+
+
+def _integer(job: BackgroundJob, key: str) -> int:
+    value = _value(job, key)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise PermanentTaskError(f"任务载荷字段不是有效整数：{key}")
+    return value
+
+
+def _notification_target(
+    adapter: str,
+    values: Mapping[str, JsonValue],
+) -> tuple[str, str | None, dict[str, object]]:
+    """从生效配置读取目标和密钥引用；绝不把 Secret 写入任务。"""
+    if adapter == "webhook":
+        return (
+            _config_string(values, "alerts.notification.webhook_url"),
+            ("alerts.notification.webhook_signing_secret"),
+            {},
+        )
+    if adapter == "feishu_webhook":
+        return (
+            _config_string(values, "alerts.notification.feishu_webhook_url"),
+            ("alerts.notification.feishu_signing_secret"),
+            {},
+        )
+    if adapter == "email":
+        return (
+            _config_string(values, "alerts.notification.email.recipient"),
+            "alerts.notification.email_password",
+            {
+                key.removeprefix("alerts.notification.email."): value
+                for key, value in values.items()
+                if key.startswith("alerts.notification.email.")
+            },
+        )
+    raise PermanentTaskError(f"未知通知适配器：{adapter}")
+
+
+def _config_string(values: Mapping[str, JsonValue], key: str) -> str:
+    value = values.get(key)
+    return value.strip() if isinstance(value, str) else ""
 
 
 def _datetime(job: BackgroundJob, key: str) -> datetime:

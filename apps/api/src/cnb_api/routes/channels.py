@@ -37,6 +37,7 @@ from cnb_contracts import (
     ChannelAlertDispositionResponse,
     ChannelAlertListResponse,
     ChannelAlertNotificationCommand,
+    ChannelAlertNotificationJobResponse,
     ChannelAlertNotificationResponse,
     ChannelAlertResponse,
     ChannelCapabilitiesResponse,
@@ -593,6 +594,7 @@ async def notify_channel_alerts(
             actor_id=principal.user_id,
             window_minutes=command.window_minutes,
             confirmed=command.confirmed,
+            adapter_key=command.adapter,
         )
     except AlertNotificationValidationError as error:
         raise HTTPException(
@@ -612,6 +614,46 @@ async def notify_channel_alerts(
         idempotency_key=result.idempotency_key,
         elapsed_ms=result.elapsed_ms,
         status_code=result.status_code,
+    )
+
+
+@router.post(
+    "/operations/alerts/notify/queue",
+    response_model=ChannelAlertNotificationJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_permission(AdminPermission.CHANNEL_NOTIFICATION_MANAGE))],
+)
+async def queue_channel_alerts_notification(
+    command: ChannelAlertNotificationCommand,
+    principal: Annotated[
+        AdminPrincipal,
+        Depends(require_permission(AdminPermission.CHANNEL_NOTIFICATION_MANAGE)),
+    ],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[AlertNotificationService, Depends(get_alert_notification_service)],
+) -> ChannelAlertNotificationJobResponse:
+    """将告警摘要放入可靠后台队列，不在 API 请求内访问第三方。"""
+    try:
+        result = await service.enqueue(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            actor_id=principal.user_id,
+            window_minutes=command.window_minutes,
+            confirmed=command.confirmed,
+            adapter_key=command.adapter,
+        )
+    except AlertNotificationValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(error),
+        ) from error
+    return ChannelAlertNotificationJobResponse(
+        job_id=result.job.id,
+        status=result.job.status,
+        queue=result.job.queue,
+        deduplication_key=result.job.deduplication_key,
+        available_at=result.job.available_at,
+        created_at=result.job.created_at,
     )
 
 

@@ -85,7 +85,15 @@ class ConfigurationRegistry:
             raise ConfigurationValidationError(
                 f"配置 {definition.key} 必须是以下选项之一：{', '.join(definition.options)}"
             )
-        if definition.key == "alerts.notification.webhook_url" and isinstance(value, str) and value:
+        if (
+            definition.key
+            in {
+                "alerts.notification.webhook_url",
+                "alerts.notification.feishu_webhook_url",
+            }
+            and isinstance(value, str)
+            and value
+        ):
             try:
                 validate_webhook_url(value)
             except AlertWebhookValidationError as error:
@@ -506,6 +514,16 @@ def build_default_registry() -> ConfigurationRegistry:
                 maximum=10080,
             ),
             ConfigDefinition(
+                key="alerts.notification.adapter",
+                section="observability",
+                label="告警通知适配器",
+                description="选择告警摘要的投递协议。",
+                value_kind=ConfigValueKind.STRING,
+                default="webhook",
+                scopes=per_agent,
+                options=("webhook", "feishu_webhook", "email"),
+            ),
+            ConfigDefinition(
                 key="alerts.notification.enabled",
                 section="observability",
                 label="启用告警 Webhook 通知",
@@ -513,6 +531,91 @@ def build_default_registry() -> ConfigurationRegistry:
                 value_kind=ConfigValueKind.BOOLEAN,
                 default=False,
                 scopes=per_agent,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.feishu_webhook_url",
+                section="observability",
+                label="飞书 Webhook 地址",
+                description="飞书机器人告警 Webhook 地址，仅允许 HTTPS。",
+                value_kind=ConfigValueKind.STRING,
+                default="",
+                scopes=per_agent,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.feishu_signing_secret",
+                section="observability",
+                label="飞书签名密钥",
+                description="飞书 Webhook 签名 Secret，管理 API 永不回显明文。",
+                value_kind=ConfigValueKind.SECRET,
+                default=None,
+                scopes=per_agent,
+                secret=True,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.email.smtp_host",
+                section="observability",
+                label="邮件 SMTP 主机",
+                description="告警邮件使用的 SMTP 服务主机。",
+                value_kind=ConfigValueKind.STRING,
+                default="",
+                scopes=per_agent,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.email.smtp_port",
+                section="observability",
+                label="邮件 SMTP 端口",
+                description="告警邮件使用的 SMTP 服务端口。",
+                value_kind=ConfigValueKind.INTEGER,
+                default=587,
+                scopes=per_agent,
+                minimum=1,
+                maximum=65535,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.email.smtp_username",
+                section="observability",
+                label="邮件 SMTP 用户名",
+                description="SMTP 登录用户名，可留空用于匿名投递。",
+                value_kind=ConfigValueKind.STRING,
+                default="",
+                scopes=per_agent,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.email.from_address",
+                section="observability",
+                label="告警邮件发件人",
+                description="告警邮件 From 地址。",
+                value_kind=ConfigValueKind.STRING,
+                default="",
+                scopes=per_agent,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.email.recipient",
+                section="observability",
+                label="告警邮件收件人",
+                description="告警邮件 To 地址。",
+                value_kind=ConfigValueKind.STRING,
+                default="",
+                scopes=per_agent,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.email.smtp_tls",
+                section="observability",
+                label="启用 SMTP TLS",
+                description="连接 SMTP 服务时启用 STARTTLS。",
+                value_kind=ConfigValueKind.BOOLEAN,
+                default=True,
+                scopes=per_agent,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.email_password",
+                section="observability",
+                label="邮件 SMTP 密码",
+                description="SMTP 登录密码，使用 SecretStore 加密保存。",
+                value_kind=ConfigValueKind.SECRET,
+                default=None,
+                scopes=per_agent,
+                secret=True,
             ),
             ConfigDefinition(
                 key="alerts.notification.webhook_url",

@@ -17,6 +17,7 @@ import {
   getChannelOperationMetrics,
   getModelCapabilities,
   notifyChannelAlerts,
+  queueChannelAlertsNotification,
   getTelegramWebhookStatus,
   clearTelegramWebhook,
   registerTelegramWebhook,
@@ -254,6 +255,10 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     mutationFn: () => notifyChannelAlerts({ window_minutes: alertNotificationWindow, confirmed: true }),
     onSuccess: refresh,
   })
+  const alertNotificationQueueMutation = useMutation({
+    mutationFn: () => queueChannelAlertsNotification({ window_minutes: alertNotificationWindow, confirmed: true }),
+    onSuccess: refresh,
+  })
 
   const submitCreate = (event: FormEvent) => {
     event.preventDefault()
@@ -426,10 +431,10 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
   ], [])
   const notifyAlerts = useCallback(() => {
     if (window.confirm(`确认投递最近 ${alertNotificationWindow} 分钟的活动告警？`)) {
-      alertNotificationMutation.mutate()
+      alertNotificationQueueMutation.mutate()
     }
-  }, [alertNotificationMutation, alertNotificationWindow])
-  const operationError = createMutation.error ?? testMutation.error ?? updateMutation.error ?? credentialMutation.error ?? clearCredentialMutation.error ?? webhookStatusMutation.error ?? registerWebhookMutation.error ?? clearWebhookMutation.error ?? simulation.error ?? delivery.error ?? alertDispositionMutation.error ?? unsuppressMutation.error ?? alertNotificationMutation.error
+  }, [alertNotificationQueueMutation, alertNotificationWindow])
+  const operationError = createMutation.error ?? testMutation.error ?? updateMutation.error ?? credentialMutation.error ?? clearCredentialMutation.error ?? webhookStatusMutation.error ?? registerWebhookMutation.error ?? clearWebhookMutation.error ?? simulation.error ?? delivery.error ?? alertDispositionMutation.error ?? unsuppressMutation.error ?? alertNotificationMutation.error ?? alertNotificationQueueMutation.error
 
   return (
     <div className="page">
@@ -518,7 +523,7 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       </section>
 
       <section className="panel table-panel" aria-label="渠道告警">
-        <div className="panel-heading task-panel-heading"><div><span>策略聚合 · 不含远端错误正文</span><h2><BellRing size={18} />活动告警</h2></div><div className="table-actions"><select value={alertNotificationWindow} onChange={(event) => setAlertNotificationWindow(Number(event.target.value))} aria-label="告警通知时间窗"><option value={15}>最近 15 分钟</option><option value={60}>最近 1 小时</option><option value={360}>最近 6 小时</option><option value={1440}>最近 24 小时</option></select><button disabled={!canManageNotifications || alertNotificationMutation.isPending} onClick={notifyAlerts}><Send size={12} />投递告警通知</button><small>{alerts.data?.items.length ?? 0} 条</small></div></div>
+        <div className="panel-heading task-panel-heading"><div><span>策略聚合 · 不含远端错误正文</span><h2><BellRing size={18} />活动告警</h2></div><div className="table-actions"><select value={alertNotificationWindow} onChange={(event) => setAlertNotificationWindow(Number(event.target.value))} aria-label="告警通知时间窗"><option value={15}>最近 15 分钟</option><option value={60}>最近 1 小时</option><option value={360}>最近 6 小时</option><option value={1440}>最近 24 小时</option></select><button disabled={!canManageNotifications || alertNotificationQueueMutation.isPending} onClick={notifyAlerts}><Send size={12} />加入通知队列</button><small>{alerts.data?.items.length ?? 0} 条</small></div></div>
         <AdminDataTable rows={alerts.data?.items ?? []} columns={alertColumns} rowKey={(row) => `${row.channel_id}:${row.code}:${row.error_code ?? ''}`} searchableText={(row) => `${row.title} ${row.code} ${row.error_code ?? ''} ${row.severity}`} searchPlaceholder="搜索告警规则、错误码或级别" emptyMessage={alerts.isLoading ? '正在读取告警…' : '当前窗口没有活动告警'} />
       </section>
 

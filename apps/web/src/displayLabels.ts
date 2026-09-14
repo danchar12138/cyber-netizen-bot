@@ -132,6 +132,7 @@ export const backgroundJobKindLabels = {
   relationship_update: '关系更新',
   scheduled_action: '主动行为',
   inbound_message: '入站消息路由',
+  notification_delivery: '通知投递',
 } satisfies Labels<BackgroundJobKind>
 
 export const backgroundJobStatusLabels = {

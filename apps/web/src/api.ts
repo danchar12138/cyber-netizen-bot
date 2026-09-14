@@ -10,6 +10,7 @@ import type {
   ChannelAlertDispositionResponse,
   ChannelAlertResponse,
   ChannelAlertNotificationResponse,
+  ChannelAlertNotificationJobResponse,
   ChannelErrorMetricResponse,
   ChannelHealthSnapshotResponse,
   ChannelHealthTrendResponse,
@@ -90,7 +91,7 @@ export interface TaskStatus {
   worker: ComponentHealth
 }
 
-export type BackgroundJobKind = 'reflection' | 'episode_consolidation' | 'memory_extraction' | 'embedding_rebuild' | 'relationship_update' | 'scheduled_action' | 'inbound_message'
+export type BackgroundJobKind = 'reflection' | 'episode_consolidation' | 'memory_extraction' | 'embedding_rebuild' | 'relationship_update' | 'scheduled_action' | 'inbound_message' | 'notification_delivery'
 export type BackgroundJobStatus = 'pending' | 'running' | 'retrying' | 'succeeded' | 'failed' | 'dead_letter' | 'canceled'
 
 export interface BackgroundJob {
@@ -246,6 +247,7 @@ export type ChannelAlert = ChannelAlertResponse
 export type ChannelAlertList = ChannelAlertListResponse
 export type ChannelAlertDisposition = ChannelAlertDispositionResponse
 export type ChannelAlertNotification = ChannelAlertNotificationResponse
+export type ChannelAlertNotificationJob = ChannelAlertNotificationJobResponse
 export type BackgroundJobReplayChainItem = BackgroundJobReplayChainItemResponse
 export type BackgroundJobReplayChain = BackgroundJobReplayChainResponse
 
@@ -1350,8 +1352,14 @@ export const unsuppressChannelAlert = (
   body: command,
 })
 
-export const notifyChannelAlerts = (command: { window_minutes: number; confirmed: boolean }) =>
+export const notifyChannelAlerts = (command: { window_minutes: number; adapter?: string | null; confirmed: boolean }) =>
   apiSdk.postApiV1ChannelsOperationsAlertsNotify({ body: command })
+
+export const queueChannelAlertsNotification = (command: {
+  window_minutes: number
+  adapter?: string | null
+  confirmed: boolean
+}) => apiSdk.postApiV1ChannelsOperationsAlertsNotifyQueue({ body: command })
 
 export const getBackgroundJobReplayChain = (jobId: string) =>
   apiSdk.getApiV1TasksJobsByJobIdReplayChain({ path: { job_id: jobId } })

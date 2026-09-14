@@ -1162,7 +1162,8 @@
           "embedding_rebuild",
           "relationship_update",
           "scheduled_action",
-          "inbound_message"
+          "inbound_message",
+          "notification_delivery"
         ],
         "title": "BackgroundJobKind",
         "type": "string"
@@ -2049,6 +2050,19 @@
       "ChannelAlertNotificationCommand": {
         "description": "告警摘要 Webhook 投递命令，必须显式确认。",
         "properties": {
+          "adapter": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adapter"
+          },
           "confirmed": {
             "default": false,
             "title": "Confirmed",
@@ -2063,6 +2077,47 @@
           }
         },
         "title": "ChannelAlertNotificationCommand",
+        "type": "object"
+      },
+      "ChannelAlertNotificationJobResponse": {
+        "description": "已加入可靠通知队列的任务摘要。",
+        "properties": {
+          "available_at": {
+            "format": "date-time",
+            "title": "Available At",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deduplication_key": {
+            "title": "Deduplication Key",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "queue": {
+            "title": "Queue",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BackgroundJobStatus"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "queue",
+          "deduplication_key",
+          "available_at",
+          "created_at"
+        ],
+        "title": "ChannelAlertNotificationJobResponse",
         "type": "object"
       },
       "ChannelAlertNotificationResponse": {
@@ -14413,6 +14468,128 @@
           }
         },
         "summary": "执行渠道与适配器操作",
+        "tags": [
+          "渠道与适配器"
+        ]
+      }
+    },
+    "/api/v1/channels/operations/alerts/notify/queue": {
+      "post": {
+        "description": "将告警摘要放入可靠后台队列，不在 API 请求内访问第三方。",
+        "operationId": "post_api_v1_channels_operations_alerts_notify_queue",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelAlertNotificationCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelAlertNotificationJobResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "将告警摘要放入可靠后台队列，不在 API 请求内访问第三方",
         "tags": [
           "渠道与适配器"
         ]

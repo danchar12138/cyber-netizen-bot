@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from cnb_adapters import (
     AlertWebhookNotifier,
     ChannelAdapterRegistry,
+    NotificationAdapterRegistry,
     build_default_channel_registry,
 )
 from cnb_api import __version__
@@ -121,6 +122,7 @@ def create_app(
     dependency_probe: DependencyProbe | None = None,
     admin_authenticator: AdminAuthenticator | None = None,
     alert_webhook_notifier: AlertWebhookNotifier | None = None,
+    notification_adapter_registry: NotificationAdapterRegistry | None = None,
 ) -> FastAPI:
     """创建可用于生产或测试的独立应用实例。"""
     resolved_settings = settings or get_settings()
@@ -138,6 +140,8 @@ def create_app(
             if agent_run_tasks:
                 await asyncio.gather(*agent_run_tasks.values(), return_exceptions=True)
             await application.state.channel_adapter_registry.aclose()
+            if application.state.notification_adapter_registry is not None:
+                await application.state.notification_adapter_registry.aclose()
             telemetry_runtime.shutdown()
 
     error_responses: dict[int | str, dict[str, Any]] = {
@@ -209,6 +213,7 @@ def create_app(
         channel_adapter_registry or build_default_channel_registry()
     )
     application.state.alert_webhook_notifier = alert_webhook_notifier or AlertWebhookNotifier()
+    application.state.notification_adapter_registry = notification_adapter_registry
     application.state.conversation_repository = (
         conversation_repository or SqlAlchemyConversationRepository(session_factory)
     )

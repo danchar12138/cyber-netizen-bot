@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, SecretStr, model_validator
 
 from cnb_domain import (
     AlertSeverity,
+    BackgroundJobStatus,
     ChannelEventDirection,
     ChannelEventStatus,
     ChannelHealthStatus,
@@ -396,7 +397,19 @@ class ChannelAlertNotificationCommand(BaseModel):
     """告警摘要 Webhook 投递命令，必须显式确认。"""
 
     window_minutes: int = Field(default=60, ge=5, le=1_440)
+    adapter: str | None = Field(default=None, min_length=1, max_length=64)
     confirmed: bool = False
+
+
+class ChannelAlertNotificationJobResponse(BaseModel):
+    """已加入可靠通知队列的任务摘要。"""
+
+    job_id: UUID
+    status: BackgroundJobStatus
+    queue: str
+    deduplication_key: str
+    available_at: datetime
+    created_at: datetime
 
 
 class ChannelAlertNotificationResponse(BaseModel):

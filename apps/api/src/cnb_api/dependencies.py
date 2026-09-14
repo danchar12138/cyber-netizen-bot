@@ -9,7 +9,7 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, status
 from starlette.requests import HTTPConnection
 
-from cnb_adapters import AlertWebhookNotifier, ChannelAdapterRegistry
+from cnb_adapters import AlertWebhookNotifier, ChannelAdapterRegistry, NotificationAdapterRegistry
 from cnb_application import (
     AdminAuthenticator,
     AdministrationAccessDeniedError,
@@ -151,12 +151,17 @@ def get_alert_notification_service(
 ) -> AlertNotificationService:
     """构建当前应用实例的安全告警通知服务。"""
     notifier: AlertWebhookNotifier = request.app.state.alert_webhook_notifier
+    adapter_registry: NotificationAdapterRegistry | None = (
+        request.app.state.notification_adapter_registry
+    )
     return AlertNotificationService(
         channel_service=channel_service,
         configuration_service=configuration_service,
         secret_store=secret_store,
         notifier=notifier,
+        adapter_registry=adapter_registry,
         audit_recorder=administration_repository,
+        task_service=BackgroundTaskService(request.app.state.task_repository),
     )
 
 

@@ -18,6 +18,7 @@ class BackgroundJobKind(StrEnum):
     RELATIONSHIP_UPDATE = "relationship_update"
     SCHEDULED_ACTION = "scheduled_action"
     INBOUND_MESSAGE = "inbound_message"
+    NOTIFICATION_DELIVERY = "notification_delivery"
 
 
 class BackgroundJobStatus(StrEnum):

@@ -14,7 +14,7 @@ from dramatiq import Broker, Middleware, Worker
 from dramatiq.brokers.redis import RedisBroker
 from dramatiq.middleware import AsyncIO
 
-from cnb_adapters import build_default_channel_registry
+from cnb_adapters import build_default_channel_registry, build_default_notification_registry
 from cnb_application import (
     AttachmentService,
     BackgroundJobHandler,
@@ -33,6 +33,7 @@ from cnb_application import (
     MemoryService,
     ModelReliabilityGuard,
     MultimodalInputService,
+    NotificationDeliveryTaskHandler,
     ReflectionTaskHandler,
     RelationshipUpdateTaskHandler,
     ScheduledActionService,
@@ -100,7 +101,7 @@ channel_service = ChannelService(
 )
 worker_id = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}"
 worker_started_at = datetime.now(UTC)
-worker_queues = ("system", "memory", "reflection", "proactive", "inbound")
+worker_queues = ("system", "memory", "reflection", "proactive", "inbound", "notification")
 
 
 class _ActorSender(Protocol):
@@ -223,6 +224,12 @@ async def process_inbound_job(job_id: str) -> None:
     await _execute_job(job_id)
 
 
+@dramatiq.actor(queue_name="notification", max_retries=0)  # pyright: ignore[reportUnknownMemberType]
+async def process_notification_job(job_id: str) -> None:
+    """执行告警邮件、飞书和 HTTPS Webhook 通知。"""
+    await _execute_job(job_id)
+
+
 _handlers: dict[BackgroundJobKind, BackgroundJobHandler] = {
     BackgroundJobKind.REFLECTION: ReflectionTaskHandler(
         memory_service,
@@ -246,12 +253,18 @@ _handlers: dict[BackgroundJobKind, BackgroundJobHandler] = {
             reply_dispatcher=TelegramInboundReplyDispatcher(channel_service),
         )
     ),
+    BackgroundJobKind.NOTIFICATION_DELIVERY: NotificationDeliveryTaskHandler(
+        build_default_notification_registry(),
+        configuration_service,
+        secret_store,
+    ),
 }
 _actors_by_queue: dict[str, _ActorSender] = {
     "memory": cast(_ActorSender, process_memory_job),
     "reflection": cast(_ActorSender, process_reflection_job),
     "proactive": cast(_ActorSender, process_proactive_job),
     "inbound": cast(_ActorSender, process_inbound_job),
+    "notification": cast(_ActorSender, process_notification_job),
 }
 dispatcher = DramatiqTaskDispatcher()
 
