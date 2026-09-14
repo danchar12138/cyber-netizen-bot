@@ -16,9 +16,14 @@ from cnb_adapters import (
     NotificationDeliveryCommand,
     build_default_notification_registry,
 )
-from cnb_application.channel_service import ChannelService
+from cnb_application.alert_policy import (
+    AlertEscalationPolicy,
+    AlertEscalationPolicyDecision,
+)
+from cnb_application.channel_service import ChannelAlertLifecycleEvaluation, ChannelService
 from cnb_application.configuration_service import ConfigurationService, SecretStore
 from cnb_domain import (
+    AlertSeverity,
     BackgroundJob,
     BackgroundJobKind,
     BackgroundJobStatus,
@@ -98,6 +103,7 @@ class PreparedAlertNotification:
     idempotency_key: str
     recovery_enabled: bool
     escalated_lifecycle_ids: tuple[UUID, ...] = ()
+    escalation_level: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,11 +269,12 @@ class AlertNotificationService:
             deduplication_key=f"notification:{idempotency_key}:{selected_adapter}",
             created_by=actor_id,
         )
-        if prepared.escalated_lifecycle_ids:
+        if prepared.escalated_lifecycle_ids and prepared.escalation_level is not None:
             await self._channel_service.mark_alert_lifecycles_escalated(
                 tenant_id=tenant_id,
                 agent_id=agent_id,
                 lifecycle_ids=prepared.escalated_lifecycle_ids,
+                escalation_level=prepared.escalation_level,
                 escalated_at=datetime.now(UTC),
             )
         await self._audit(
@@ -280,6 +287,7 @@ class AlertNotificationService:
                 "alert_count": payload.get("alert_count", 0),
                 "job_id": str(result.job.id),
                 "idempotency_key": idempotency_key,
+                "escalation_level": prepared.escalation_level,
             },
         )
         return result
@@ -375,8 +383,19 @@ class AlertNotificationService:
             values.get("alerts.notification.enabled"), "alerts.notification.enabled"
         ):
             raise AlertNotificationDisabledError("当前 Agent 未启用告警通知")
-        selected_adapter = adapter_key or self._string(
+        default_adapter = self._string(
             values.get("alerts.notification.adapter", "webhook"), "alerts.notification.adapter"
+        )
+        suppressed_keys = {
+            item.alert_key
+            for item in evaluation.alerts
+            if item.disposition_status is ChannelAlertDispositionStatus.SUPPRESSED
+        }
+        selected_adapter, selected_lifecycles, escalation_level = self._select_lifecycles(
+            evaluation=evaluation,
+            suppressed_keys=suppressed_keys,
+            default_adapter=default_adapter,
+            adapter_override=adapter_key,
         )
         try:
             adapter = self._adapters.get(selected_adapter)
@@ -397,25 +416,22 @@ class AlertNotificationService:
             minimum=0,
             maximum=5,
         )
-        suppressed_keys = {
-            item.alert_key
-            for item in evaluation.alerts
-            if item.disposition_status is ChannelAlertDispositionStatus.SUPPRESSED
-        }
-        active_lifecycles = tuple(
-            item for item in evaluation.active_lifecycles if item.alert_key not in suppressed_keys
+        event = (
+            "channel.alerts.escalated" if escalation_level is not None else "channel.alerts.active"
         )
-        due_escalations = tuple(
-            item for item in evaluation.due_escalations if item.alert_key not in suppressed_keys
+        payload = self._lifecycle_payload(
+            selected_lifecycles,
+            generated_at,
+            event=event,
+            escalation_level=escalation_level,
         )
-        event = "channel.alerts.escalated" if due_escalations else "channel.alerts.active"
-        selected_lifecycles = due_escalations or active_lifecycles
-        payload = self._lifecycle_payload(selected_lifecycles, generated_at, event=event)
         idempotency_key = self._lifecycle_idempotency_key(
             tenant_id,
             agent_id,
             selected_lifecycles,
             event=event,
+            adapter=selected_adapter,
+            escalation_level=escalation_level,
         )
         secret = await self._secret_store.resolve_secret(
             secret_key,
@@ -476,13 +492,15 @@ class AlertNotificationService:
                 "status_code": delivery.status_code,
                 "elapsed_ms": delivery.elapsed_ms,
                 "idempotency_key": delivery.idempotency_key,
+                "escalation_level": escalation_level,
             },
         )
-        if due_escalations:
+        if escalation_level is not None:
             await self._channel_service.mark_alert_lifecycles_escalated(
                 tenant_id=tenant_id,
                 agent_id=agent_id,
-                lifecycle_ids=tuple(item.id for item in due_escalations),
+                lifecycle_ids=tuple(item.id for item in selected_lifecycles),
+                escalation_level=escalation_level,
                 escalated_at=generated_at,
             )
         return AlertNotificationResult(
@@ -523,9 +541,20 @@ class AlertNotificationService:
             values.get("alerts.notification.enabled"), "alerts.notification.enabled"
         ):
             raise AlertNotificationDisabledError("当前 Agent 未启用告警通知")
-        selected_adapter = adapter_key or self._string(
+        default_adapter = self._string(
             values.get("alerts.notification.adapter", "webhook"),
             "alerts.notification.adapter",
+        )
+        suppressed_keys = {
+            item.alert_key
+            for item in evaluation.alerts
+            if item.disposition_status is ChannelAlertDispositionStatus.SUPPRESSED
+        }
+        selected_adapter, selected_lifecycles, escalation_level = self._select_lifecycles(
+            evaluation=evaluation,
+            suppressed_keys=suppressed_keys,
+            default_adapter=default_adapter,
+            adapter_override=adapter_key,
         )
         try:
             self._adapters.get(selected_adapter)
@@ -546,25 +575,22 @@ class AlertNotificationService:
             minimum=0,
             maximum=5,
         )
-        suppressed_keys = {
-            item.alert_key
-            for item in evaluation.alerts
-            if item.disposition_status is ChannelAlertDispositionStatus.SUPPRESSED
-        }
-        active_lifecycles = tuple(
-            item for item in evaluation.active_lifecycles if item.alert_key not in suppressed_keys
+        event = (
+            "channel.alerts.escalated" if escalation_level is not None else "channel.alerts.active"
         )
-        due_escalations = tuple(
-            item for item in evaluation.due_escalations if item.alert_key not in suppressed_keys
+        payload = self._lifecycle_payload(
+            selected_lifecycles,
+            generated_at,
+            event=event,
+            escalation_level=escalation_level,
         )
-        event = "channel.alerts.escalated" if due_escalations else "channel.alerts.active"
-        selected_lifecycles = due_escalations or active_lifecycles
-        payload = self._lifecycle_payload(selected_lifecycles, generated_at, event=event)
         idempotency_key = self._lifecycle_idempotency_key(
             tenant_id,
             agent_id,
             selected_lifecycles,
             event=event,
+            adapter=selected_adapter,
+            escalation_level=escalation_level,
         )
         if require_secret:
             secret = await self._secret_store.resolve_secret(
@@ -587,7 +613,35 @@ class AlertNotificationService:
                 values.get("alerts.notification.recovery_enabled", True),
                 "alerts.notification.recovery_enabled",
             ),
-            escalated_lifecycle_ids=tuple(item.id for item in due_escalations),
+            escalated_lifecycle_ids=(
+                tuple(item.id for item in selected_lifecycles)
+                if escalation_level is not None
+                else ()
+            ),
+            escalation_level=escalation_level,
+        )
+
+    async def simulate_policy(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        severity: AlertSeverity,
+        duration_minutes: int,
+        current_level: int,
+        evaluated_at: datetime,
+    ) -> AlertEscalationPolicyDecision:
+        """使用当前 Agent 生效配置评估策略，不读取密钥且不产生副作用。"""
+        effective = await self._configuration_service.resolve_effective(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+        )
+        policy = AlertEscalationPolicy.from_values(effective.values)
+        return policy.evaluate(
+            severity=severity,
+            duration_minutes=duration_minutes,
+            current_level=current_level,
+            evaluated_at=evaluated_at,
         )
 
     async def _prepare_recovery(
@@ -799,12 +853,14 @@ class AlertNotificationService:
         generated_at: datetime,
         *,
         event: str,
+        escalation_level: int | None,
     ) -> dict[str, JsonValue]:
         return {
             "schema_version": "1",
             "event": event,
             "generated_at": generated_at.isoformat(),
             "alert_count": len(lifecycles),
+            "escalation_level": escalation_level,
             "alerts": [
                 {
                     "lifecycle_id": str(item.id),
@@ -831,16 +887,52 @@ class AlertNotificationService:
         lifecycles: tuple[ChannelAlertLifecycle, ...],
         *,
         event: str,
+        adapter: str,
+        escalation_level: int | None,
     ) -> str:
         material = {
             "tenant_id": str(tenant_id),
             "agent_id": str(agent_id),
             "event": event,
+            "adapter": adapter,
+            "escalation_level": escalation_level,
             "lifecycle_ids": sorted(str(item.id) for item in lifecycles),
         }
         return hashlib.sha256(
             json.dumps(material, separators=(",", ":"), sort_keys=True).encode()
         ).hexdigest()
+
+    @staticmethod
+    def _select_lifecycles(
+        *,
+        evaluation: ChannelAlertLifecycleEvaluation,
+        suppressed_keys: set[str],
+        default_adapter: str,
+        adapter_override: str | None,
+    ) -> tuple[str, tuple[ChannelAlertLifecycle, ...], int | None]:
+        """选择一个升级等级与路由组，其余候选留给后续探测。"""
+        due = tuple(
+            candidate
+            for candidate in evaluation.due_escalations
+            if candidate.lifecycle.alert_key not in suppressed_keys
+        )
+        if due:
+            first = due[0]
+            level = first.decision.target_level
+            route = first.decision.adapter
+            if level is None or route is None:
+                raise AlertNotificationValidationError("告警升级候选缺少等级或通知路由")
+            selected = tuple(
+                candidate.lifecycle
+                for candidate in due
+                if candidate.decision.target_level == level
+                and (adapter_override is not None or candidate.decision.adapter == route)
+            )
+            return adapter_override or route, selected, level
+        active = tuple(
+            item for item in evaluation.active_lifecycles if item.alert_key not in suppressed_keys
+        )
+        return adapter_override or default_adapter, active, None
 
     @staticmethod
     def _idempotency_key(tenant_id: UUID, agent_id: UUID, alerts: tuple[ChannelAlert, ...]) -> str:

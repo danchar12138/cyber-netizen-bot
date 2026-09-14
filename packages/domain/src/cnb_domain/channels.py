@@ -265,6 +265,8 @@ class ChannelAlertLifecycle:
     recovery_duration_seconds: int | None
     created_at: datetime
     updated_at: datetime
+    escalation_level: int = 0
+    last_escalated_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

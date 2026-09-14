@@ -3,6 +3,7 @@
 from collections.abc import Iterable
 
 from cnb_adapters import AlertWebhookValidationError, validate_webhook_url
+from cnb_application.alert_policy import ALERT_NOTIFICATION_ADAPTERS
 from cnb_domain import ConfigDefinition, ConfigEntry, ConfigScope, ConfigValueKind, JsonValue
 
 
@@ -560,6 +561,102 @@ def build_default_registry() -> ConfigurationRegistry:
                 scopes=per_agent,
                 minimum=1,
                 maximum=10_080,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.escalation_level_2_after_minutes",
+                section="observability",
+                label="二级升级等待时间",
+                description="活动告警首次发生后达到二级升级所需的持续分钟数。",
+                value_kind=ConfigValueKind.INTEGER,
+                default=120,
+                scopes=per_agent,
+                minimum=1,
+                maximum=10_080,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.escalation_level_3_after_minutes",
+                section="observability",
+                label="三级升级等待时间",
+                description="活动告警首次发生后达到三级升级所需的持续分钟数。",
+                value_kind=ConfigValueKind.INTEGER,
+                default=360,
+                scopes=per_agent,
+                minimum=1,
+                maximum=10_080,
+            ),
+            *(
+                ConfigDefinition(
+                    key=f"alerts.notification.escalation_level_{level}_adapter",
+                    section="observability",
+                    label=f"{label}升级通知适配器",
+                    description="值班时段内该升级等级使用的通知适配器；默认表示继承主适配器。",
+                    value_kind=ConfigValueKind.STRING,
+                    default="default",
+                    scopes=per_agent,
+                    options=("default", *ALERT_NOTIFICATION_ADAPTERS),
+                )
+                for level, label in ((1, "一级"), (2, "二级"), (3, "三级"))
+            ),
+            ConfigDefinition(
+                key="alerts.notification.warning_max_escalation_level",
+                section="observability",
+                label="警告最高升级等级",
+                description="warning 告警允许达到的最高等级；0 表示不升级 warning 告警。",
+                value_kind=ConfigValueKind.INTEGER,
+                default=1,
+                scopes=per_agent,
+                minimum=0,
+                maximum=3,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.on_call_timezone",
+                section="observability",
+                label="告警值班时区",
+                description="使用 IANA 时区名称计算告警是否处于值班时段。",
+                value_kind=ConfigValueKind.STRING,
+                default="Asia/Shanghai",
+                scopes=per_agent,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.on_call_weekdays",
+                section="observability",
+                label="告警值班工作日",
+                description="值班工作日列表，使用 mon、tue、wed、thu、fri、sat、sun。",
+                value_kind=ConfigValueKind.STRING_LIST,
+                default=["mon", "tue", "wed", "thu", "fri"],
+                scopes=per_agent,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.on_call_start_hour",
+                section="observability",
+                label="值班开始小时",
+                description="值班时段的本地开始小时；与结束小时相同表示所选工作日全天值班。",
+                value_kind=ConfigValueKind.INTEGER,
+                default=9,
+                scopes=per_agent,
+                minimum=0,
+                maximum=23,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.on_call_end_hour",
+                section="observability",
+                label="值班结束小时",
+                description="值班时段的本地结束小时，允许小于开始小时以表示跨午夜。",
+                value_kind=ConfigValueKind.INTEGER,
+                default=18,
+                scopes=per_agent,
+                minimum=0,
+                maximum=23,
+            ),
+            ConfigDefinition(
+                key="alerts.notification.out_of_hours_adapter",
+                section="observability",
+                label="非值班通知适配器",
+                description="非值班时段统一使用的通知适配器；默认表示继承主适配器。",
+                value_kind=ConfigValueKind.STRING,
+                default="default",
+                scopes=per_agent,
+                options=("default", *ALERT_NOTIFICATION_ADAPTERS),
             ),
             ConfigDefinition(
                 key="alerts.notification.feishu_webhook_url",

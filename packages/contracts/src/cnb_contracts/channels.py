@@ -414,6 +414,8 @@ class ChannelAlertLifecycleResponse(BaseModel):
     last_occurred_at: datetime
     last_evaluated_at: datetime
     escalated_at: datetime | None
+    escalation_level: int = Field(ge=0, le=3)
+    last_escalated_at: datetime | None
     resolved_at: datetime | None
     recovery_duration_seconds: int | None = Field(default=None, ge=0)
 
@@ -445,6 +447,46 @@ class ChannelAlertLifecycleMetricsResponse(BaseModel):
     mean_recovery_seconds: float = Field(ge=0)
     p95_recovery_seconds: int = Field(ge=0)
     trend: tuple[ChannelAlertLifecycleTrendPointResponse, ...]
+
+
+class AlertPolicySimulationCommand(BaseModel):
+    """无副作用的当前 Agent 告警升级策略模拟输入。"""
+
+    severity: AlertSeverity
+    duration_minutes: int = Field(ge=0, le=525_600)
+    current_level: int = Field(ge=0, le=3)
+    evaluated_at: datetime
+
+
+class AlertPolicySimulationStepResponse(BaseModel):
+    """一个升级等级的安全模拟明细。"""
+
+    level: int = Field(ge=1, le=3)
+    threshold_minutes: int = Field(ge=1)
+    adapter: str = Field(min_length=1, max_length=64)
+    eligible: bool
+    reached: bool
+    completed: bool
+
+
+class AlertPolicySimulationResponse(BaseModel):
+    """不包含通知目标或 Secret 的策略模拟结果。"""
+
+    enabled: bool
+    severity: AlertSeverity
+    duration_minutes: int = Field(ge=0)
+    current_level: int = Field(ge=0, le=3)
+    maximum_level: int = Field(ge=0, le=3)
+    matched_level: int = Field(ge=0, le=3)
+    target_level: int | None = Field(default=None, ge=1, le=3)
+    adapter: str | None = Field(default=None, max_length=64)
+    on_call: bool
+    evaluated_at: datetime
+    local_time: datetime
+    timezone: str = Field(min_length=1, max_length=255)
+    reason_code: str = Field(min_length=1, max_length=64)
+    reason: str = Field(min_length=1, max_length=255)
+    steps: tuple[AlertPolicySimulationStepResponse, ...]
 
 
 class ChannelAlertNotificationCommand(BaseModel):

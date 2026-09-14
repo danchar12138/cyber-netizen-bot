@@ -20,6 +20,10 @@ from cnb_adapters import (
     negotiate_capabilities,
     summarize_blocks,
 )
+from cnb_application.alert_policy import (
+    AlertEscalationPolicy,
+    AlertEscalationPolicyDecision,
+)
 from cnb_application.configuration_service import SecretStore
 from cnb_domain import (
     AlertSeverity,
@@ -127,12 +131,20 @@ class TelegramWebhookStatus:
 
 
 @dataclass(frozen=True, slots=True)
+class ChannelAlertEscalationCandidate:
+    """一个最多推进一级且已解析通知路由的生命周期候选。"""
+
+    lifecycle: ChannelAlertLifecycle
+    decision: AlertEscalationPolicyDecision
+
+
+@dataclass(frozen=True, slots=True)
 class ChannelAlertLifecycleEvaluation:
     """一次告警评估得到的活动事件与待升级事件。"""
 
     alerts: tuple[ChannelAlert, ...]
     active_lifecycles: tuple[ChannelAlertLifecycle, ...]
-    due_escalations: tuple[ChannelAlertLifecycle, ...]
+    due_escalations: tuple[ChannelAlertEscalationCandidate, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -295,6 +307,7 @@ class ChannelRepository(Protocol):
         tenant_id: UUID,
         agent_id: UUID,
         lifecycle_ids: tuple[UUID, ...],
+        escalation_level: int,
         escalated_at: datetime,
     ) -> tuple[ChannelAlertLifecycle, ...]: ...
 
@@ -1316,23 +1329,22 @@ class ChannelService:
             alerts=alerts,
             observed_at=observed_at,
         )
-        escalation_enabled = self._boolean(
-            values["alerts.notification.escalation_enabled"],
-            "alerts.notification.escalation_enabled",
-        )
-        escalation_minutes = self._integer(
-            values["alerts.notification.escalation_after_minutes"],
-            "alerts.notification.escalation_after_minutes",
-        )
-        cutoff = observed_at - timedelta(minutes=escalation_minutes)
-        due = (
-            tuple(
-                item
-                for item in active
-                if item.escalated_at is None and item.first_occurred_at <= cutoff
-            )
-            if escalation_enabled
-            else ()
+        policy = AlertEscalationPolicy.from_values(values)
+        due = tuple(
+            ChannelAlertEscalationCandidate(lifecycle=item, decision=decision)
+            for item in active
+            if (
+                decision := policy.evaluate(
+                    severity=item.severity,
+                    duration_minutes=max(
+                        0,
+                        int((observed_at - item.first_occurred_at).total_seconds() // 60),
+                    ),
+                    current_level=item.escalation_level,
+                    evaluated_at=observed_at,
+                )
+            ).target_level
+            is not None
         )
         return ChannelAlertLifecycleEvaluation(
             alerts=alerts,
@@ -1346,6 +1358,7 @@ class ChannelService:
         tenant_id: UUID,
         agent_id: UUID,
         lifecycle_ids: tuple[UUID, ...],
+        escalation_level: int,
         escalated_at: datetime,
     ) -> tuple[ChannelAlertLifecycle, ...]:
         if not lifecycle_ids:
@@ -1354,6 +1367,7 @@ class ChannelService:
             tenant_id=tenant_id,
             agent_id=agent_id,
             lifecycle_ids=lifecycle_ids,
+            escalation_level=escalation_level,
             escalated_at=escalated_at.astimezone(UTC),
         )
 

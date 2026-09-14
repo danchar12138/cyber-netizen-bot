@@ -1376,12 +1376,14 @@ async def test_alert_lifecycle_queries_and_escalation_are_tenant_agent_isolated(
         tenant_id=other_tenant_id,
         agent_id=agent_id,
         lifecycle_ids=(own[0].id,),
+        escalation_level=1,
         escalated_at=observed_at + timedelta(minutes=1),
     )
     marked = await repository.mark_alert_lifecycles_escalated(
         tenant_id=tenant_id,
         agent_id=agent_id,
         lifecycle_ids=(own[0].id,),
+        escalation_level=1,
         escalated_at=observed_at + timedelta(minutes=2),
     )
     own_history = await repository.list_alert_lifecycles(
@@ -1396,6 +1398,8 @@ async def test_alert_lifecycle_queries_and_escalation_are_tenant_agent_isolated(
     assert cross_tenant_mark == ()
     assert len(marked) == 1
     assert marked[0].escalated_at == observed_at + timedelta(minutes=2)
+    assert marked[0].escalation_level == 1
+    assert marked[0].last_escalated_at == observed_at + timedelta(minutes=2)
     assert own_history == marked
 
 
@@ -1441,6 +1445,26 @@ async def test_alert_lifecycle_escalation_configuration_and_metrics() -> None:
         "alerts.channel.health_degraded_minutes": 15,
         "alerts.notification.escalation_enabled": False,
         "alerts.notification.escalation_after_minutes": 15,
+        "alerts.notification.escalation_level_2_after_minutes": 120,
+        "alerts.notification.escalation_level_3_after_minutes": 360,
+        "alerts.notification.adapter": "webhook",
+        "alerts.notification.escalation_level_1_adapter": "default",
+        "alerts.notification.escalation_level_2_adapter": "default",
+        "alerts.notification.escalation_level_3_adapter": "default",
+        "alerts.notification.warning_max_escalation_level": 1,
+        "alerts.notification.on_call_timezone": "UTC",
+        "alerts.notification.on_call_weekdays": [
+            "mon",
+            "tue",
+            "wed",
+            "thu",
+            "fri",
+            "sat",
+            "sun",
+        ],
+        "alerts.notification.on_call_start_hour": 0,
+        "alerts.notification.on_call_end_hour": 0,
+        "alerts.notification.out_of_hours_adapter": "default",
     }
 
     disabled = await service.reconcile_alert_lifecycles(
@@ -1460,7 +1484,10 @@ async def test_alert_lifecycle_escalation_configuration_and_metrics() -> None:
 
     assert disabled.due_escalations == ()
     assert len(enabled.due_escalations) == 1
-    assert enabled.due_escalations[0].first_occurred_at == evaluated_at - timedelta(minutes=30)
+    assert enabled.due_escalations[0].lifecycle.first_occurred_at == (
+        evaluated_at - timedelta(minutes=30)
+    )
+    assert enabled.due_escalations[0].decision.target_level == 1
 
     metrics_repository = MemoryChannelRepository()
     first_opened = evaluated_at - timedelta(hours=3)
@@ -1512,6 +1539,7 @@ async def test_alert_lifecycle_escalation_configuration_and_metrics() -> None:
         tenant_id=tenant_id,
         agent_id=agent_id,
         lifecycle_ids=(third[0].id,),
+        escalation_level=1,
         escalated_at=third_opened + timedelta(minutes=30),
     )
     metrics_service = ChannelService(

@@ -6,6 +6,7 @@ from types import MappingProxyType
 from typing import Protocol
 from uuid import UUID
 
+from cnb_application.alert_policy import AlertEscalationPolicy, AlertPolicyValidationError
 from cnb_application.configuration_registry import (
     ConfigurationRegistry,
     ConfigurationValidationError,
@@ -146,6 +147,7 @@ class ConfigurationService:
             seen.add(identity)
             self._registry.validate_entry(entry)
         self._validate_memory_recall_entries(values)
+        self._validate_alert_notification_entries(values)
         return await self._repository.create_draft(
             note=note.strip() if note and note.strip() else None,
             values=values,
@@ -303,6 +305,7 @@ class ConfigurationService:
             seen.add(identity)
             self._registry.validate_entry(entry)
         self._validate_memory_recall_entries(version.values)
+        self._validate_alert_notification_entries(version.values)
 
     def _validate_memory_recall_entries(self, entries: tuple[ConfigEntry, ...]) -> None:
         """阻止发布不可执行的记忆候选池和全零混合权重。"""
@@ -332,6 +335,20 @@ class ConfigurationService:
             weights = [values.get(key, defaults[key]) for key in weight_keys]
             if all(isinstance(value, (int, float)) for value in weights) and not any(weights):
                 raise ConfigurationValidationError("记忆混合召回权重不能全部为 0")
+
+    def _validate_alert_notification_entries(self, entries: tuple[ConfigEntry, ...]) -> None:
+        """在配置发布前校验升级阈值、时区、工作日和路由组合。"""
+        grouped: dict[tuple[ConfigScope, UUID | None], dict[str, JsonValue]] = {}
+        for entry in entries:
+            if entry.key.startswith("alerts.notification."):
+                grouped.setdefault((entry.scope_type, entry.scope_id), {})[entry.key] = entry.value
+        defaults = {item.key: item.default for item in self._registry.all()}
+        for overrides in grouped.values():
+            values = {**defaults, **overrides}
+            try:
+                AlertEscalationPolicy.from_values(values)
+            except AlertPolicyValidationError as error:
+                raise ConfigurationValidationError(str(error)) from error
 
     @staticmethod
     def _entry_map(

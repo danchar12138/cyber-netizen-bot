@@ -585,6 +585,199 @@
         "title": "AgentRunStatus",
         "type": "string"
       },
+      "AlertPolicySimulationCommand": {
+        "description": "无副作用的当前 Agent 告警升级策略模拟输入。",
+        "properties": {
+          "current_level": {
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Current Level",
+            "type": "integer"
+          },
+          "duration_minutes": {
+            "maximum": 525600.0,
+            "minimum": 0.0,
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "evaluated_at": {
+            "format": "date-time",
+            "title": "Evaluated At",
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AlertSeverity"
+          }
+        },
+        "required": [
+          "severity",
+          "duration_minutes",
+          "current_level",
+          "evaluated_at"
+        ],
+        "title": "AlertPolicySimulationCommand",
+        "type": "object"
+      },
+      "AlertPolicySimulationResponse": {
+        "description": "不包含通知目标或 Secret 的策略模拟结果。",
+        "properties": {
+          "adapter": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adapter"
+          },
+          "current_level": {
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Current Level",
+            "type": "integer"
+          },
+          "duration_minutes": {
+            "minimum": 0.0,
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "evaluated_at": {
+            "format": "date-time",
+            "title": "Evaluated At",
+            "type": "string"
+          },
+          "local_time": {
+            "format": "date-time",
+            "title": "Local Time",
+            "type": "string"
+          },
+          "matched_level": {
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Matched Level",
+            "type": "integer"
+          },
+          "maximum_level": {
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Maximum Level",
+            "type": "integer"
+          },
+          "on_call": {
+            "title": "On Call",
+            "type": "boolean"
+          },
+          "reason": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "reason_code": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AlertSeverity"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/AlertPolicySimulationStepResponse"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "target_level": {
+            "anyOf": [
+              {
+                "maximum": 3.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Level"
+          },
+          "timezone": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "severity",
+          "duration_minutes",
+          "current_level",
+          "maximum_level",
+          "matched_level",
+          "on_call",
+          "evaluated_at",
+          "local_time",
+          "timezone",
+          "reason_code",
+          "reason",
+          "steps"
+        ],
+        "title": "AlertPolicySimulationResponse",
+        "type": "object"
+      },
+      "AlertPolicySimulationStepResponse": {
+        "description": "一个升级等级的安全模拟明细。",
+        "properties": {
+          "adapter": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Adapter",
+            "type": "string"
+          },
+          "completed": {
+            "title": "Completed",
+            "type": "boolean"
+          },
+          "eligible": {
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "level": {
+            "maximum": 3.0,
+            "minimum": 1.0,
+            "title": "Level",
+            "type": "integer"
+          },
+          "reached": {
+            "title": "Reached",
+            "type": "boolean"
+          },
+          "threshold_minutes": {
+            "minimum": 1.0,
+            "title": "Threshold Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "level",
+          "threshold_minutes",
+          "adapter",
+          "eligible",
+          "reached",
+          "completed"
+        ],
+        "title": "AlertPolicySimulationStepResponse",
+        "type": "object"
+      },
       "AlertSeverity": {
         "description": "确定性阈值告警的严重级别。",
         "enum": [
@@ -2150,6 +2343,12 @@
             ],
             "title": "Escalated At"
           },
+          "escalation_level": {
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Escalation Level",
+            "type": "integer"
+          },
           "first_occurred_at": {
             "format": "date-time",
             "title": "First Occurred At",
@@ -2159,6 +2358,18 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "last_escalated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Escalated At"
           },
           "last_evaluated_at": {
             "format": "date-time",
@@ -2232,6 +2443,8 @@
           "last_occurred_at",
           "last_evaluated_at",
           "escalated_at",
+          "escalation_level",
+          "last_escalated_at",
           "resolved_at"
         ],
         "title": "ChannelAlertLifecycleResponse",
@@ -15707,6 +15920,128 @@
           }
         },
         "summary": "将告警摘要放入可靠后台队列，不在 API 请求内访问第三方",
+        "tags": [
+          "渠道与适配器"
+        ]
+      }
+    },
+    "/api/v1/channels/operations/alerts/policy/simulate": {
+      "post": {
+        "description": "按当前 Agent 生效配置模拟升级路由，不读取密钥或发送通知。",
+        "operationId": "post_api_v1_channels_operations_alerts_policy_simulate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertPolicySimulationCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertPolicySimulationResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "按当前 Agent 生效配置模拟升级路由，不读取密钥或发送通知",
         "tags": [
           "渠道与适配器"
         ]

@@ -39,6 +39,9 @@ from cnb_contracts.attachment import (
 )
 from cnb_contracts.authentication import AuthenticationConfigResponse
 from cnb_contracts.channels import (
+    AlertPolicySimulationCommand,
+    AlertPolicySimulationResponse,
+    AlertPolicySimulationStepResponse,
     ChannelAlertDispositionClearCommand,
     ChannelAlertDispositionCommand,
     ChannelAlertDispositionResponse,
@@ -264,6 +267,9 @@ __all__ = [
     "AgentLifecycleImpactResponse",
     "AgentRunResponse",
     "AgentRunSloResponse",
+    "AlertPolicySimulationCommand",
+    "AlertPolicySimulationResponse",
+    "AlertPolicySimulationStepResponse",
     "ApiError",
     "ApiErrorDetail",
     "ApiErrorResponse",

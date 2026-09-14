@@ -366,6 +366,124 @@ export type AgentRunSloResponse = {
 export type AgentRunStatus = 'queued' | 'running' | 'completed' | 'cancelled' | 'failed';
 
 /**
+ * AlertPolicySimulationCommand
+ *
+ * 无副作用的当前 Agent 告警升级策略模拟输入。
+ */
+export type AlertPolicySimulationCommand = {
+    /**
+     * Current Level
+     */
+    current_level: number;
+    /**
+     * Duration Minutes
+     */
+    duration_minutes: number;
+    /**
+     * Evaluated At
+     */
+    evaluated_at: string;
+    severity: AlertSeverity;
+};
+
+/**
+ * AlertPolicySimulationResponse
+ *
+ * 不包含通知目标或 Secret 的策略模拟结果。
+ */
+export type AlertPolicySimulationResponse = {
+    /**
+     * Adapter
+     */
+    adapter?: string | null;
+    /**
+     * Current Level
+     */
+    current_level: number;
+    /**
+     * Duration Minutes
+     */
+    duration_minutes: number;
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+    /**
+     * Evaluated At
+     */
+    evaluated_at: string;
+    /**
+     * Local Time
+     */
+    local_time: string;
+    /**
+     * Matched Level
+     */
+    matched_level: number;
+    /**
+     * Maximum Level
+     */
+    maximum_level: number;
+    /**
+     * On Call
+     */
+    on_call: boolean;
+    /**
+     * Reason
+     */
+    reason: string;
+    /**
+     * Reason Code
+     */
+    reason_code: string;
+    severity: AlertSeverity;
+    /**
+     * Steps
+     */
+    steps: Array<AlertPolicySimulationStepResponse>;
+    /**
+     * Target Level
+     */
+    target_level?: number | null;
+    /**
+     * Timezone
+     */
+    timezone: string;
+};
+
+/**
+ * AlertPolicySimulationStepResponse
+ *
+ * 一个升级等级的安全模拟明细。
+ */
+export type AlertPolicySimulationStepResponse = {
+    /**
+     * Adapter
+     */
+    adapter: string;
+    /**
+     * Completed
+     */
+    completed: boolean;
+    /**
+     * Eligible
+     */
+    eligible: boolean;
+    /**
+     * Level
+     */
+    level: number;
+    /**
+     * Reached
+     */
+    reached: boolean;
+    /**
+     * Threshold Minutes
+     */
+    threshold_minutes: number;
+};
+
+/**
  * AlertSeverity
  *
  * 确定性阈值告警的严重级别。
@@ -1300,6 +1418,10 @@ export type ChannelAlertLifecycleResponse = {
      */
     escalated_at: string | null;
     /**
+     * Escalation Level
+     */
+    escalation_level: number;
+    /**
      * First Occurred At
      */
     first_occurred_at: string;
@@ -1307,6 +1429,10 @@ export type ChannelAlertLifecycleResponse = {
      * Id
      */
     id: string;
+    /**
+     * Last Escalated At
+     */
+    last_escalated_at: string | null;
     /**
      * Last Evaluated At
      */
@@ -8876,6 +9002,63 @@ export type PostApiV1ChannelsOperationsAlertsNotifyQueueResponses = {
 };
 
 export type PostApiV1ChannelsOperationsAlertsNotifyQueueResponse = PostApiV1ChannelsOperationsAlertsNotifyQueueResponses[keyof PostApiV1ChannelsOperationsAlertsNotifyQueueResponses];
+
+export type PostApiV1ChannelsOperationsAlertsPolicySimulateData = {
+    body: AlertPolicySimulationCommand;
+    path?: never;
+    query?: never;
+    url: '/api/v1/channels/operations/alerts/policy/simulate';
+};
+
+export type PostApiV1ChannelsOperationsAlertsPolicySimulateErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1ChannelsOperationsAlertsPolicySimulateError = PostApiV1ChannelsOperationsAlertsPolicySimulateErrors[keyof PostApiV1ChannelsOperationsAlertsPolicySimulateErrors];
+
+export type PostApiV1ChannelsOperationsAlertsPolicySimulateResponses = {
+    /**
+     * 请求成功
+     */
+    200: AlertPolicySimulationResponse;
+};
+
+export type PostApiV1ChannelsOperationsAlertsPolicySimulateResponse = PostApiV1ChannelsOperationsAlertsPolicySimulateResponses[keyof PostApiV1ChannelsOperationsAlertsPolicySimulateResponses];
 
 export type PostApiV1ChannelsOperationsAlertsByChannelIdAcknowledgeData = {
     body: ChannelAlertDispositionCommand;

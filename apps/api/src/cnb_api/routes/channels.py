@@ -19,6 +19,7 @@ from cnb_application import (
     AlertNotificationDeliveryError,
     AlertNotificationService,
     AlertNotificationValidationError,
+    AlertPolicyValidationError,
     ChannelAlert,
     ChannelConflictError,
     ChannelErrorMetrics,
@@ -32,6 +33,8 @@ from cnb_application import (
     TelegramWebhookStatus,
 )
 from cnb_contracts import (
+    AlertPolicySimulationCommand,
+    AlertPolicySimulationResponse,
     ChannelAlertDispositionClearCommand,
     ChannelAlertDispositionCommand,
     ChannelAlertDispositionResponse,
@@ -481,6 +484,35 @@ async def channel_alert_lifecycles(
             for item in rows
         )
     )
+
+
+@router.post(
+    "/operations/alerts/policy/simulate",
+    response_model=AlertPolicySimulationResponse,
+    dependencies=[Depends(require_permission(AdminPermission.CHANNEL_READ))],
+)
+async def simulate_alert_policy(
+    command: AlertPolicySimulationCommand,
+    principal: Annotated[AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_READ))],
+    service: Annotated[AlertNotificationService, Depends(get_alert_notification_service)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+) -> AlertPolicySimulationResponse:
+    """按当前 Agent 生效配置模拟升级路由，不读取密钥或发送通知。"""
+    try:
+        decision = await service.simulate_policy(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            severity=command.severity,
+            duration_minutes=command.duration_minutes,
+            current_level=command.current_level,
+            evaluated_at=command.evaluated_at,
+        )
+    except AlertPolicyValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(error),
+        ) from error
+    return AlertPolicySimulationResponse.model_validate(decision, from_attributes=True)
 
 
 @router.get(

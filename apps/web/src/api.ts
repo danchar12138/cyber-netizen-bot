@@ -3,6 +3,8 @@ import type {
   AgentLifecycleImpactResponse,
   AgentLifecycleStatus,
   AgentRunResponse,
+  AlertPolicySimulationCommand,
+  AlertPolicySimulationResponse,
   AttachmentReservationResponse,
   BackgroundJobReplayChainItem as BackgroundJobReplayChainItemResponse,
   BackgroundJobReplayChainResponse,
@@ -255,6 +257,8 @@ export type ChannelAlertLifecycle = ChannelAlertLifecycleResponse
 export type ChannelAlertLifecycleList = ChannelAlertLifecycleListResponse
 export type ChannelAlertLifecycleMetrics = ChannelAlertLifecycleMetricsResponse
 export type { ChannelAlertLifecycleStatus }
+export type AlertPolicySimulation = AlertPolicySimulationResponse
+export type AlertPolicySimulationInput = AlertPolicySimulationCommand
 export type ChannelAlertDisposition = ChannelAlertDispositionResponse
 export type ChannelAlertNotification = ChannelAlertNotificationResponse
 export type ChannelAlertNotificationJob = ChannelAlertNotificationJobResponse
@@ -1373,6 +1377,9 @@ export const getChannelAlertLifecycleMetrics = (
 ) => apiSdk.getApiV1ChannelsOperationsAlertsLifecyclesMetrics({
   query: { window_minutes: windowMinutes, bucket_minutes: bucketMinutes },
 })
+
+export const simulateChannelAlertPolicy = (command: AlertPolicySimulationInput) =>
+  apiSdk.postApiV1ChannelsOperationsAlertsPolicySimulate({ body: command })
 
 export const getChannelNotificationTimeline = (filters: {
   status?: BackgroundJobStatus

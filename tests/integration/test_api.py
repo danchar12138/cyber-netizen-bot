@@ -18,6 +18,7 @@ from cnb_contracts import (
     AdminRoleListResponse,
     AdminSessionResponse,
     AgentLifecycleImpactResponse,
+    AlertPolicySimulationResponse,
     ApiErrorResponse,
     BootstrapSettingsResponse,
     ChannelAlertLifecycleListResponse,
@@ -2240,6 +2241,34 @@ async def test_channel_alert_lifecycle_api_is_filtered_isolated_and_safe() -> No
             json={"name": "生命周期隔离伙伴"},
         )
         other_agent_id = UUID(other_agent.json()["id"])
+        policy_draft_response = await client.post(
+            "/api/v1/configuration/drafts",
+            json={
+                "note": "告警策略 Agent 隔离测试",
+                "values": [
+                    {
+                        "key": "alerts.notification.escalation_level_1_adapter",
+                        "scope_type": "agent",
+                        "scope_id": str(identity.agent_id),
+                        "value": "feishu_webhook",
+                    },
+                    {
+                        "key": "alerts.notification.escalation_level_1_adapter",
+                        "scope_type": "agent",
+                        "scope_id": str(other_agent_id),
+                        "value": "email",
+                    },
+                    {
+                        "key": "alerts.notification.webhook_url",
+                        "scope_type": "agent",
+                        "scope_id": str(identity.agent_id),
+                        "value": "https://private-alert-target.example/hook",
+                    },
+                ],
+            },
+        )
+        policy_draft = ConfigVersionResponse.model_validate(policy_draft_response.json())
+        await client.post(f"/api/v1/configuration/versions/{policy_draft.id}/publish")
         own_channel = await client.post(
             "/api/v1/channels",
             json={
@@ -2323,6 +2352,7 @@ async def test_channel_alert_lifecycle_api_is_filtered_isolated_and_safe() -> No
             tenant_id=identity.tenant_id,
             agent_id=identity.agent_id,
             lifecycle_ids=(active_lifecycle.id,),
+            escalation_level=1,
             escalated_at=now - timedelta(minutes=3),
         )
         await channel_repository.reconcile_alert_lifecycles(
@@ -2371,6 +2401,21 @@ async def test_channel_alert_lifecycle_api_is_filtered_isolated_and_safe() -> No
             "/api/v1/channels/operations/alerts/notifications",
             params={"event": "escalation", "limit": 20},
         )
+        simulation_command = {
+            "severity": "critical",
+            "duration_minutes": 40,
+            "current_level": 0,
+            "evaluated_at": "2026-09-14T01:00:00Z",
+        }
+        simulation_response = await client.post(
+            "/api/v1/channels/operations/alerts/policy/simulate",
+            json=simulation_command,
+        )
+        other_simulation_response = await client.post(
+            "/api/v1/channels/operations/alerts/policy/simulate",
+            headers={"X-CNB-Agent-ID": str(other_agent_id)},
+            json=simulation_command,
+        )
 
     lifecycles = ChannelAlertLifecycleListResponse.model_validate(lifecycle_response.json())
     filtered = ChannelAlertLifecycleListResponse.model_validate(filtered_response.json())
@@ -2403,7 +2448,22 @@ async def test_channel_alert_lifecycle_api_is_filtered_isolated_and_safe() -> No
     assert timeline["items"][0]["event"] == "escalation"
     assert timeline["items"][0]["adapter"] == "webhook"
     assert timeline["items"][0]["alert_count"] == 1
-    combined_response = lifecycle_response.text + metrics_response.text + timeline_response.text
+    simulation = AlertPolicySimulationResponse.model_validate(simulation_response.json())
+    other_simulation = AlertPolicySimulationResponse.model_validate(
+        other_simulation_response.json()
+    )
+    assert simulation_response.status_code == other_simulation_response.status_code == 200
+    assert (simulation.target_level, simulation.adapter) == (1, "feishu_webhook")
+    assert (other_simulation.target_level, other_simulation.adapter) == (1, "email")
+    combined_response = (
+        lifecycle_response.text
+        + metrics_response.text
+        + timeline_response.text
+        + simulation_response.text
+        + other_simulation_response.text
+    )
+    assert "secret" not in combined_response.casefold()
+    assert "private-alert-target.example" not in combined_response
     assert other_alert.alert_key not in combined_response
     assert active_alert.alert_key not in timeline_response.text
     assert active_alert.summary not in combined_response

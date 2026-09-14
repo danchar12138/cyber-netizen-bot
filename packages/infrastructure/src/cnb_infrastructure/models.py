@@ -2372,6 +2372,8 @@ class ChannelAlertLifecycleModel(Base):
     last_occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    escalation_level: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     recovery_duration_seconds: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -2387,6 +2389,10 @@ class ChannelAlertLifecycleModel(Base):
             name="ck_channel_alert_lifecycles_severity",
         ),
         CheckConstraint("occurrences >= 1", name="ck_channel_alert_lifecycles_occurrences"),
+        CheckConstraint(
+            "escalation_level >= 0 AND escalation_level <= 3",
+            name="ck_channel_alert_lifecycles_escalation_level",
+        ),
         CheckConstraint(
             "recovery_duration_seconds IS NULL OR recovery_duration_seconds >= 0",
             name="ck_channel_alert_lifecycles_recovery_duration",

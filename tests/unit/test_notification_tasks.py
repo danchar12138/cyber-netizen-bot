@@ -12,8 +12,11 @@ from cnb_adapters import (
     NotificationDeliveryResult,
 )
 from cnb_application import (
+    AlertEscalationPolicyDecision,
+    AlertEscalationPolicyStep,
     AlertNotificationService,
     BackgroundTaskService,
+    ChannelAlertEscalationCandidate,
     ChannelAlertLifecycleEvaluation,
     ConfigurationService,
     NotificationDeliveryTaskHandler,
@@ -158,10 +161,40 @@ class ActiveAlerts:
             created_at=observed_at - timedelta(hours=1),
             updated_at=observed_at,
         )
+        decision = AlertEscalationPolicyDecision(
+            enabled=True,
+            severity=alert.severity,
+            duration_minutes=60,
+            current_level=0,
+            maximum_level=3,
+            matched_level=1,
+            target_level=1,
+            adapter="webhook",
+            on_call=True,
+            evaluated_at=observed_at,
+            local_time=observed_at,
+            timezone="UTC",
+            reason_code="eligible_for_escalation",
+            reason="已达到下一升级等级并命中通知路由",
+            steps=(
+                AlertEscalationPolicyStep(
+                    level=1,
+                    threshold_minutes=30,
+                    adapter="webhook",
+                    eligible=True,
+                    reached=True,
+                    completed=False,
+                ),
+            ),
+        )
         return ChannelAlertLifecycleEvaluation(
             alerts=alerts,
             active_lifecycles=(lifecycle,),
-            due_escalations=(lifecycle,) if self.escalation_due else (),
+            due_escalations=(
+                (ChannelAlertEscalationCandidate(lifecycle=lifecycle, decision=decision),)
+                if self.escalation_due
+                else ()
+            ),
         )
 
     async def mark_alert_lifecycles_escalated(self, **values: object) -> tuple[object, ...]:
@@ -437,6 +470,7 @@ async def test_alert_notification_marks_escalation_only_after_task_is_enqueued()
     assert escalation_call["tenant_id"] == tenant_id
     assert escalation_call["agent_id"] == agent_id
     assert escalation_call["lifecycle_ids"] == (alerts.lifecycle_id,)
+    assert escalation_call["escalation_level"] == 1
     assert isinstance(escalation_call["escalated_at"], datetime)
 
 

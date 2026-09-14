@@ -588,9 +588,10 @@ class MemoryChannelRepository:
         tenant_id: UUID,
         agent_id: UUID,
         lifecycle_ids: tuple[UUID, ...],
+        escalation_level: int,
         escalated_at: datetime,
     ) -> tuple[ChannelAlertLifecycle, ...]:
-        """只在可靠通知已入队后，为仍活动的事件确认首次升级。"""
+        """只在可靠通知已入队后，为仍活动的事件原子推进一级。"""
         async with self._lock:
             marked: list[ChannelAlertLifecycle] = []
             for lifecycle_id in lifecycle_ids:
@@ -600,10 +601,16 @@ class MemoryChannelRepository:
                     or item.tenant_id != tenant_id
                     or item.agent_id != agent_id
                     or item.status is not ChannelAlertLifecycleStatus.ACTIVE
-                    or item.escalated_at is not None
+                    or item.escalation_level != escalation_level - 1
                 ):
                     continue
-                updated = replace(item, escalated_at=escalated_at, updated_at=escalated_at)
+                updated = replace(
+                    item,
+                    escalated_at=item.escalated_at or escalated_at,
+                    escalation_level=escalation_level,
+                    last_escalated_at=escalated_at,
+                    updated_at=escalated_at,
+                )
                 self.alert_lifecycles[lifecycle_id] = updated
                 marked.append(updated)
             return tuple(marked)
@@ -1397,6 +1404,8 @@ class SqlAlchemyChannelRepository:
                         last_occurred_at=alert.last_occurred_at,
                         last_evaluated_at=observed_at,
                         escalated_at=None,
+                        escalation_level=0,
+                        last_escalated_at=None,
                         resolved_at=None,
                         recovery_duration_seconds=None,
                         created_at=observed_at,
@@ -1447,6 +1456,7 @@ class SqlAlchemyChannelRepository:
         tenant_id: UUID,
         agent_id: UUID,
         lifecycle_ids: tuple[UUID, ...],
+        escalation_level: int,
         escalated_at: datetime,
     ) -> tuple[ChannelAlertLifecycle, ...]:
         if not lifecycle_ids:
@@ -1461,13 +1471,16 @@ class SqlAlchemyChannelRepository:
                         ChannelAlertLifecycleModel.id.in_(lifecycle_ids),
                         ChannelAlertLifecycleModel.status
                         == ChannelAlertLifecycleStatus.ACTIVE.value,
-                        ChannelAlertLifecycleModel.escalated_at.is_(None),
+                        ChannelAlertLifecycleModel.escalation_level == escalation_level - 1,
                     )
                     .with_for_update()
                 )
             ).all()
             for row in rows:
-                row.escalated_at = escalated_at
+                if row.escalated_at is None:
+                    row.escalated_at = escalated_at
+                row.escalation_level = escalation_level
+                row.last_escalated_at = escalated_at
                 row.updated_at = escalated_at
             await session.flush()
             return tuple(self._lifecycle(row) for row in rows)
@@ -1699,6 +1712,8 @@ class SqlAlchemyChannelRepository:
             last_occurred_at=row.last_occurred_at,
             last_evaluated_at=row.last_evaluated_at,
             escalated_at=row.escalated_at,
+            escalation_level=row.escalation_level,
+            last_escalated_at=row.last_escalated_at,
             resolved_at=row.resolved_at,
             recovery_duration_seconds=row.recovery_duration_seconds,
             created_at=row.created_at,

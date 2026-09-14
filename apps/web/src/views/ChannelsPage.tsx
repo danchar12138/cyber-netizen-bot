@@ -24,6 +24,7 @@ import {
   clearTelegramWebhook,
   registerTelegramWebhook,
   setChannelCredential,
+  simulateChannelAlertPolicy,
   suppressChannelAlert,
   simulateChannel,
   testChannelConnection,
@@ -31,6 +32,7 @@ import {
   updateChannelInstance,
   type ChannelDiagnosticEvent,
   type ChannelAlert,
+  type AlertPolicySimulation,
   type ChannelAlertLifecycle,
   type ChannelAlertLifecycleStatus,
   type ChannelErrorMetric,
@@ -97,6 +99,17 @@ const notificationAdapterLabels = {
   email: '电子邮件',
 } as const
 
+function localDateTimeInputValue() {
+  const now = new Date()
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+
+function notificationAdapterLabel(value?: string | null) {
+  if (!value) return '无通知路由'
+  return notificationAdapterLabels[value as keyof typeof notificationAdapterLabels] ?? value
+}
+
 export function ChannelsPage() {
   const selectedAgentId = useSelectedAgentId()
   return <ChannelsPageContent key={selectedAgentId ?? 'default'} selectedAgentId={selectedAgentId} />
@@ -127,6 +140,10 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
   const [deliveryEditMessageId, setDeliveryEditMessageId] = useState('')
   const [metricsWindow, setMetricsWindow] = useState(60)
   const [alertNotificationWindow, setAlertNotificationWindow] = useState(60)
+  const [policySeverity, setPolicySeverity] = useState<'warning' | 'critical'>('critical')
+  const [policyDuration, setPolicyDuration] = useState(30)
+  const [policyCurrentLevel, setPolicyCurrentLevel] = useState(0)
+  const [policyEvaluatedAt, setPolicyEvaluatedAt] = useState(localDateTimeInputValue)
   const [lifecycleStatus, setLifecycleStatus] = useState<ChannelAlertLifecycleStatus | ''>('')
   const [lifecycleSeverity, setLifecycleSeverity] = useState<'warning' | 'critical' | ''>('')
   const [lifecycleChannelId, setLifecycleChannelId] = useState('')
@@ -317,6 +334,14 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     mutationFn: () => queueChannelAlertsNotification({ window_minutes: alertNotificationWindow, confirmed: true }),
     onSuccess: refresh,
   })
+  const policySimulation = useMutation<AlertPolicySimulation>({
+    mutationFn: () => simulateChannelAlertPolicy({
+      severity: policySeverity,
+      duration_minutes: policyDuration,
+      current_level: policyCurrentLevel,
+      evaluated_at: new Date(policyEvaluatedAt).toISOString(),
+    }),
+  })
 
   const submitCreate = (event: FormEvent) => {
     event.preventDefault()
@@ -481,9 +506,11 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     },
     {
       key: 'escalation', label: '升级',
-      render: (row) => row.escalated_at
-        ? <div className="table-primary"><strong>已升级</strong><small>{new Date(row.escalated_at).toLocaleString('zh-CN')}</small></div>
-        : '未升级',
+      render: (row) => <div className="table-primary">
+        <strong>L{row.escalation_level}</strong>
+        <small>{row.escalated_at ? `首次 ${new Date(row.escalated_at).toLocaleString('zh-CN')}` : '尚未升级'}</small>
+        {row.last_escalated_at && <small>最近 {new Date(row.last_escalated_at).toLocaleString('zh-CN')}</small>}
+      </div>,
     },
   ], [instanceNames])
   const notificationColumns = useMemo<Array<AdminTableColumn<NotificationDeliveryTimelineItem>>>(() => [
@@ -541,7 +568,7 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       alertNotificationQueueMutation.mutate()
     }
   }, [alertNotificationQueueMutation, alertNotificationWindow])
-  const operationError = createMutation.error ?? testMutation.error ?? updateMutation.error ?? credentialMutation.error ?? clearCredentialMutation.error ?? webhookStatusMutation.error ?? registerWebhookMutation.error ?? clearWebhookMutation.error ?? simulation.error ?? delivery.error ?? alertDispositionMutation.error ?? unsuppressMutation.error ?? alertNotificationMutation.error ?? alertNotificationQueueMutation.error
+  const operationError = createMutation.error ?? testMutation.error ?? updateMutation.error ?? credentialMutation.error ?? clearCredentialMutation.error ?? webhookStatusMutation.error ?? registerWebhookMutation.error ?? clearWebhookMutation.error ?? simulation.error ?? delivery.error ?? alertDispositionMutation.error ?? unsuppressMutation.error ?? alertNotificationMutation.error ?? alertNotificationQueueMutation.error ?? policySimulation.error
 
   return (
     <div className="page">
@@ -632,6 +659,31 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       <section className="panel table-panel" aria-label="渠道告警">
         <div className="panel-heading task-panel-heading"><div><span>策略聚合 · 不含远端错误正文</span><h2><BellRing size={18} />活动告警</h2></div><div className="table-actions"><select value={alertNotificationWindow} onChange={(event) => setAlertNotificationWindow(Number(event.target.value))} aria-label="告警通知时间窗"><option value={15}>最近 15 分钟</option><option value={60}>最近 1 小时</option><option value={360}>最近 6 小时</option><option value={1440}>最近 24 小时</option></select><button disabled={!canManageNotifications || alertNotificationQueueMutation.isPending} onClick={notifyAlerts}><Send size={12} />加入通知队列</button><small>{alerts.data?.items.length ?? 0} 条</small></div></div>
         <AdminDataTable rows={alerts.data?.items ?? []} columns={alertColumns} rowKey={(row) => `${row.channel_id}:${row.code}:${row.error_code ?? ''}`} searchableText={(row) => `${row.title} ${row.code} ${row.error_code ?? ''} ${row.severity}`} searchPlaceholder="搜索告警规则、错误码或级别" emptyMessage={alerts.isLoading ? '正在读取告警…' : '当前窗口没有活动告警'} />
+      </section>
+
+      <section className="panel channel-policy-panel" aria-label="告警升级策略模拟器">
+        <div className="panel-heading"><div><span>当前 Agent 生效配置 · 无外部副作用</span><h2><FlaskConical size={18} />告警升级策略模拟器</h2></div></div>
+        <form className="channel-policy-form" onSubmit={(event) => { event.preventDefault(); policySimulation.mutate() }}>
+          <label><span>严重级别</span><select value={policySeverity} onChange={(event) => setPolicySeverity(event.target.value as 'warning' | 'critical')}><option value="critical">严重</option><option value="warning">警告</option></select></label>
+          <label><span>持续分钟数</span><input type="number" min={0} max={525_600} value={policyDuration} onChange={(event) => setPolicyDuration(Number(event.target.value))} required /></label>
+          <label><span>当前升级等级</span><select value={policyCurrentLevel} onChange={(event) => setPolicyCurrentLevel(Number(event.target.value))}><option value={0}>L0 未升级</option><option value={1}>L1</option><option value={2}>L2</option><option value={3}>L3</option></select></label>
+          <label><span>模拟时间</span><input type="datetime-local" value={policyEvaluatedAt} onChange={(event) => setPolicyEvaluatedAt(event.target.value)} required /></label>
+          <button className="secondary-button" type="submit" disabled={!policyEvaluatedAt || policySimulation.isPending}><FlaskConical size={14} />评估策略</button>
+        </form>
+        {policySimulation.data && <div className="channel-policy-result" aria-live="polite">
+          <div className="channel-policy-decision">
+            <strong>{policySimulation.data.target_level ? `升级至 L${policySimulation.data.target_level}` : '本次不升级'}</strong>
+            <span>{policySimulation.data.reason}</span>
+            <small>{policySimulation.data.on_call ? '值班时段' : '非值班时段'} · {notificationAdapterLabel(policySimulation.data.adapter)} · {new Date(policySimulation.data.local_time).toLocaleString('zh-CN')} ({policySimulation.data.timezone})</small>
+          </div>
+          <div className="channel-policy-steps">
+            {policySimulation.data.steps.map((step) => <div key={step.level}>
+              <strong>L{step.level}</strong>
+              <span>{step.threshold_minutes} 分钟 · {notificationAdapterLabel(step.adapter)}</span>
+              <small>{step.completed ? '已完成' : !step.eligible ? '不适用于当前级别' : step.reached ? '已达到阈值' : '等待阈值'}</small>
+            </div>)}
+          </div>
+        </div>}
       </section>
 
       <section className="panel table-panel" aria-label="告警生命周期">
