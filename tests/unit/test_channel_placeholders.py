@@ -669,6 +669,13 @@ async def test_telegram_service_reports_ready_and_replays_without_duplicate_send
         channel_id=created.instance.id,
         limit=10,
     )
+    connection_events = await service.events(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        channel_id=created.instance.id,
+        event_type="connection.tested",
+        limit=10,
+    )
 
     assert service.catalog()[0].implementation_status == "ready"
     assert tested.implementation_status == "ready"
@@ -676,6 +683,8 @@ async def test_telegram_service_reports_ready_and_replays_without_duplicate_send
     assert first.external_message_id == replay.external_message_id == "88"
     assert replay.idempotent_replay is True
     assert len(transport.requests) == 2
+    assert len(connection_events) == 1
+    assert connection_events[0].event_type == "connection.tested"
     assert all(_TELEGRAM_TOKEN not in str(event.payload_summary) for event in events)
     assert all("安全发送" not in str(event.payload_summary) for event in events)
 

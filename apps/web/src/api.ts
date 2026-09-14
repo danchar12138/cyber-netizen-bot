@@ -1316,9 +1316,9 @@ export const deliverChannelMessage = (
   body: command,
 })
 
-export const getChannelEvents = (channelId?: string) => {
+export const getChannelEvents = (channelId?: string, eventType?: string) => {
   return apiSdk.getApiV1ChannelsDiagnosticsEvents({
-    query: { limit: 100, channel_id: channelId },
+    query: { limit: 100, channel_id: channelId, event_type: eventType },
   })
 }
 

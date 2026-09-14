@@ -132,6 +132,10 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     queryKey: ['channel-events', selectedAgentId],
     queryFn: () => getChannelEvents(),
   })
+  const connectionTests = useQuery({
+    queryKey: ['channel-connection-tests', selectedAgentId],
+    queryFn: () => getChannelEvents(undefined, 'connection.tested'),
+  })
   const operationMetrics = useQuery({
     queryKey: ['channel-operation-metrics', selectedAgentId, metricsWindow],
     queryFn: () => getChannelOperationMetrics(undefined, metricsWindow),
@@ -159,6 +163,7 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     await Promise.all([
       invalidateAcrossTabs(queryClient, ['channel-instances', selectedAgentId]),
       invalidateAcrossTabs(queryClient, ['channel-events', selectedAgentId]),
+      invalidateAcrossTabs(queryClient, ['channel-connection-tests', selectedAgentId]),
       invalidateAcrossTabs(queryClient, ['channel-operation-metrics', selectedAgentId, metricsWindow]),
       invalidateAcrossTabs(queryClient, ['channel-error-metrics', selectedAgentId, metricsWindow]),
       invalidateAcrossTabs(queryClient, ['channel-health-trend', selectedAgentId, metricsWindow]),
@@ -342,6 +347,15 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     { key: 'pending', label: '待处理更新', render: (row) => row.pending_update_count.toLocaleString('zh-CN') },
     { key: 'remote-error', label: '远端错误', render: (row) => row.remote_error_present ? '有记录' : '无记录' },
     { key: 'sampled', label: '采样时间', render: (row) => new Date(row.sampled_at).toLocaleString('zh-CN') },
+  ], [instanceNames])
+  const connectionTestColumns = useMemo<Array<AdminTableColumn<ChannelDiagnosticEvent>>>(() => [
+    {
+      key: 'channel', label: '渠道实例',
+      render: (row) => <div className="table-primary"><strong>{instanceNames.get(row.channel_id) ?? '未知渠道'}</strong><code>{row.channel_id}</code></div>,
+    },
+    { key: 'status', label: '探测结果', render: (row) => <span className={`entity-status task-${row.status}`}>{channelEventStatusLabels[row.status]}</span> },
+    { key: 'error', label: '安全错误码', render: (row) => row.error_code ? <code>{row.error_code}</code> : '无' },
+    { key: 'checked', label: '探测时间', render: (row) => new Date(row.occurred_at).toLocaleString('zh-CN') },
   ], [instanceNames])
   const runAlertDisposition = useCallback((row: ChannelAlert, action: 'acknowledge' | 'suppress') => {
     const reason = window.prompt(action === 'suppress' ? '请输入抑制原因' : '请输入确认备注', row.disposition_reason ?? '')?.trim()
@@ -535,6 +549,11 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       <section className="panel table-panel" aria-label="渠道健康趋势">
         <div className="panel-heading task-panel-heading"><div><span>安全快照 · 不含 URL、凭证或错误原文</span><h2><HeartPulse size={18} />健康趋势</h2></div><small>{healthTrend.data?.items.length ?? 0} 条快照</small></div>
         <AdminDataTable rows={healthTrend.data?.items ?? []} columns={healthSnapshotColumns} rowKey={(row) => row.id} searchableText={(row) => `${instanceNames.get(row.channel_id) ?? ''} ${row.channel_id} ${row.platform} ${row.status}`} searchPlaceholder="搜索渠道、平台或健康状态" emptyMessage={healthTrend.isLoading ? '正在读取健康快照…' : '当前窗口暂无健康快照'} />
+      </section>
+
+      <section className="panel table-panel" aria-label="连接探测记录">
+        <div className="panel-heading task-panel-heading"><div><span>Telegram 与其他正式适配器</span><h2><Cable size={18} />最近连接探测</h2></div><small>{connectionTests.data?.items.length ?? 0} 条</small></div>
+        <AdminDataTable rows={connectionTests.data?.items ?? []} columns={connectionTestColumns} rowKey={(row) => row.id} searchableText={(row) => `${instanceNames.get(row.channel_id) ?? ''} ${row.channel_id} ${row.status} ${row.error_code ?? ''}`} searchPlaceholder="搜索渠道、结果或错误码" emptyMessage={connectionTests.isLoading ? '正在读取连接探测…' : '暂无连接探测记录'} />
       </section>
 
       <section className="channel-lab-grid">

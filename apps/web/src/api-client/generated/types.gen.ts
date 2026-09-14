@@ -8013,6 +8013,10 @@ export type GetApiV1ChannelsDiagnosticsEventsData = {
          */
         channel_id?: string | null;
         /**
+         * Event Type
+         */
+        event_type?: string | null;
+        /**
          * Limit
          */
         limit?: number;

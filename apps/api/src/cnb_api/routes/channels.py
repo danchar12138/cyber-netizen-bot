@@ -1055,6 +1055,7 @@ async def list_events(
     service: Annotated[ChannelService, Depends(get_channel_service)],
     identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
     channel_id: Annotated[UUID | None, Query()] = None,
+    event_type: Annotated[str | None, Query(max_length=120)] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> ChannelDiagnosticEventListResponse:
     try:
@@ -1062,8 +1063,13 @@ async def list_events(
             tenant_id=principal.tenant_id,
             agent_id=identity.agent_id,
             channel_id=channel_id,
+            event_type=event_type,
             limit=limit,
         )
     except ChannelNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except ChannelValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
     return ChannelDiagnosticEventListResponse(items=tuple(_event_response(item) for item in events))

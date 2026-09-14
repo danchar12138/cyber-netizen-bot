@@ -173,6 +173,7 @@ class ChannelRepository(Protocol):
         tenant_id: UUID,
         agent_id: UUID,
         channel_id: UUID | None,
+        event_type: str | None,
         limit: int,
     ) -> tuple[ChannelDiagnosticEvent, ...]: ...
 
@@ -954,10 +955,16 @@ class ChannelService:
         tenant_id: UUID,
         agent_id: UUID,
         channel_id: UUID | None,
+        event_type: str | None = None,
         limit: int,
     ) -> tuple[ChannelDiagnosticEvent, ...]:
         if not 1 <= limit <= 500:
             raise ChannelValidationError("诊断事件数量必须位于 1 到 500 之间")
+        normalized_event_type = event_type.strip() if event_type is not None else None
+        if normalized_event_type is not None and not normalized_event_type:
+            raise ChannelValidationError("诊断事件类型不能为空")
+        if normalized_event_type is not None and len(normalized_event_type) > 120:
+            raise ChannelValidationError("诊断事件类型不能超过 120 个字符")
         if channel_id is not None:
             await self._required(
                 tenant_id=tenant_id,
@@ -968,6 +975,7 @@ class ChannelService:
             tenant_id=tenant_id,
             agent_id=agent_id,
             channel_id=channel_id,
+            event_type=normalized_event_type,
             limit=limit,
         )
 

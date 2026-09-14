@@ -219,6 +219,7 @@ class MemoryChannelRepository:
         tenant_id: UUID,
         agent_id: UUID,
         channel_id: UUID | None,
+        event_type: str | None,
         limit: int,
     ) -> tuple[ChannelDiagnosticEvent, ...]:
         visible_channel_ids = {
@@ -234,6 +235,7 @@ class MemoryChannelRepository:
                     if item.tenant_id == tenant_id
                     and item.channel_id in visible_channel_ids
                     and (channel_id is None or item.channel_id == channel_id)
+                    and (event_type is None or item.event_type == event_type)
                 ),
                 key=lambda item: (item.occurred_at, str(item.id)),
                 reverse=True,
@@ -672,6 +674,7 @@ class SqlAlchemyChannelRepository:
         tenant_id: UUID,
         agent_id: UUID,
         channel_id: UUID | None,
+        event_type: str | None,
         limit: int,
     ) -> tuple[ChannelDiagnosticEvent, ...]:
         statement = (
@@ -688,6 +691,8 @@ class SqlAlchemyChannelRepository:
         )
         if channel_id is not None:
             statement = statement.where(ChannelDiagnosticEventModel.channel_id == channel_id)
+        if event_type is not None:
+            statement = statement.where(ChannelDiagnosticEventModel.event_type == event_type)
         async with self._session_factory() as session:
             rows = (
                 await session.scalars(

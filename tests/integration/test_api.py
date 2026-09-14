@@ -2233,6 +2233,13 @@ async def test_telegram_remote_rate_limit_is_safe_and_recorded_by_api() -> None:
             },
         )
         events = await client.get("/api/v1/channels/diagnostics/events")
+        connection_test = await client.post(
+            f"/api/v1/channels/{channel.json()['id']}/connection-test"
+        )
+        connection_events = await client.get(
+            "/api/v1/channels/diagnostics/events",
+            params={"event_type": "connection.tested"},
+        )
 
     assert channel.status_code == 201
     assert delivery.status_code == 429
@@ -2245,7 +2252,14 @@ async def test_telegram_remote_rate_limit_is_safe_and_recorded_by_api() -> None:
     assert diagnostic["status"] == "rate_limited"
     assert diagnostic["error_code"] == "telegram_rate_limited"
     assert "不得进入诊断" not in str(diagnostic["payload_summary"])
-    assert len(transport.requests) == 1
+    assert len(transport.requests) == 2
+    assert transport.requests[1][0].endswith("/getMe")
+    assert connection_events.status_code == 200
+    assert connection_test.status_code == 200
+    assert connection_test.json()["health_status"] == "degraded"
+    assert remote_description not in connection_test.text
+    assert len(connection_events.json()["items"]) == 1
+    assert connection_events.json()["items"][0]["event_type"] == "connection.tested"
 
 
 async def test_telegram_webhook_management_api_is_agent_isolated_and_safe() -> None:
