@@ -22,7 +22,7 @@ from starlette.responses import Response
 from starlette.types import ASGIApp
 
 from cnb_application import ApiRequestObservation, ObservabilityRepository
-from cnb_domain import AdminPrincipal
+from cnb_domain import AdminPrincipal, DevelopmentIdentity
 from cnb_infrastructure import Settings
 
 
@@ -106,6 +106,12 @@ class SafeObservabilityMiddleware(BaseHTTPMiddleware):
                     span.set_attribute("cnb.request.id", request_id[:128])
                 principal = getattr(request.state, "admin_principal", None)
                 tenant_id = principal.tenant_id if isinstance(principal, AdminPrincipal) else None
+                request_identity = getattr(request.state, "request_identity", None)
+                agent_id = (
+                    request_identity.agent_id
+                    if isinstance(request_identity, DevelopmentIdentity)
+                    else None
+                )
                 if tenant_id is not None:
                     span.set_attribute("cnb.tenant.id", str(tenant_id))
                 run_id = request.path_params.get("run_id")
@@ -121,6 +127,7 @@ class SafeObservabilityMiddleware(BaseHTTPMiddleware):
                         status_code=status_code,
                         duration_ms=duration_ms,
                         occurred_at=datetime.now(UTC),
+                        agent_id=agent_id,
                     )
                 )
 

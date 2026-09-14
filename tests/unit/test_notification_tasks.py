@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from cnb_adapters import (
+    NotificationAdapterError,
     NotificationAdapterRegistry,
     NotificationDeliveryCommand,
     NotificationDeliveryResult,
@@ -23,6 +24,7 @@ from cnb_application import (
     build_default_registry,
 )
 from cnb_domain import (
+    ActiveAlert,
     AlertSeverity,
     BackgroundJob,
     BackgroundJobKind,
@@ -33,10 +35,13 @@ from cnb_domain import (
     ConfigEntry,
     ConfigScope,
     JsonValue,
+    ObservabilityAlertLifecycle,
+    ObservabilityAlertLifecycleStatus,
 )
 from cnb_infrastructure import (
     InMemoryTaskRepository,
     MemoryConfigurationRepository,
+    MemoryObservabilityRepository,
     MemorySecretStore,
 )
 
@@ -66,6 +71,17 @@ class RecordingAdapter:
 
     async def aclose(self) -> None:
         return None
+
+
+class FailingAdapter(RecordingAdapter):
+    async def deliver(
+        self,
+        *,
+        command: NotificationDeliveryCommand,
+        secret: str | None,
+    ) -> NotificationDeliveryResult:
+        del command, secret
+        raise NotificationAdapterError("transport_error", "测试投递失败", retryable=True)
 
 
 class RecordingAudit:
@@ -753,3 +769,158 @@ async def test_notification_task_resolves_runtime_secret_and_completes() -> None
     assert result["delivered"] is True
     assert adapter.commands[0].target == "https://notify.example.invalid/hook"
     assert adapter.commands[0].payload == {"event": "safe", "alert_count": 0}
+
+
+async def _observability_lifecycle(
+    repository: MemoryObservabilityRepository,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    now: datetime,
+) -> ObservabilityAlertLifecycle:
+    rows = await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(
+            ActiveAlert(
+                code="api_error_rate",
+                severity=AlertSeverity.CRITICAL,
+                title="API 错误率",
+                summary="安全摘要",
+                current_value=20.0,
+                threshold_value=1.0,
+                unit="%",
+                source_type="api",
+                source_key="api_error_rate",
+            ),
+        ),
+        observed_at=now,
+    )
+    return rows[0]
+
+
+async def test_observability_escalation_enqueue_is_idempotent_and_redacts_delivery_details() -> (
+    None
+):
+    tenant_id, agent_id = uuid4(), uuid4()
+    configuration = await _configuration(tenant_id, agent_id)
+    secrets = MemorySecretStore()
+    await secrets.set_secret(
+        key="alerts.notification.webhook_signing_secret",
+        scope_type=ConfigScope.AGENT,
+        scope_id=agent_id,
+        plaintext="runtime-secret",
+        actor_id=None,
+    )
+    tasks = InMemoryTaskRepository()
+    lifecycle = await _observability_lifecycle(
+        MemoryObservabilityRepository(),
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=datetime(2026, 9, 14, 12, tzinfo=UTC),
+    )
+    service = AlertNotificationService(
+        channel_service=EmptyAlerts(),  # type: ignore[arg-type]
+        configuration_service=configuration,
+        secret_store=secrets,
+        adapter_registry=NotificationAdapterRegistry((RecordingAdapter(),)),
+        audit_recorder=RecordingAudit(),
+        task_service=BackgroundTaskService(tasks),
+    )
+
+    first = await service.enqueue_observability_escalation(
+        lifecycle=lifecycle,
+        target_level=1,
+        adapter_key="webhook",
+    )
+    second = await service.enqueue_observability_escalation(
+        lifecycle=lifecycle,
+        target_level=1,
+        adapter_key="webhook",
+    )
+
+    assert first is not None and first.created is True
+    assert second is not None and second.created is False
+    assert len(tasks.jobs) == 1
+    payload = first.job.payload
+    assert "target" not in payload
+    assert "secret" not in str(payload).casefold()
+    assert "notify.example.invalid" not in str(payload)
+    assert payload["observability_escalation_level"] == 1
+
+
+async def test_observability_escalation_advances_only_after_successful_delivery() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    configuration = await _configuration(tenant_id, agent_id)
+    secrets = MemorySecretStore()
+    await secrets.set_secret(
+        key="alerts.notification.webhook_signing_secret",
+        scope_type=ConfigScope.AGENT,
+        scope_id=agent_id,
+        plaintext="runtime-secret",
+        actor_id=None,
+    )
+    repository = MemoryObservabilityRepository()
+    lifecycle = await _observability_lifecycle(
+        repository,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=datetime(2026, 9, 14, 12, tzinfo=UTC),
+    )
+
+    success_tasks = InMemoryTaskRepository()
+    enqueue_service = AlertNotificationService(
+        channel_service=EmptyAlerts(),  # type: ignore[arg-type]
+        configuration_service=configuration,
+        secret_store=secrets,
+        adapter_registry=NotificationAdapterRegistry((RecordingAdapter(),)),
+        audit_recorder=RecordingAudit(),
+        task_service=BackgroundTaskService(success_tasks),
+    )
+    success = await enqueue_service.enqueue_observability_escalation(
+        lifecycle=lifecycle,
+        target_level=1,
+        adapter_key="webhook",
+    )
+    assert success is not None
+    handler = NotificationDeliveryTaskHandler(
+        NotificationAdapterRegistry((RecordingAdapter(),)),
+        configuration,
+        secrets,
+        repository,
+    )
+    await handler.handle(success.job)
+    escalated = await repository.list_observability_alert_lifecycles(
+        tenant_id=tenant_id, agent_id=agent_id
+    )
+    assert escalated[0].escalation_level == 1
+
+    failing_tasks = InMemoryTaskRepository()
+    failing_enqueue = AlertNotificationService(
+        channel_service=EmptyAlerts(),  # type: ignore[arg-type]
+        configuration_service=configuration,
+        secret_store=secrets,
+        adapter_registry=NotificationAdapterRegistry((FailingAdapter(),)),
+        audit_recorder=RecordingAudit(),
+        task_service=BackgroundTaskService(failing_tasks),
+    )
+    retry = await failing_enqueue.enqueue_observability_escalation(
+        lifecycle=lifecycle,
+        target_level=2,
+        adapter_key="webhook",
+    )
+    assert retry is not None
+    failing_handler = NotificationDeliveryTaskHandler(
+        NotificationAdapterRegistry((FailingAdapter(),)),
+        configuration,
+        secrets,
+        repository,
+    )
+    with pytest.raises(RuntimeError):
+        await failing_handler.handle(retry.job)
+    unchanged = await repository.list_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        status=ObservabilityAlertLifecycleStatus.ACTIVE,
+    )
+    assert unchanged[0].escalation_level == 1

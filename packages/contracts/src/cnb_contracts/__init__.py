@@ -237,6 +237,7 @@ from cnb_contracts.observability import (
     LatencyPercentilesResponse,
     ModelUsageResponse,
     NotificationDeliveryMetricsResponse,
+    ObservabilityAlertLifecycleResponse,
     ObservabilityDashboardResponse,
     QueueMetricsResponse,
 )
@@ -458,6 +459,7 @@ __all__ = [
     "NotificationDeliveryMetricsResponse",
     "NotificationDeliveryTimelineItemResponse",
     "NotificationDeliveryTimelineResponse",
+    "ObservabilityAlertLifecycleResponse",
     "ObservabilityDashboardResponse",
     "PersonaStateResponse",
     "QueueMetricsResponse",

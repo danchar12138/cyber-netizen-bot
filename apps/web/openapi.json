@@ -86,6 +86,22 @@
           "severity": {
             "$ref": "#/components/schemas/AlertSeverity"
           },
+          "source_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Key"
+          },
+          "source_type": {
+            "default": "observability",
+            "title": "Source Type",
+            "type": "string"
+          },
           "summary": {
             "title": "Summary",
             "type": "string"
@@ -10339,11 +10355,169 @@
         "title": "NotificationDeliveryTimelineResponse",
         "type": "object"
       },
+      "ObservabilityAlertLifecycleResponse": {
+        "description": "通用可观测告警生命周期，不含通知目标或 Secret。",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "current_value": {
+            "title": "Current Value",
+            "type": "number"
+          },
+          "escalated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalated At"
+          },
+          "escalation_level": {
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Escalation Level",
+            "type": "integer"
+          },
+          "first_occurred_at": {
+            "format": "date-time",
+            "title": "First Occurred At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_escalated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Escalated At"
+          },
+          "last_evaluated_at": {
+            "format": "date-time",
+            "title": "Last Evaluated At",
+            "type": "string"
+          },
+          "last_occurred_at": {
+            "format": "date-time",
+            "title": "Last Occurred At",
+            "type": "string"
+          },
+          "occurrences": {
+            "minimum": 1.0,
+            "title": "Occurrences",
+            "type": "integer"
+          },
+          "recovery_duration_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recovery Duration Seconds"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AlertSeverity"
+          },
+          "source_key": {
+            "title": "Source Key",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ObservabilityAlertLifecycleStatus"
+          },
+          "threshold_value": {
+            "title": "Threshold Value",
+            "type": "number"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "agent_id",
+          "source_type",
+          "source_key",
+          "code",
+          "status",
+          "severity",
+          "occurrences",
+          "current_value",
+          "threshold_value",
+          "unit",
+          "first_occurred_at",
+          "last_occurred_at",
+          "last_evaluated_at",
+          "escalated_at",
+          "escalation_level",
+          "last_escalated_at",
+          "resolved_at"
+        ],
+        "title": "ObservabilityAlertLifecycleResponse",
+        "type": "object"
+      },
+      "ObservabilityAlertLifecycleStatus": {
+        "description": "通用可观测告警生命周期状态。",
+        "enum": [
+          "active",
+          "resolved"
+        ],
+        "title": "ObservabilityAlertLifecycleStatus",
+        "type": "string"
+      },
       "ObservabilityDashboardResponse": {
         "description": "管理后台可观测性完整聚合视图。",
         "properties": {
           "agent_runs": {
             "$ref": "#/components/schemas/AgentRunSloResponse"
+          },
+          "alert_lifecycles": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityAlertLifecycleResponse"
+            },
+            "title": "Alert Lifecycles",
+            "type": "array"
           },
           "alerts": {
             "items": {
@@ -29045,6 +29219,151 @@
         "summary": "追加关系事件并确定性推进关系阶段",
         "tags": [
           "记忆与关系"
+        ]
+      }
+    },
+    "/api/v1/observability/alert-lifecycles": {
+      "get": {
+        "operationId": "get_api_v1_observability_alert_lifecycles",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ObservabilityAlertLifecycleStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ObservabilityAlertLifecycleResponse"
+                  },
+                  "title": "Response Get Api V1 Observability Alert Lifecycles",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "执行可观测性操作",
+        "tags": [
+          "可观测性"
         ]
       }
     },

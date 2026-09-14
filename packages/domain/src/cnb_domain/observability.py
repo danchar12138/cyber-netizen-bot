@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from uuid import UUID
 
 
 class AlertSeverity(StrEnum):
@@ -121,6 +122,55 @@ class ActiveAlert:
     current_value: float
     threshold_value: float
     unit: str
+    source_type: str = "observability"
+    source_key: str | None = None
+    first_occurred_at: datetime | None = None
+    last_occurred_at: datetime | None = None
+
+    @property
+    def alert_key(self) -> str:
+        """返回不依赖标题和瞬时数值的稳定来源键。"""
+        return self.source_key or self.code
+
+
+class ObservabilityAlertLifecycleStatus(StrEnum):
+    """通用可观测告警生命周期状态。"""
+
+    ACTIVE = "active"
+    RESOLVED = "resolved"
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertLifecycle:
+    """不含业务正文的通用可观测告警事件生命周期。"""
+
+    id: UUID
+    tenant_id: UUID
+    agent_id: UUID
+    source_type: str
+    source_key: str
+    code: str
+    status: ObservabilityAlertLifecycleStatus
+    severity: AlertSeverity
+    occurrences: int
+    current_value: float
+    threshold_value: float
+    unit: str
+    first_occurred_at: datetime
+    last_occurred_at: datetime
+    last_evaluated_at: datetime
+    escalated_at: datetime | None
+    resolved_at: datetime | None
+    recovery_duration_seconds: int | None
+    created_at: datetime
+    updated_at: datetime
+    escalation_level: int = 0
+    last_escalated_at: datetime | None = None
+
+    @property
+    def alert_key(self) -> str:
+        """返回来源类型和来源键组成的稳定告警键。"""
+        return f"{self.source_type}:{self.source_key}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,3 +180,4 @@ class ObservabilityDashboard:
     metrics: ObservabilityMetrics
     total_estimated_cost_microusd: int
     alerts: tuple[ActiveAlert, ...]
+    alert_lifecycles: tuple[ObservabilityAlertLifecycle, ...] = ()

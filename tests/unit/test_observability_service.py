@@ -16,13 +16,14 @@ from cnb_domain import (
     LatencyPercentiles,
     ModelUsageMetrics,
     NotificationDeliveryMetrics,
+    ObservabilityAlertLifecycleStatus,
     ObservabilityMetrics,
     QueueMetrics,
 )
 from cnb_infrastructure import MemoryConfigurationRepository, MemoryObservabilityRepository
 
 
-class FixedObservabilityRepository:
+class FixedObservabilityRepository(MemoryObservabilityRepository):
     """返回高于默认阈值的固定安全指标。"""
 
     async def record_api_request(self, observation: ApiRequestObservation) -> None:
@@ -34,8 +35,9 @@ class FixedObservabilityRepository:
         tenant_id: UUID,
         window_started_at: datetime,
         window_ended_at: datetime,
+        agent_id: UUID | None = None,
     ) -> ObservabilityMetrics:
-        del tenant_id
+        del tenant_id, agent_id
         return ObservabilityMetrics(
             window_started_at=window_started_at,
             window_ended_at=window_ended_at,
@@ -136,3 +138,115 @@ async def test_channel_delivery_failure_rate_includes_rate_limits() -> None:
     metrics = ChannelDeliveryMetrics(attempts=8, delivered=5, failed=1, rate_limited=2)
 
     assert metrics.failure_rate_percent == 37.5
+
+
+def _api_error_observation(
+    tenant_id: UUID, agent_id: UUID, occurred_at: datetime
+) -> ApiRequestObservation:
+    return ApiRequestObservation(
+        tenant_id,
+        "GET",
+        "/api/v1/chat/conversations",
+        500,
+        25,
+        occurred_at,
+        agent_id,
+    )
+
+
+async def test_observability_lifecycle_reuses_active_event_and_counts_evaluations() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    repository = MemoryObservabilityRepository()
+    configuration = ConfigurationService(build_default_registry(), MemoryConfigurationRepository())
+    service = ObservabilityService(repository, configuration)
+    now = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    await repository.record_api_request(_api_error_observation(tenant_id, agent_id, now))
+
+    first = await service.reconcile_alert_lifecycles(
+        tenant_id=tenant_id, agent_id=agent_id, now=now
+    )
+    second = await service.reconcile_alert_lifecycles(
+        tenant_id=tenant_id, agent_id=agent_id, now=now
+    )
+
+    assert len(first.active_lifecycles) == 1
+    assert first.active_lifecycles[0].status is ObservabilityAlertLifecycleStatus.ACTIVE
+    assert second.active_lifecycles[0].id == first.active_lifecycles[0].id
+    assert second.active_lifecycles[0].occurrences == 2
+    assert second.active_lifecycles[0].first_occurred_at == now
+
+
+async def test_observability_lifecycle_resolves_after_window_recovers() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    repository = MemoryObservabilityRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+    started_at = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    await repository.record_api_request(_api_error_observation(tenant_id, agent_id, started_at))
+    await service.reconcile_alert_lifecycles(
+        tenant_id=tenant_id, agent_id=agent_id, now=started_at + timedelta(minutes=1)
+    )
+
+    recovered_at = started_at + timedelta(minutes=61)
+    evaluation = await service.reconcile_alert_lifecycles(
+        tenant_id=tenant_id, agent_id=agent_id, now=recovered_at
+    )
+    rows = await service.alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        status=ObservabilityAlertLifecycleStatus.RESOLVED,
+    )
+
+    assert evaluation.active_lifecycles == ()
+    assert len(rows) == 1
+    assert rows[0].status is ObservabilityAlertLifecycleStatus.RESOLVED
+    assert rows[0].resolved_at == recovered_at
+    assert rows[0].recovery_duration_seconds == 60 * 60
+
+
+async def test_observability_lifecycle_escalation_is_isolated_by_tenant_and_agent() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    other_tenant, other_agent = uuid4(), uuid4()
+    repository = MemoryObservabilityRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+    started_at = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    await repository.record_api_request(_api_error_observation(tenant_id, agent_id, started_at))
+    await repository.record_api_request(
+        _api_error_observation(other_tenant, other_agent, started_at)
+    )
+    await service.reconcile_alert_lifecycles(tenant_id=tenant_id, agent_id=agent_id, now=started_at)
+    await service.reconcile_alert_lifecycles(
+        tenant_id=other_tenant, agent_id=other_agent, now=started_at
+    )
+
+    evaluation = await service.reconcile_alert_lifecycles(
+        tenant_id=tenant_id, agent_id=agent_id, now=started_at + timedelta(minutes=31)
+    )
+    assert len(evaluation.due_escalations) == 1
+    lifecycle = evaluation.active_lifecycles[0]
+    assert lifecycle.tenant_id == tenant_id
+    assert lifecycle.agent_id == agent_id
+    marked = await service.mark_alert_lifecycles_escalated(
+        tenant_id=other_tenant,
+        agent_id=other_agent,
+        lifecycle_ids=(lifecycle.id,),
+        escalation_level=1,
+        escalated_at=started_at + timedelta(minutes=31),
+    )
+    assert marked == ()
+
+
+async def test_unattributed_api_observations_are_excluded_from_agent_scan() -> None:
+    repository = MemoryObservabilityRepository()
+    tenant_id = uuid4()
+    now = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    await repository.record_api_request(
+        ApiRequestObservation(tenant_id, "GET", "/health", 500, 20, now, None)
+    )
+
+    assert await repository.list_observability_agent_ids() == ()

@@ -15,6 +15,7 @@ from cnb_adapters import (
 from cnb_application.channel_service import ChannelDeliveryReceipt, ChannelService
 from cnb_application.configuration_service import ConfigurationService, SecretStore
 from cnb_application.memory_service import MemoryService, MemorySourceDraft
+from cnb_application.observability_service import ObservabilityRepository
 from cnb_application.task_service import (
     PermanentTaskError,
     ScheduledActionService,
@@ -54,10 +55,12 @@ class NotificationDeliveryTaskHandler:
         adapters: NotificationAdapterRegistry,
         configuration: ConfigurationService,
         secret_store: SecretStore,
+        observability_repository: ObservabilityRepository | None = None,
     ) -> None:
         self._adapters = adapters
         self._configuration = configuration
         self._secret_store = secret_store
+        self._observability_repository = observability_repository
 
     async def handle(self, job: BackgroundJob) -> dict[str, JsonValue]:
         adapter_key = _string(job, "adapter")
@@ -103,6 +106,8 @@ class NotificationDeliveryTaskHandler:
             if error.retryable:
                 raise RuntimeError(error.code) from error
             raise PermanentTaskError(error.code) from error
+        if result.delivered:
+            await self._mark_observability_escalation(job)
         return {
             "adapter": adapter.key,
             "delivered": result.delivered,
@@ -111,6 +116,34 @@ class NotificationDeliveryTaskHandler:
             "idempotency_key": result.idempotency_key,
             "elapsed_ms": result.elapsed_ms,
         }
+
+    async def _mark_observability_escalation(self, job: BackgroundJob) -> None:
+        repository = self._observability_repository
+        if repository is None:
+            return
+        raw_ids = job.payload.get("observability_lifecycle_ids")
+        level = job.payload.get("observability_escalation_level")
+        agent_id = job.payload.get("agent_id")
+        if (
+            not isinstance(raw_ids, list)
+            or not isinstance(level, int)
+            or isinstance(level, bool)
+            or not isinstance(agent_id, str)
+        ):
+            return
+        try:
+            lifecycle_ids = tuple(UUID(value) for value in raw_ids if isinstance(value, str))
+            parsed_agent_id = UUID(agent_id)
+        except ValueError:
+            return
+        if lifecycle_ids:
+            await repository.mark_observability_alert_lifecycles_escalated(
+                tenant_id=job.tenant_id,
+                agent_id=parsed_agent_id,
+                lifecycle_ids=lifecycle_ids,
+                escalation_level=level,
+                escalated_at=datetime.now(UTC),
+            )
 
 
 class ReflectionSourceRepository(Protocol):

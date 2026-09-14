@@ -35,6 +35,7 @@ import type {
   ManagedUserDetailResponse,
   NotificationDeliveryTimelineItemResponse,
   NotificationDeliveryTimelineResponse,
+  ObservabilityAlertLifecycleStatus,
   TelegramWebhookStatusResponse,
 } from './api-client/generated/types.gen'
 import {
@@ -1668,6 +1669,11 @@ export const getCognitiveRunTrace = (runId: string) =>
 
 export const getObservabilityDashboard = () =>
   apiSdk.getApiV1ObservabilityDashboard()
+
+export const getObservabilityAlertLifecycles = (status?: ObservabilityAlertLifecycleStatus) =>
+  apiSdk.getApiV1ObservabilityAlertLifecycles({
+    query: { status, limit: 100 },
+  })
 
 export const runCognitionEvaluationSuite = () =>
   apiSdk.postApiV1CognitionEvaluationsRun()

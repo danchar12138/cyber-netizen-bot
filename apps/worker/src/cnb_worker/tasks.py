@@ -37,6 +37,7 @@ from cnb_application import (
     ModelReliabilityGuard,
     MultimodalInputService,
     NotificationDeliveryTaskHandler,
+    ObservabilityService,
     ReflectionTaskHandler,
     RelationshipUpdateTaskHandler,
     ScheduledActionService,
@@ -65,6 +66,7 @@ from cnb_infrastructure import (
     SqlAlchemyConfigurationRepository,
     SqlAlchemyConversationRepository,
     SqlAlchemyMemoryRepository,
+    SqlAlchemyObservabilityRepository,
     SqlAlchemySecretStore,
     SqlAlchemyTaskRepository,
     get_settings,
@@ -85,9 +87,11 @@ administration_repository = SqlAlchemyAdministrationRepository(session_factory)
 conversation_repository = SqlAlchemyConversationRepository(session_factory)
 cognition_repository = SqlAlchemyCognitionRepository(session_factory)
 attachment_repository = SqlAlchemyAttachmentRepository(session_factory)
+observability_repository = SqlAlchemyObservabilityRepository(session_factory)
 task_service = BackgroundTaskService(task_repository)
 memory_service = MemoryService(memory_repository)
 configuration_service = ConfigurationService(build_default_registry(), configuration_repository)
+observability_service = ObservabilityService(observability_repository, configuration_service)
 channel_repository = SqlAlchemyChannelRepository(session_factory)
 object_storage = MinioObjectStorage(settings)
 secret_cipher = AesGcmEnvelopeCipher.from_encoded_key(
@@ -119,6 +123,7 @@ alert_notification_service = AlertNotificationService(
 )
 worker_id = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}"
 worker_started_at = datetime.now(UTC)
+_last_observability_bucket: int | None = None
 worker_queues = (
     "system",
     "memory",
@@ -290,6 +295,7 @@ _handlers: dict[BackgroundJobKind, BackgroundJobHandler] = {
         build_default_notification_registry(),
         configuration_service,
         secret_store,
+        observability_repository,
     ),
     BackgroundJobKind.CHANNEL_CONNECTION_TEST: ChannelConnectionProbeTaskHandler(
         channel_service,
@@ -308,6 +314,7 @@ dispatcher = DramatiqTaskDispatcher()
 
 
 async def _maintenance_once() -> None:
+    global _last_observability_bucket
     await task_service.heartbeat(
         worker_id=worker_id,
         queues=worker_queues,
@@ -315,6 +322,20 @@ async def _maintenance_once() -> None:
     )
     await task_service.recover_expired()
     await channel_probe_scheduler.schedule()
+    observability_bucket = int(datetime.now(UTC).timestamp() // 60)
+    if observability_bucket != _last_observability_bucket:
+        for tenant_id, agent_id in await observability_repository.list_observability_agent_ids():
+            evaluation = await observability_service.reconcile_alert_lifecycles(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+            )
+            for candidate in evaluation.due_escalations:
+                await alert_notification_service.enqueue_observability_escalation(
+                    lifecycle=candidate.lifecycle,
+                    target_level=candidate.target_level,
+                    adapter_key=candidate.adapter,
+                )
+        _last_observability_bucket = observability_bucket
     await task_service.publish_due(dispatcher=dispatcher, worker_id=worker_id)
 
 

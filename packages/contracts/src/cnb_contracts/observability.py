@@ -1,10 +1,11 @@
 """性能、成本、SLO 与活动告警 API 契约。"""
 
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from cnb_domain import AlertSeverity
+from cnb_domain import AlertSeverity, ObservabilityAlertLifecycleStatus
 
 
 class LatencyPercentilesResponse(BaseModel):
@@ -87,6 +88,32 @@ class ActiveAlertResponse(BaseModel):
     current_value: float
     threshold_value: float
     unit: str
+    source_type: str = "observability"
+    source_key: str | None = None
+
+
+class ObservabilityAlertLifecycleResponse(BaseModel):
+    """通用可观测告警生命周期，不含通知目标或 Secret。"""
+
+    id: UUID
+    agent_id: UUID
+    source_type: str
+    source_key: str
+    code: str
+    status: ObservabilityAlertLifecycleStatus
+    severity: AlertSeverity
+    occurrences: int = Field(ge=1)
+    current_value: float
+    threshold_value: float
+    unit: str
+    first_occurred_at: datetime
+    last_occurred_at: datetime
+    last_evaluated_at: datetime
+    escalated_at: datetime | None
+    escalation_level: int = Field(ge=0, le=3)
+    last_escalated_at: datetime | None
+    resolved_at: datetime | None
+    recovery_duration_seconds: int | None = Field(default=None, ge=0)
 
 
 class ObservabilityDashboardResponse(BaseModel):
@@ -102,3 +129,4 @@ class ObservabilityDashboardResponse(BaseModel):
     notification_delivery: NotificationDeliveryMetricsResponse
     total_estimated_cost_microusd: int = Field(ge=0)
     alerts: tuple[ActiveAlertResponse, ...]
+    alert_lifecycles: tuple[ObservabilityAlertLifecycleResponse, ...] = ()

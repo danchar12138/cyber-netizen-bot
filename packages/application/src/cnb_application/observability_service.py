@@ -1,7 +1,7 @@
 """框架无关的性能、成本、SLO 与确定性告警应用服务。"""
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import UUID
@@ -11,6 +11,8 @@ from cnb_domain import (
     ActiveAlert,
     AlertSeverity,
     JsonValue,
+    ObservabilityAlertLifecycle,
+    ObservabilityAlertLifecycleStatus,
     ObservabilityDashboard,
     ObservabilityMetrics,
 )
@@ -26,6 +28,7 @@ class ApiRequestObservation:
     status_code: int
     duration_ms: int
     occurred_at: datetime
+    agent_id: UUID | None = None
 
 
 class ObservabilityRepository(Protocol):
@@ -39,7 +42,54 @@ class ObservabilityRepository(Protocol):
         tenant_id: UUID,
         window_started_at: datetime,
         window_ended_at: datetime,
+        agent_id: UUID | None = None,
     ) -> ObservabilityMetrics: ...
+
+    async def reconcile_observability_alert_lifecycles(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        alerts: tuple[ActiveAlert, ...],
+        observed_at: datetime,
+    ) -> tuple[ObservabilityAlertLifecycle, ...]: ...
+
+    async def list_observability_alert_lifecycles(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        status: ObservabilityAlertLifecycleStatus | None = None,
+        limit: int = 100,
+    ) -> tuple[ObservabilityAlertLifecycle, ...]: ...
+
+    async def mark_observability_alert_lifecycles_escalated(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_ids: tuple[UUID, ...],
+        escalation_level: int,
+        escalated_at: datetime,
+    ) -> tuple[ObservabilityAlertLifecycle, ...]: ...
+
+    async def list_observability_agent_ids(self) -> tuple[tuple[UUID, UUID], ...]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertEscalationCandidate:
+    lifecycle: ObservabilityAlertLifecycle
+    target_level: int
+    adapter: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertLifecycleEvaluation:
+    """一次通用告警对账的安全结果。"""
+
+    alerts: tuple[ActiveAlert, ...]
+    active_lifecycles: tuple[ObservabilityAlertLifecycle, ...]
+    due_escalations: tuple[ObservabilityAlertEscalationCandidate, ...]
 
 
 class ObservabilityService:
@@ -57,6 +107,7 @@ class ObservabilityService:
         self,
         *,
         tenant_id: UUID,
+        agent_id: UUID | None = None,
         now: datetime | None = None,
     ) -> ObservabilityDashboard:
         window_ended_at = now or datetime.now(UTC)
@@ -72,10 +123,113 @@ class ObservabilityService:
         )
         total_cost = sum(item.estimated_cost_microusd for item in metrics.models)
         alerts = self._alerts(metrics, total_cost, configuration.values)
+        lifecycles = (
+            await self._repository.list_observability_alert_lifecycles(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+            )
+            if agent_id is not None
+            else ()
+        )
         return ObservabilityDashboard(
             metrics=metrics,
             total_estimated_cost_microusd=total_cost,
             alerts=alerts,
+            alert_lifecycles=lifecycles,
+        )
+
+    async def reconcile_alert_lifecycles(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        now: datetime | None = None,
+    ) -> ObservabilityAlertLifecycleEvaluation:
+        observed_at = (now or datetime.now(UTC)).astimezone(UTC)
+        configuration = await self._configuration_service.resolve_effective(
+            tenant_id=tenant_id, agent_id=agent_id
+        )
+        window_minutes = self._integer(
+            configuration.values["observability.window_minutes"], "observability.window_minutes"
+        )
+        metrics = await self._repository.get_metrics(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            window_started_at=observed_at - timedelta(minutes=window_minutes),
+            window_ended_at=observed_at,
+        )
+        total_cost = sum(item.estimated_cost_microusd for item in metrics.models)
+        alerts = tuple(
+            replace(
+                item,
+                source_type="api",
+                source_key="api_error_rate",
+            )
+            for item in self._alerts(metrics, total_cost, configuration.values)
+            if item.code == "api_error_rate"
+        )
+        active = await self._repository.reconcile_observability_alert_lifecycles(
+            tenant_id=tenant_id, agent_id=agent_id, alerts=alerts, observed_at=observed_at
+        )
+        from cnb_application.alert_policy import AlertEscalationPolicy
+
+        policy = AlertEscalationPolicy.from_values(configuration.values)
+        due = tuple(
+            ObservabilityAlertEscalationCandidate(
+                lifecycle=item,
+                target_level=decision.target_level,
+                adapter=decision.adapter,
+            )
+            for item in active
+            if (
+                decision := policy.evaluate(
+                    severity=item.severity,
+                    duration_minutes=max(
+                        0, int((observed_at - item.first_occurred_at).total_seconds() // 60)
+                    ),
+                    current_level=item.escalation_level,
+                    evaluated_at=observed_at,
+                )
+            ).target_level
+            is not None
+        )
+        return ObservabilityAlertLifecycleEvaluation(
+            alerts=alerts, active_lifecycles=active, due_escalations=due
+        )
+
+    async def alert_lifecycles(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        status: ObservabilityAlertLifecycleStatus | None = None,
+        limit: int = 100,
+    ) -> tuple[ObservabilityAlertLifecycle, ...]:
+        if not 1 <= limit <= 500:
+            raise ValueError("通用告警生命周期数量必须位于 1 到 500 之间")
+        return await self._repository.list_observability_alert_lifecycles(
+            tenant_id=tenant_id, agent_id=agent_id, status=status, limit=limit
+        )
+
+    async def mark_alert_lifecycles_escalated(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_ids: tuple[UUID, ...],
+        escalation_level: int,
+        escalated_at: datetime,
+    ) -> tuple[ObservabilityAlertLifecycle, ...]:
+        if not lifecycle_ids:
+            return ()
+        if not 1 <= escalation_level <= 3:
+            raise ValueError("通用告警升级等级必须位于 1 到 3 之间")
+        return await self._repository.mark_observability_alert_lifecycles_escalated(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lifecycle_ids=lifecycle_ids,
+            escalation_level=escalation_level,
+            escalated_at=escalated_at.astimezone(UTC),
         )
 
     @classmethod

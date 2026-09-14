@@ -2,9 +2,14 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
-from cnb_api.dependencies import get_admin_principal, get_observability_service, require_permission
+from cnb_api.dependencies import (
+    get_admin_principal,
+    get_observability_service,
+    get_request_identity,
+    require_permission,
+)
 from cnb_application import ObservabilityService
 from cnb_contracts import (
     ActiveAlertResponse,
@@ -13,10 +18,16 @@ from cnb_contracts import (
     ChannelDeliveryMetricsResponse,
     ModelUsageResponse,
     NotificationDeliveryMetricsResponse,
+    ObservabilityAlertLifecycleResponse,
     ObservabilityDashboardResponse,
     QueueMetricsResponse,
 )
-from cnb_domain import AdminPermission, AdminPrincipal
+from cnb_domain import (
+    AdminPermission,
+    AdminPrincipal,
+    DevelopmentIdentity,
+    ObservabilityAlertLifecycleStatus,
+)
 
 router = APIRouter(prefix="/observability", tags=["observability"])
 
@@ -29,9 +40,13 @@ router = APIRouter(prefix="/observability", tags=["observability"])
 async def dashboard(
     principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
     service: Annotated[ObservabilityService, Depends(get_observability_service)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
 ) -> ObservabilityDashboardResponse:
     """返回当前租户的聚合指标、冻结成本和确定性活动告警。"""
-    result = await service.dashboard(tenant_id=principal.tenant_id)
+    result = await service.dashboard(
+        tenant_id=principal.tenant_id,
+        agent_id=identity.agent_id,
+    )
     metrics = result.metrics
     return ObservabilityDashboardResponse(
         window_started_at=metrics.window_started_at,
@@ -52,4 +67,29 @@ async def dashboard(
         alerts=tuple(
             ActiveAlertResponse.model_validate(item, from_attributes=True) for item in result.alerts
         ),
+        alert_lifecycles=tuple(
+            ObservabilityAlertLifecycleResponse.model_validate(item, from_attributes=True)
+            for item in result.alert_lifecycles
+        ),
+    )
+
+
+@router.get(
+    "/alert-lifecycles",
+    response_model=tuple[ObservabilityAlertLifecycleResponse, ...],
+    dependencies=[Depends(require_permission(AdminPermission.TRACE_READ))],
+)
+async def alert_lifecycles(
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ObservabilityService, Depends(get_observability_service)],
+    status: ObservabilityAlertLifecycleStatus | None = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> tuple[ObservabilityAlertLifecycleResponse, ...]:
+    rows = await service.alert_lifecycles(
+        tenant_id=principal.tenant_id, agent_id=identity.agent_id, status=status, limit=limit
+    )
+    return tuple(
+        ObservabilityAlertLifecycleResponse.model_validate(item, from_attributes=True)
+        for item in rows
     )

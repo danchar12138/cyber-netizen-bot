@@ -6,6 +6,7 @@ import {
   getAdminSession,
   getChannelAlertLifecycleMetrics,
   getCognitiveRunTrace,
+  getObservabilityAlertLifecycles,
   getObservabilityDashboard,
 } from '../api'
 import { useSelectedAgentId } from '../agentSelection'
@@ -27,8 +28,16 @@ function formatUsd(microusd: number) {
   }).format(microusd / 1_000_000)
 }
 
+function formatDuration(seconds: number | null | undefined) {
+  if (seconds == null) return '—'
+  if (seconds < 60) return `${seconds} 秒`
+  if (seconds < 3_600) return `${Math.round(seconds / 60)} 分钟`
+  return `${(seconds / 3_600).toFixed(1)} 小时`
+}
+
 export function ObservabilityPage() {
   const [runId, setRunId] = useState('')
+  const [alertStatus, setAlertStatus] = useState<'all' | 'active' | 'resolved'>('all')
   const selectedAgentId = useSelectedAgentId()
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const canReadTrace = session.data?.permissions.includes('trace:read') ?? false
@@ -43,6 +52,14 @@ export function ObservabilityPage() {
     queryKey: ['channel-alert-lifecycle-metrics', selectedAgentId, 1_440, 60],
     queryFn: () => getChannelAlertLifecycleMetrics(1_440, 60),
     enabled: canReadChannels,
+    refetchInterval: 30_000,
+  })
+  const alertLifecycles = useQuery({
+    queryKey: ['observability-alert-lifecycles', selectedAgentId, alertStatus],
+    queryFn: () => getObservabilityAlertLifecycles(
+      alertStatus === 'all' ? undefined : alertStatus,
+    ),
+    enabled: canReadTrace,
     refetchInterval: 30_000,
   })
   const trace = useMutation({ mutationFn: getCognitiveRunTrace })
@@ -60,6 +77,7 @@ export function ObservabilityPage() {
 
       {dashboard.isError && <div className="notice error" role="alert">无法读取可观测聚合，请检查 API、数据库和当前权限。</div>}
       {lifecycleMetrics.isError && <div className="notice error" role="alert">无法读取告警生命周期指标，请检查渠道读取权限与迁移状态。</div>}
+      {alertLifecycles.isError && <div className="notice error" role="alert">无法读取通用告警生命周期，请检查当前 Agent 与迁移状态。</div>}
       <section className="metric-grid" aria-label="服务等级与成本指标">
         <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>API 错误率</p><strong>{data ? `${data.api.error_rate_percent.toFixed(2)}%` : '—'}</strong><span>{data?.api.requests ?? 0} 次请求 · {data?.api.server_errors ?? 0} 次 5xx</span></article>
         <article className="metric-card"><div className="metric-icon"><Clock3 size={18} /></div><p>API P95 / P99</p><strong>{data ? `${data.api.latency.p95_ms} / ${data.api.latency.p99_ms} ms` : '—'}</strong><span>P50 {data?.api.latency.p50_ms ?? '—'} ms</span></article>
@@ -88,6 +106,33 @@ export function ObservabilityPage() {
               <time dateTime={point.bucket_started_at}>{new Date(point.bucket_started_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time>
             </div>)}
           </div> : null}
+        </div>
+      </section>
+
+      <section className="panel table-panel observability-lifecycle-table">
+        <div className="admin-table-toolbar">
+          <div><p className="eyebrow">当前 Agent</p><h2>通用告警生命周期</h2></div>
+          <label className="status-filter">状态
+            <select value={alertStatus} onChange={(event) => setAlertStatus(event.target.value as typeof alertStatus)}>
+              <option value="all">全部</option>
+              <option value="active">活动</option>
+              <option value="resolved">已恢复</option>
+            </select>
+          </label>
+        </div>
+        <div className="admin-table-scroll">
+          <table className="admin-table">
+            <thead><tr><th>来源</th><th>状态</th><th>当前 / 阈值</th><th>升级</th><th>发生时间</th><th>恢复</th></tr></thead>
+            <tbody>{alertLifecycles.data?.map((item) => <tr key={item.id}>
+              <td className="table-primary"><strong>{item.code}</strong><code>{item.source_type}:{item.source_key}</code></td>
+              <td><span className={`entity-status ${item.status}`}>{item.status === 'active' ? '活动' : '已恢复'}</span><small className={`severity-label ${item.severity}`}>{item.severity === 'critical' ? '严重' : '警告'}</small></td>
+              <td><strong>{item.current_value.toFixed(2)} {item.unit}</strong><small>阈值 {item.threshold_value.toFixed(2)} {item.unit} · {item.occurrences} 次评估</small></td>
+              <td><strong>L{item.escalation_level}</strong><small>{item.last_escalated_at ? new Date(item.last_escalated_at).toLocaleString('zh-CN') : '尚未升级'}</small></td>
+              <td><strong>{new Date(item.first_occurred_at).toLocaleString('zh-CN')}</strong><small>最近 {new Date(item.last_occurred_at).toLocaleString('zh-CN')}</small></td>
+              <td><strong>{formatDuration(item.recovery_duration_seconds)}</strong><small>{item.resolved_at ? new Date(item.resolved_at).toLocaleString('zh-CN') : '等待恢复'}</small></td>
+            </tr>)}</tbody>
+          </table>
+          {!alertLifecycles.data?.length && <div className="admin-table-empty">当前筛选条件下没有通用告警生命周期。</div>}
         </div>
       </section>
 

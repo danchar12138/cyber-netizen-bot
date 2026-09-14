@@ -66,6 +66,14 @@ export type ActiveAlertResponse = {
     current_value: number;
     severity: AlertSeverity;
     /**
+     * Source Key
+     */
+    source_key?: string | null;
+    /**
+     * Source Type
+     */
+    source_type?: string;
+    /**
      * Summary
      */
     summary: string;
@@ -6145,12 +6153,101 @@ export type NotificationDeliveryTimelineResponse = {
 };
 
 /**
+ * ObservabilityAlertLifecycleResponse
+ *
+ * 通用可观测告警生命周期，不含通知目标或 Secret。
+ */
+export type ObservabilityAlertLifecycleResponse = {
+    /**
+     * Agent Id
+     */
+    agent_id: string;
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Current Value
+     */
+    current_value: number;
+    /**
+     * Escalated At
+     */
+    escalated_at: string | null;
+    /**
+     * Escalation Level
+     */
+    escalation_level: number;
+    /**
+     * First Occurred At
+     */
+    first_occurred_at: string;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Last Escalated At
+     */
+    last_escalated_at: string | null;
+    /**
+     * Last Evaluated At
+     */
+    last_evaluated_at: string;
+    /**
+     * Last Occurred At
+     */
+    last_occurred_at: string;
+    /**
+     * Occurrences
+     */
+    occurrences: number;
+    /**
+     * Recovery Duration Seconds
+     */
+    recovery_duration_seconds?: number | null;
+    /**
+     * Resolved At
+     */
+    resolved_at: string | null;
+    severity: AlertSeverity;
+    /**
+     * Source Key
+     */
+    source_key: string;
+    /**
+     * Source Type
+     */
+    source_type: string;
+    status: ObservabilityAlertLifecycleStatus;
+    /**
+     * Threshold Value
+     */
+    threshold_value: number;
+    /**
+     * Unit
+     */
+    unit: string;
+};
+
+/**
+ * ObservabilityAlertLifecycleStatus
+ *
+ * 通用可观测告警生命周期状态。
+ */
+export type ObservabilityAlertLifecycleStatus = 'active' | 'resolved';
+
+/**
  * ObservabilityDashboardResponse
  *
  * 管理后台可观测性完整聚合视图。
  */
 export type ObservabilityDashboardResponse = {
     agent_runs: AgentRunSloResponse;
+    /**
+     * Alert Lifecycles
+     */
+    alert_lifecycles?: Array<ObservabilityAlertLifecycleResponse>;
     /**
      * Alerts
      */
@@ -15260,6 +15357,74 @@ export type PostApiV1MemoryRelationshipEventsResponses = {
 };
 
 export type PostApiV1MemoryRelationshipEventsResponse = PostApiV1MemoryRelationshipEventsResponses[keyof PostApiV1MemoryRelationshipEventsResponses];
+
+export type GetApiV1ObservabilityAlertLifecyclesData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Status
+         */
+        status?: ObservabilityAlertLifecycleStatus | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/observability/alert-lifecycles';
+};
+
+export type GetApiV1ObservabilityAlertLifecyclesErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ObservabilityAlertLifecyclesError = GetApiV1ObservabilityAlertLifecyclesErrors[keyof GetApiV1ObservabilityAlertLifecyclesErrors];
+
+export type GetApiV1ObservabilityAlertLifecyclesResponses = {
+    /**
+     * Response Get Api V1 Observability Alert Lifecycles
+     *
+     * 请求成功
+     */
+    200: Array<ObservabilityAlertLifecycleResponse>;
+};
+
+export type GetApiV1ObservabilityAlertLifecyclesResponse = GetApiV1ObservabilityAlertLifecyclesResponses[keyof GetApiV1ObservabilityAlertLifecyclesResponses];
 
 export type GetApiV1ObservabilityDashboardData = {
     body?: never;

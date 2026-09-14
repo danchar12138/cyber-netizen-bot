@@ -31,6 +31,7 @@ from cnb_domain import (
     ChannelAlertDispositionStatus,
     ChannelAlertLifecycle,
     JsonValue,
+    ObservabilityAlertLifecycle,
 )
 
 if TYPE_CHECKING:
@@ -164,6 +165,98 @@ class AlertNotificationService:
         self._adapters = adapter_registry or build_default_notification_registry(notifier=notifier)
         self._audit_recorder = audit_recorder
         self._task_service = task_service
+
+    async def enqueue_observability_escalation(
+        self,
+        *,
+        lifecycle: ObservabilityAlertLifecycle,
+        target_level: int,
+        adapter_key: str | None,
+        now: datetime | None = None,
+    ) -> "EnqueueResult | None":
+        """将通用告警升级安全摘要送入现有通知任务队列。"""
+        if self._task_service is None:
+            return None
+        if lifecycle.status.value != "active" or not 1 <= target_level <= 3:
+            return None
+        effective = await self._configuration_service.resolve_effective(
+            tenant_id=lifecycle.tenant_id,
+            agent_id=lifecycle.agent_id,
+        )
+        values = effective.values
+        if not self._boolean(
+            values.get("alerts.notification.enabled"), "alerts.notification.enabled"
+        ):
+            return None
+        selected_adapter = (
+            (
+                adapter_key
+                or self._string(
+                    values.get("alerts.notification.adapter", "webhook"),
+                    "alerts.notification.adapter",
+                )
+            )
+            .strip()
+            .casefold()
+        )
+        try:
+            self._adapters.get(selected_adapter)
+        except NotificationAdapterValidationError:
+            return None
+        target, secret_key, _ = self._adapter_config(selected_adapter, values)
+        if not target:
+            return None
+        if selected_adapter != "email":
+            secret = await self._secret_store.resolve_secret(
+                secret_key, tenant_id=lifecycle.tenant_id, agent_id=lifecycle.agent_id
+            )
+            if not secret:
+                return None
+        generated_at = (now or datetime.now(UTC)).astimezone(UTC)
+        payload: dict[str, JsonValue] = {
+            "schema_version": "1",
+            "event": "observability.alerts.escalated",
+            "source_type": lifecycle.source_type,
+            "source_key": lifecycle.source_key,
+            "lifecycle_id": str(lifecycle.id),
+            "code": lifecycle.code,
+            "severity": lifecycle.severity.value,
+            "current_value": lifecycle.current_value,
+            "threshold_value": lifecycle.threshold_value,
+            "unit": lifecycle.unit,
+            "occurrences": lifecycle.occurrences,
+            "escalation_level": target_level,
+            "generated_at": generated_at.isoformat(),
+        }
+        material = f"observability:{lifecycle.id}:{target_level}:{selected_adapter}"
+        idempotency_key = hashlib.sha256(material.encode()).hexdigest()
+        result = await self._task_service.enqueue(
+            tenant_id=lifecycle.tenant_id,
+            kind=BackgroundJobKind.NOTIFICATION_DELIVERY,
+            payload={
+                "agent_id": str(lifecycle.agent_id),
+                "adapter": selected_adapter,
+                "delivery_payload": payload,
+                "idempotency_key": idempotency_key,
+                "timeout_seconds": self._integer(
+                    values.get("alerts.notification.webhook_timeout_seconds"),
+                    "alerts.notification.webhook_timeout_seconds",
+                    minimum=1,
+                    maximum=30,
+                ),
+                "max_retries": self._integer(
+                    values.get("alerts.notification.webhook_max_retries"),
+                    "alerts.notification.webhook_max_retries",
+                    minimum=0,
+                    maximum=5,
+                ),
+                "observability_lifecycle_ids": [str(lifecycle.id)],
+                "observability_escalation_level": target_level,
+            },
+            deduplication_key=f"notification:{idempotency_key}:{selected_adapter}",
+            created_by=None,
+        )
+        return result
 
     async def enqueue(
         self,
@@ -726,7 +819,7 @@ class AlertNotificationService:
             "active"
             if event_value == "channel.alerts.active"
             else "escalation"
-            if event_value == "channel.alerts.escalated"
+            if event_value in {"channel.alerts.escalated", "observability.alerts.escalated"}
             else "recovery"
             if event_value == "channel.alerts.recovered"
             else "unknown"
