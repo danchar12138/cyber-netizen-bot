@@ -65,6 +65,38 @@ class QueueMetrics:
 
 
 @dataclass(frozen=True, slots=True)
+class ChannelDeliveryMetrics:
+    """窗口内渠道出站投递的安全聚合。"""
+
+    attempts: int = 0
+    delivered: int = 0
+    degraded: int = 0
+    failed: int = 0
+    rate_limited: int = 0
+
+    @property
+    def failure_rate_percent(self) -> float:
+        return (
+            round((self.failed + self.rate_limited) * 100 / self.attempts, 4)
+            if self.attempts
+            else 0.0
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationDeliveryMetrics:
+    """窗口内告警通知后台任务的安全状态计数。"""
+
+    total: int = 0
+    pending: int = 0
+    running: int = 0
+    retrying: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    dead_letters: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class ObservabilityMetrics:
     """仓储返回的一段租户隔离原始聚合窗口。"""
 
@@ -74,6 +106,8 @@ class ObservabilityMetrics:
     agent_runs: AgentRunSloMetrics
     models: tuple[ModelUsageMetrics, ...]
     queue: QueueMetrics
+    channel_delivery: ChannelDeliveryMetrics = ChannelDeliveryMetrics()
+    notification_delivery: NotificationDeliveryMetrics = NotificationDeliveryMetrics()
 
 
 @dataclass(frozen=True, slots=True)

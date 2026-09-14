@@ -1502,6 +1502,38 @@ export type ChannelCredentialCommand = {
 };
 
 /**
+ * ChannelDeliveryMetricsResponse
+ *
+ * 渠道出站投递的安全聚合。
+ */
+export type ChannelDeliveryMetricsResponse = {
+    /**
+     * Attempts
+     */
+    attempts: number;
+    /**
+     * Degraded
+     */
+    degraded: number;
+    /**
+     * Delivered
+     */
+    delivered: number;
+    /**
+     * Failed
+     */
+    failed: number;
+    /**
+     * Failure Rate Percent
+     */
+    failure_rate_percent: number;
+    /**
+     * Rate Limited
+     */
+    rate_limited: number;
+};
+
+/**
  * ChannelDeliveryRequest
  *
  * 管理端验证 Adapter 闭环使用的幂等发送命令。
@@ -5669,6 +5701,42 @@ export type MultimodalContentBlockResponse = {
 };
 
 /**
+ * NotificationDeliveryMetricsResponse
+ *
+ * 告警通知任务的安全状态计数。
+ */
+export type NotificationDeliveryMetricsResponse = {
+    /**
+     * Dead Letters
+     */
+    dead_letters: number;
+    /**
+     * Failed
+     */
+    failed: number;
+    /**
+     * Pending
+     */
+    pending: number;
+    /**
+     * Retrying
+     */
+    retrying: number;
+    /**
+     * Running
+     */
+    running: number;
+    /**
+     * Succeeded
+     */
+    succeeded: number;
+    /**
+     * Total
+     */
+    total: number;
+};
+
+/**
  * ObservabilityDashboardResponse
  *
  * 管理后台可观测性完整聚合视图。
@@ -5680,10 +5748,12 @@ export type ObservabilityDashboardResponse = {
      */
     alerts: Array<ActiveAlertResponse>;
     api: ApiSloResponse;
+    channel_delivery: ChannelDeliveryMetricsResponse;
     /**
      * Models
      */
     models: Array<ModelUsageResponse>;
+    notification_delivery: NotificationDeliveryMetricsResponse;
     queue: QueueMetricsResponse;
     /**
      * Total Estimated Cost Microusd

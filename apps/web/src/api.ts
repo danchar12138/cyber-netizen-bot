@@ -678,6 +678,23 @@ export interface ObservabilityDashboard {
     backlog: number
     oldest_wait_seconds: number
   }
+  channel_delivery: {
+    attempts: number
+    delivered: number
+    degraded: number
+    failed: number
+    rate_limited: number
+    failure_rate_percent: number
+  }
+  notification_delivery: {
+    total: number
+    pending: number
+    running: number
+    retrying: number
+    succeeded: number
+    failed: number
+    dead_letters: number
+  }
   total_estimated_cost_microusd: number
   alerts: Array<{
     code: string

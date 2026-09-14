@@ -54,6 +54,29 @@ class QueueMetricsResponse(BaseModel):
     oldest_wait_seconds: int = Field(ge=0)
 
 
+class ChannelDeliveryMetricsResponse(BaseModel):
+    """渠道出站投递的安全聚合。"""
+
+    attempts: int = Field(ge=0)
+    delivered: int = Field(ge=0)
+    degraded: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    rate_limited: int = Field(ge=0)
+    failure_rate_percent: float = Field(ge=0, le=100)
+
+
+class NotificationDeliveryMetricsResponse(BaseModel):
+    """告警通知任务的安全状态计数。"""
+
+    total: int = Field(ge=0)
+    pending: int = Field(ge=0)
+    running: int = Field(ge=0)
+    retrying: int = Field(ge=0)
+    succeeded: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    dead_letters: int = Field(ge=0)
+
+
 class ActiveAlertResponse(BaseModel):
     """不含正文或凭证的确定性阈值告警。"""
 
@@ -75,5 +98,7 @@ class ObservabilityDashboardResponse(BaseModel):
     agent_runs: AgentRunSloResponse
     models: tuple[ModelUsageResponse, ...]
     queue: QueueMetricsResponse
+    channel_delivery: ChannelDeliveryMetricsResponse
+    notification_delivery: NotificationDeliveryMetricsResponse
     total_estimated_cost_microusd: int = Field(ge=0)
     alerts: tuple[ActiveAlertResponse, ...]

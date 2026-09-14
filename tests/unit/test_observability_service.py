@@ -12,8 +12,10 @@ from cnb_application import (
 from cnb_domain import (
     AgentRunSloMetrics,
     ApiSloMetrics,
+    ChannelDeliveryMetrics,
     LatencyPercentiles,
     ModelUsageMetrics,
+    NotificationDeliveryMetrics,
     ObservabilityMetrics,
     QueueMetrics,
 )
@@ -63,6 +65,22 @@ class FixedObservabilityRepository:
                 ),
             ),
             queue=QueueMetrics(backlog=101, oldest_wait_seconds=301),
+            channel_delivery=ChannelDeliveryMetrics(
+                attempts=10,
+                delivered=7,
+                degraded=1,
+                failed=1,
+                rate_limited=1,
+            ),
+            notification_delivery=NotificationDeliveryMetrics(
+                total=4,
+                pending=0,
+                running=0,
+                retrying=1,
+                succeeded=2,
+                failed=0,
+                dead_letters=1,
+            ),
         )
 
 
@@ -85,6 +103,8 @@ async def test_dashboard_calculates_all_default_threshold_alerts() -> None:
         "queue_backlog",
         "model_failure_rate",
         "queue_oldest_wait",
+        "channel_delivery_failure_rate",
+        "notification_delivery_dead_letters",
         "model_cost_budget",
     }
     assert all("正文" not in item.summary for item in dashboard.alerts)
@@ -110,3 +130,9 @@ async def test_memory_metrics_are_tenant_isolated_and_use_route_templates() -> N
     assert metrics.api.requests == 1
     assert metrics.api.server_errors == 0
     assert metrics.api.latency == LatencyPercentiles(11, 11, 11)
+
+
+async def test_channel_delivery_failure_rate_includes_rate_limits() -> None:
+    metrics = ChannelDeliveryMetrics(attempts=8, delivered=5, failed=1, rate_limited=2)
+
+    assert metrics.failure_rate_percent == 37.5

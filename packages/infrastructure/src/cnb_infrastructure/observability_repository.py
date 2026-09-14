@@ -14,8 +14,10 @@ from cnb_application import ApiRequestObservation
 from cnb_domain import (
     AgentRunSloMetrics,
     ApiSloMetrics,
+    ChannelDeliveryMetrics,
     LatencyPercentiles,
     ModelUsageMetrics,
+    NotificationDeliveryMetrics,
     ObservabilityMetrics,
     QueueMetrics,
 )
@@ -23,6 +25,7 @@ from cnb_infrastructure.models import (
     AgentRunModel,
     ApiRequestMetricModel,
     BackgroundJobModel,
+    ChannelDiagnosticEventModel,
     ModelInvocationModel,
 )
 
@@ -109,6 +112,12 @@ class SqlAlchemyObservabilityRepository:
                 session, tenant_id, window_started_at, window_ended_at
             )
             queue = await self._queue_metrics(session, tenant_id, window_ended_at)
+            channel_delivery = await self._channel_delivery_metrics(
+                session, tenant_id, window_started_at, window_ended_at
+            )
+            notification_delivery = await self._notification_delivery_metrics(
+                session, tenant_id, window_started_at, window_ended_at
+            )
         return ObservabilityMetrics(
             window_started_at=window_started_at,
             window_ended_at=window_ended_at,
@@ -116,6 +125,96 @@ class SqlAlchemyObservabilityRepository:
             agent_runs=agent_runs,
             models=models,
             queue=queue,
+            channel_delivery=channel_delivery,
+            notification_delivery=notification_delivery,
+        )
+
+    @staticmethod
+    async def _channel_delivery_metrics(
+        session: AsyncSession,
+        tenant_id: UUID,
+        started_at: datetime,
+        ended_at: datetime,
+    ) -> ChannelDeliveryMetrics:
+        row = (
+            await session.execute(
+                select(
+                    func.count(ChannelDiagnosticEventModel.id).filter(
+                        ChannelDiagnosticEventModel.status.in_(
+                            ("delivered", "degraded", "failed", "rejected", "rate_limited")
+                        )
+                    ),
+                    func.count(ChannelDiagnosticEventModel.id).filter(
+                        ChannelDiagnosticEventModel.status == "delivered"
+                    ),
+                    func.count(ChannelDiagnosticEventModel.id).filter(
+                        ChannelDiagnosticEventModel.status == "degraded"
+                    ),
+                    func.count(ChannelDiagnosticEventModel.id).filter(
+                        ChannelDiagnosticEventModel.status.in_(("failed", "rejected"))
+                    ),
+                    func.count(ChannelDiagnosticEventModel.id).filter(
+                        ChannelDiagnosticEventModel.status == "rate_limited"
+                    ),
+                ).where(
+                    ChannelDiagnosticEventModel.tenant_id == tenant_id,
+                    ChannelDiagnosticEventModel.direction == "outbound",
+                    ChannelDiagnosticEventModel.occurred_at >= started_at,
+                    ChannelDiagnosticEventModel.occurred_at <= ended_at,
+                )
+            )
+        ).one()
+        return ChannelDeliveryMetrics(
+            attempts=int(row[0] or 0),
+            delivered=int(row[1] or 0),
+            degraded=int(row[2] or 0),
+            failed=int(row[3] or 0),
+            rate_limited=int(row[4] or 0),
+        )
+
+    @staticmethod
+    async def _notification_delivery_metrics(
+        session: AsyncSession,
+        tenant_id: UUID,
+        started_at: datetime,
+        ended_at: datetime,
+    ) -> NotificationDeliveryMetrics:
+        row = (
+            await session.execute(
+                select(
+                    func.count(BackgroundJobModel.id),
+                    func.count(BackgroundJobModel.id).filter(
+                        BackgroundJobModel.status == "pending"
+                    ),
+                    func.count(BackgroundJobModel.id).filter(
+                        BackgroundJobModel.status == "running"
+                    ),
+                    func.count(BackgroundJobModel.id).filter(
+                        BackgroundJobModel.status == "retrying"
+                    ),
+                    func.count(BackgroundJobModel.id).filter(
+                        BackgroundJobModel.status == "succeeded"
+                    ),
+                    func.count(BackgroundJobModel.id).filter(BackgroundJobModel.status == "failed"),
+                    func.count(BackgroundJobModel.id).filter(
+                        BackgroundJobModel.status == "dead_letter"
+                    ),
+                ).where(
+                    BackgroundJobModel.tenant_id == tenant_id,
+                    BackgroundJobModel.kind == "notification_delivery",
+                    BackgroundJobModel.created_at >= started_at,
+                    BackgroundJobModel.created_at <= ended_at,
+                )
+            )
+        ).one()
+        return NotificationDeliveryMetrics(
+            total=int(row[0] or 0),
+            pending=int(row[1] or 0),
+            running=int(row[2] or 0),
+            retrying=int(row[3] or 0),
+            succeeded=int(row[4] or 0),
+            failed=int(row[5] or 0),
+            dead_letters=int(row[6] or 0),
         )
 
     @staticmethod

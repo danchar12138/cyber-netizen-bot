@@ -10,7 +10,9 @@ from cnb_contracts import (
     ActiveAlertResponse,
     AgentRunSloResponse,
     ApiSloResponse,
+    ChannelDeliveryMetricsResponse,
     ModelUsageResponse,
+    NotificationDeliveryMetricsResponse,
     ObservabilityDashboardResponse,
     QueueMetricsResponse,
 )
@@ -40,6 +42,12 @@ async def dashboard(
             ModelUsageResponse.model_validate(item, from_attributes=True) for item in metrics.models
         ),
         queue=QueueMetricsResponse.model_validate(metrics.queue, from_attributes=True),
+        channel_delivery=ChannelDeliveryMetricsResponse.model_validate(
+            metrics.channel_delivery, from_attributes=True
+        ),
+        notification_delivery=NotificationDeliveryMetricsResponse.model_validate(
+            metrics.notification_delivery, from_attributes=True
+        ),
         total_estimated_cost_microusd=result.total_estimated_cost_microusd,
         alerts=tuple(
             ActiveAlertResponse.model_validate(item, from_attributes=True) for item in result.alerts

@@ -2468,6 +2468,52 @@
         "title": "ChannelCredentialCommand",
         "type": "object"
       },
+      "ChannelDeliveryMetricsResponse": {
+        "description": "渠道出站投递的安全聚合。",
+        "properties": {
+          "attempts": {
+            "minimum": 0.0,
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "degraded": {
+            "minimum": 0.0,
+            "title": "Degraded",
+            "type": "integer"
+          },
+          "delivered": {
+            "minimum": 0.0,
+            "title": "Delivered",
+            "type": "integer"
+          },
+          "failed": {
+            "minimum": 0.0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "failure_rate_percent": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Failure Rate Percent",
+            "type": "number"
+          },
+          "rate_limited": {
+            "minimum": 0.0,
+            "title": "Rate Limited",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "attempts",
+          "delivered",
+          "degraded",
+          "failed",
+          "rate_limited",
+          "failure_rate_percent"
+        ],
+        "title": "ChannelDeliveryMetricsResponse",
+        "type": "object"
+      },
       "ChannelDeliveryRequest": {
         "description": "管理端验证 Adapter 闭环使用的幂等发送命令。",
         "properties": {
@@ -9529,6 +9575,57 @@
         "title": "MultimodalContentBlockResponse",
         "type": "object"
       },
+      "NotificationDeliveryMetricsResponse": {
+        "description": "告警通知任务的安全状态计数。",
+        "properties": {
+          "dead_letters": {
+            "minimum": 0.0,
+            "title": "Dead Letters",
+            "type": "integer"
+          },
+          "failed": {
+            "minimum": 0.0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "pending": {
+            "minimum": 0.0,
+            "title": "Pending",
+            "type": "integer"
+          },
+          "retrying": {
+            "minimum": 0.0,
+            "title": "Retrying",
+            "type": "integer"
+          },
+          "running": {
+            "minimum": 0.0,
+            "title": "Running",
+            "type": "integer"
+          },
+          "succeeded": {
+            "minimum": 0.0,
+            "title": "Succeeded",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "pending",
+          "running",
+          "retrying",
+          "succeeded",
+          "failed",
+          "dead_letters"
+        ],
+        "title": "NotificationDeliveryMetricsResponse",
+        "type": "object"
+      },
       "ObservabilityDashboardResponse": {
         "description": "管理后台可观测性完整聚合视图。",
         "properties": {
@@ -9545,12 +9642,18 @@
           "api": {
             "$ref": "#/components/schemas/ApiSloResponse"
           },
+          "channel_delivery": {
+            "$ref": "#/components/schemas/ChannelDeliveryMetricsResponse"
+          },
           "models": {
             "items": {
               "$ref": "#/components/schemas/ModelUsageResponse"
             },
             "title": "Models",
             "type": "array"
+          },
+          "notification_delivery": {
+            "$ref": "#/components/schemas/NotificationDeliveryMetricsResponse"
           },
           "queue": {
             "$ref": "#/components/schemas/QueueMetricsResponse"
@@ -9578,6 +9681,8 @@
           "agent_runs",
           "models",
           "queue",
+          "channel_delivery",
+          "notification_delivery",
           "total_estimated_cost_microusd",
           "alerts"
         ],

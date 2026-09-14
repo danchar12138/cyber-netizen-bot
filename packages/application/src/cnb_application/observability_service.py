@@ -114,6 +114,10 @@ class ObservabilityService:
             values["alerts.queue.maximum_oldest_wait_seconds"],
             "alerts.queue.maximum_oldest_wait_seconds",
         )
+        channel_failure_limit = cls._number(
+            values["alerts.channel.failure_rate_percent"],
+            "alerts.channel.failure_rate_percent",
+        )
         cost_limit_usd = cls._number(
             values["cost.window_budget_usd"],
             "cost.window_budget_usd",
@@ -207,6 +211,33 @@ class ObservabilityService:
                     metrics.queue.oldest_wait_seconds,
                     wait_limit,
                     "s",
+                )
+            )
+        if (
+            metrics.channel_delivery.attempts
+            and metrics.channel_delivery.failure_rate_percent > channel_failure_limit
+        ):
+            alerts.append(
+                cls._alert(
+                    "channel_delivery_failure_rate",
+                    AlertSeverity.CRITICAL,
+                    "渠道出站失败率过高",
+                    "当前窗口的渠道出站失败和限流比例高于已发布阈值。",
+                    metrics.channel_delivery.failure_rate_percent,
+                    channel_failure_limit,
+                    "%",
+                )
+            )
+        if metrics.notification_delivery.dead_letters:
+            alerts.append(
+                cls._alert(
+                    "notification_delivery_dead_letters",
+                    AlertSeverity.CRITICAL,
+                    "通知投递出现死信",
+                    "告警通知后台任务存在无法自动恢复的死信。",
+                    metrics.notification_delivery.dead_letters,
+                    0,
+                    "jobs",
                 )
             )
         total_cost_usd = total_cost_microusd / 1_000_000

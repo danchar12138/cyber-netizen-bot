@@ -106,6 +106,10 @@ async def test_observability_dashboard_records_only_safe_request_metadata() -> N
     assert payload.api.server_errors == 0
     assert payload.alerts == ()
     assert payload.models == ()
+    assert payload.channel_delivery.attempts == 0
+    assert payload.channel_delivery.failure_rate_percent == 0
+    assert payload.notification_delivery.total == 0
+    assert payload.notification_delivery.dead_letters == 0
 
 
 async def test_data_lifecycle_api_enforces_permissions_and_returns_safe_download_headers() -> None:
