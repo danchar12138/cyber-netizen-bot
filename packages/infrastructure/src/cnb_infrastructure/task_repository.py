@@ -140,6 +140,24 @@ class InMemoryTaskRepository:
             rows.sort(key=lambda item: (item.created_at, str(item.id)), reverse=True)
             return tuple(rows[:limit])
 
+    async def list_notification_jobs(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        limit: int,
+    ) -> tuple[BackgroundJob, ...]:
+        async with self._lock:
+            rows = [
+                item
+                for item in self.jobs.values()
+                if item.tenant_id == tenant_id
+                and item.kind is BackgroundJobKind.NOTIFICATION_DELIVERY
+                and item.payload.get("agent_id") == str(agent_id)
+            ]
+            rows.sort(key=lambda item: (item.created_at, str(item.id)), reverse=True)
+            return tuple(rows[:limit])
+
     async def list_attempts(self, *, tenant_id: UUID, job_id: UUID) -> tuple[JobAttempt, ...]:
         async with self._lock:
             rows = [
@@ -902,6 +920,27 @@ class SqlAlchemyTaskRepository:
                     statement.order_by(BackgroundJobModel.created_at.desc()).limit(limit)
                 )
             ).all()
+        return tuple(self._job(row) for row in rows)
+
+    async def list_notification_jobs(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        limit: int,
+    ) -> tuple[BackgroundJob, ...]:
+        statement = (
+            select(BackgroundJobModel)
+            .where(
+                BackgroundJobModel.tenant_id == tenant_id,
+                BackgroundJobModel.kind == BackgroundJobKind.NOTIFICATION_DELIVERY.value,
+                BackgroundJobModel.payload["agent_id"].astext == str(agent_id),
+            )
+            .order_by(BackgroundJobModel.created_at.desc(), BackgroundJobModel.id.desc())
+            .limit(limit)
+        )
+        async with self._session_factory() as session:
+            rows = (await session.scalars(statement)).all()
         return tuple(self._job(row) for row in rows)
 
     async def list_attempts(self, *, tenant_id: UUID, job_id: UUID) -> tuple[JobAttempt, ...]:

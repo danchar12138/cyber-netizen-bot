@@ -2125,6 +2125,14 @@ async def test_channel_management_simulation_delivery_and_secret_boundary_api() 
             "/api/v1/channels/operations/metrics",
             params={"window_minutes": 4},
         )
+        notification_timeline = await client.get(
+            "/api/v1/channels/operations/alerts/notifications",
+            params={"status": "succeeded", "event": "active", "limit": 20},
+        )
+        invalid_notification_status = await client.get(
+            "/api/v1/channels/operations/alerts/notifications",
+            params={"status": "unknown"},
+        )
         viewer_create = await client.post(
             "/api/v1/channels",
             headers={"X-CNB-Development-Role": "viewer"},
@@ -2168,6 +2176,20 @@ async def test_channel_management_simulation_delivery_and_secret_boundary_api() 
     assert {item.channel_id for item in metrics_payload.items} == {UUID(web_id), UUID(feishu_id)}
     assert len(web_metrics_payload.items) == 1
     assert web_metrics_payload.items[0].inbound_events == 1
+    assert notification_timeline.status_code == 200
+    assert notification_timeline.json() == {
+        "total": 0,
+        "pending": 0,
+        "running": 0,
+        "retrying": 0,
+        "succeeded": 0,
+        "failed": 0,
+        "dead_letters": 0,
+        "current_consecutive_failures": 0,
+        "last_succeeded_at": None,
+        "items": [],
+    }
+    assert invalid_notification_status.status_code == 422
     assert web_metrics_payload.items[0].outbound_events == 1
     assert web_metrics_payload.items[0].outbound_delivered == 1
     assert web_metrics_payload.items[0].outbound_failure_rate_percent == 0

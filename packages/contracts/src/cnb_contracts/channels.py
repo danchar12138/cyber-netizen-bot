@@ -423,6 +423,42 @@ class ChannelAlertNotificationResponse(BaseModel):
     status_code: int | None = Field(default=None, ge=100, le=599)
 
 
+class NotificationDeliveryTimelineItemResponse(BaseModel):
+    """单条通知任务的安全状态投影，不公开任务载荷。"""
+
+    job_id: UUID
+    status: BackgroundJobStatus
+    adapter: str = Field(min_length=1, max_length=64)
+    event: Literal["active", "recovery", "unknown"]
+    alert_count: int = Field(ge=0)
+    attempt_count: int = Field(ge=0)
+    max_attempts: int = Field(ge=1, le=20)
+    consecutive_failures: int = Field(ge=0)
+    last_error_code: str | None = Field(default=None, max_length=160)
+    delivered: bool | None
+    status_code: int | None = Field(default=None, ge=100, le=599)
+    elapsed_ms: int | None = Field(default=None, ge=0)
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    updated_at: datetime
+
+
+class NotificationDeliveryTimelineResponse(BaseModel):
+    """当前 Agent 的通知投递汇总和可筛选时间线。"""
+
+    total: int = Field(ge=0)
+    pending: int = Field(ge=0)
+    running: int = Field(ge=0)
+    retrying: int = Field(ge=0)
+    succeeded: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    dead_letters: int = Field(ge=0)
+    current_consecutive_failures: int = Field(ge=0)
+    last_succeeded_at: datetime | None
+    items: tuple[NotificationDeliveryTimelineItemResponse, ...]
+
+
 class ModelCapabilityResponse(BaseModel):
     """用于渠道规划的模型输入输出能力矩阵行。"""
 

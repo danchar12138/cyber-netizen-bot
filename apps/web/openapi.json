@@ -9627,6 +9627,232 @@
         "title": "NotificationDeliveryMetricsResponse",
         "type": "object"
       },
+      "NotificationDeliveryTimelineItemResponse": {
+        "description": "单条通知任务的安全状态投影，不公开任务载荷。",
+        "properties": {
+          "adapter": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Adapter",
+            "type": "string"
+          },
+          "alert_count": {
+            "minimum": 0.0,
+            "title": "Alert Count",
+            "type": "integer"
+          },
+          "attempt_count": {
+            "minimum": 0.0,
+            "title": "Attempt Count",
+            "type": "integer"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "consecutive_failures": {
+            "minimum": 0.0,
+            "title": "Consecutive Failures",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "delivered": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivered"
+          },
+          "elapsed_ms": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elapsed Ms"
+          },
+          "event": {
+            "enum": [
+              "active",
+              "recovery",
+              "unknown"
+            ],
+            "title": "Event",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "last_error_code": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Code"
+          },
+          "max_attempts": {
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BackgroundJobStatus"
+          },
+          "status_code": {
+            "anyOf": [
+              {
+                "maximum": 599.0,
+                "minimum": 100.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Code"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "adapter",
+          "event",
+          "alert_count",
+          "attempt_count",
+          "max_attempts",
+          "consecutive_failures",
+          "delivered",
+          "created_at",
+          "started_at",
+          "completed_at",
+          "updated_at"
+        ],
+        "title": "NotificationDeliveryTimelineItemResponse",
+        "type": "object"
+      },
+      "NotificationDeliveryTimelineResponse": {
+        "description": "当前 Agent 的通知投递汇总和可筛选时间线。",
+        "properties": {
+          "current_consecutive_failures": {
+            "minimum": 0.0,
+            "title": "Current Consecutive Failures",
+            "type": "integer"
+          },
+          "dead_letters": {
+            "minimum": 0.0,
+            "title": "Dead Letters",
+            "type": "integer"
+          },
+          "failed": {
+            "minimum": 0.0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationDeliveryTimelineItemResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "last_succeeded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Succeeded At"
+          },
+          "pending": {
+            "minimum": 0.0,
+            "title": "Pending",
+            "type": "integer"
+          },
+          "retrying": {
+            "minimum": 0.0,
+            "title": "Retrying",
+            "type": "integer"
+          },
+          "running": {
+            "minimum": 0.0,
+            "title": "Running",
+            "type": "integer"
+          },
+          "succeeded": {
+            "minimum": 0.0,
+            "title": "Succeeded",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "pending",
+          "running",
+          "retrying",
+          "succeeded",
+          "failed",
+          "dead_letters",
+          "current_consecutive_failures",
+          "last_succeeded_at",
+          "items"
+        ],
+        "title": "NotificationDeliveryTimelineResponse",
+        "type": "object"
+      },
       "ObservabilityDashboardResponse": {
         "description": "管理后台可观测性完整聚合视图。",
         "properties": {
@@ -14470,6 +14696,187 @@
           }
         },
         "summary": "执行渠道与适配器操作",
+        "tags": [
+          "渠道与适配器"
+        ]
+      }
+    },
+    "/api/v1/channels/operations/alerts/notifications": {
+      "get": {
+        "description": "查询当前 Agent 的通知状态、连续失败计数和安全投递时间线。",
+        "operationId": "get_api_v1_channels_operations_alerts_notifications",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/BackgroundJobStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "adapter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Adapter"
+            }
+          },
+          {
+            "in": "query",
+            "name": "event",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "active",
+                    "recovery",
+                    "unknown"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Event"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationDeliveryTimelineResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "查询当前 Agent 的通知状态、连续失败计数和安全投递时间线",
         "tags": [
           "渠道与适配器"
         ]

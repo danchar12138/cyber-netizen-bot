@@ -20,6 +20,9 @@ from cnb_application.alert_notification_service import (
     AlertNotificationSecretMissingError,
     AlertNotificationService,
     AlertNotificationValidationError,
+    NotificationDeliveryTimeline,
+    NotificationDeliveryTimelineItem,
+    PreparedAlertNotification,
 )
 from cnb_application.attachment_service import (
     AttachmentConflictError,
@@ -302,6 +305,8 @@ __all__ = [
     "MultimodalInputLimits",
     "MultimodalInputService",
     "NotificationDeliveryTaskHandler",
+    "NotificationDeliveryTimeline",
+    "NotificationDeliveryTimelineItem",
     "ObjectInspectionError",
     "ObjectNotFoundError",
     "ObjectStorage",
@@ -309,6 +314,7 @@ __all__ = [
     "ObservabilityService",
     "PermanentTaskError",
     "PermissionDeniedError",
+    "PreparedAlertNotification",
     "ReflectionSourceRepository",
     "ReflectionTaskHandler",
     "RelationshipUpdateTaskHandler",

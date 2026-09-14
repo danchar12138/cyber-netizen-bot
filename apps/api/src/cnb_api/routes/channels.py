@@ -2,7 +2,7 @@
 
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -67,6 +67,8 @@ from cnb_contracts import (
     ModelCapabilityResponse,
     MultimodalContentBlockInput,
     MultimodalContentBlockResponse,
+    NotificationDeliveryTimelineItemResponse,
+    NotificationDeliveryTimelineResponse,
     TelegramWebhookClearCommand,
     TelegramWebhookRegisterCommand,
     TelegramWebhookStatusResponse,
@@ -74,6 +76,7 @@ from cnb_contracts import (
 from cnb_domain import (
     AdminPermission,
     AdminPrincipal,
+    BackgroundJobStatus,
     ChannelAlertDisposition,
     ChannelAlertDispositionStatus,
     ChannelCapabilities,
@@ -433,6 +436,55 @@ async def channel_alerts(
         window_started_at=ended_at - timedelta(minutes=window_minutes),
         window_ended_at=ended_at,
         items=tuple(_alert_response(item) for item in alerts),
+    )
+
+
+@router.get(
+    "/operations/alerts/notifications",
+    response_model=NotificationDeliveryTimelineResponse,
+    dependencies=[Depends(require_permission(AdminPermission.CHANNEL_READ))],
+)
+async def notification_delivery_timeline(
+    principal: Annotated[AdminPrincipal, Depends(require_permission(AdminPermission.CHANNEL_READ))],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[AlertNotificationService, Depends(get_alert_notification_service)],
+    notification_status: Annotated[
+        BackgroundJobStatus | None,
+        Query(alias="status"),
+    ] = None,
+    adapter: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    event: Literal["active", "recovery", "unknown"] | None = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> NotificationDeliveryTimelineResponse:
+    """查询当前 Agent 的通知状态、连续失败计数和安全投递时间线。"""
+    try:
+        timeline = await service.timeline(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            status=notification_status,
+            adapter=adapter,
+            event=event,
+            limit=limit,
+        )
+    except AlertNotificationValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(error),
+        ) from error
+    return NotificationDeliveryTimelineResponse(
+        total=timeline.total,
+        pending=timeline.pending,
+        running=timeline.running,
+        retrying=timeline.retrying,
+        succeeded=timeline.succeeded,
+        failed=timeline.failed,
+        dead_letters=timeline.dead_letters,
+        current_consecutive_failures=timeline.current_consecutive_failures,
+        last_succeeded_at=timeline.last_succeeded_at,
+        items=tuple(
+            NotificationDeliveryTimelineItemResponse.model_validate(item, from_attributes=True)
+            for item in timeline.items
+        ),
     )
 
 

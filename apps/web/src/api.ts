@@ -27,6 +27,8 @@ import type {
   MessagePartResponse,
   MessageResponse,
   ManagedUserDetailResponse,
+  NotificationDeliveryTimelineItemResponse,
+  NotificationDeliveryTimelineResponse,
   TelegramWebhookStatusResponse,
 } from './api-client/generated/types.gen'
 import {
@@ -248,6 +250,9 @@ export type ChannelAlertList = ChannelAlertListResponse
 export type ChannelAlertDisposition = ChannelAlertDispositionResponse
 export type ChannelAlertNotification = ChannelAlertNotificationResponse
 export type ChannelAlertNotificationJob = ChannelAlertNotificationJobResponse
+export type NotificationDeliveryTimelineItem = NotificationDeliveryTimelineItemResponse
+export type NotificationDeliveryTimeline = NotificationDeliveryTimelineResponse
+export type NotificationDeliveryEvent = NotificationDeliveryTimelineItem['event']
 export type BackgroundJobReplayChainItem = BackgroundJobReplayChainItemResponse
 export type BackgroundJobReplayChain = BackgroundJobReplayChainResponse
 
@@ -1344,6 +1349,15 @@ export const getChannelAlerts = (channelId?: string, windowMinutes = 60) =>
   apiSdk.getApiV1ChannelsOperationsAlerts({
     query: { channel_id: channelId, window_minutes: windowMinutes },
   })
+
+export const getChannelNotificationTimeline = (filters: {
+  status?: BackgroundJobStatus
+  adapter?: string
+  event?: NotificationDeliveryEvent
+  limit?: number
+} = {}) => apiSdk.getApiV1ChannelsOperationsAlertsNotifications({
+  query: filters,
+})
 
 export const acknowledgeChannelAlert = (
   channelId: string,

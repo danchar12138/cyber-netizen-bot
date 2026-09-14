@@ -14,6 +14,7 @@ import {
   getChannelErrorMetrics,
   getChannelHealthTrend,
   getChannelInstances,
+  getChannelNotificationTimeline,
   getChannelOperationMetrics,
   getModelCapabilities,
   notifyChannelAlerts,
@@ -35,6 +36,9 @@ import {
   type ChannelOperationMetrics,
   type ChannelPlatform,
   type ModelCapabilityProfile,
+  type BackgroundJobStatus,
+  type NotificationDeliveryEvent,
+  type NotificationDeliveryTimelineItem,
 } from '../api'
 import { useSelectedAgentId } from '../agentSelection'
 import { AdminDataTable, type AdminTableColumn } from '../components/AdminDataTable'
@@ -46,8 +50,10 @@ import {
   channelEventTypeLabels,
   channelHealthLabels,
   channelPlatformLabels,
+  backgroundJobStatusLabels,
   displayLabel,
   formatMetadataEntries,
+  notificationDeliveryEventLabels,
 } from '../displayLabels'
 import { invalidateAcrossTabs } from '../tabSync'
 
@@ -81,6 +87,11 @@ const healthSnapshotLabels = {
   not_configured: '未配置',
   disabled: '已停用',
 } as const
+const notificationAdapterLabels = {
+  webhook: '通用 Webhook',
+  feishu_webhook: '飞书 Webhook',
+  email: '电子邮件',
+} as const
 
 export function ChannelsPage() {
   const selectedAgentId = useSelectedAgentId()
@@ -112,6 +123,9 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
   const [deliveryEditMessageId, setDeliveryEditMessageId] = useState('')
   const [metricsWindow, setMetricsWindow] = useState(60)
   const [alertNotificationWindow, setAlertNotificationWindow] = useState(60)
+  const [notificationStatus, setNotificationStatus] = useState<BackgroundJobStatus | ''>('')
+  const [notificationAdapter, setNotificationAdapter] = useState('')
+  const [notificationEvent, setNotificationEvent] = useState<NotificationDeliveryEvent | ''>('')
   const [formError, setFormError] = useState('')
 
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
@@ -152,6 +166,21 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
     queryKey: ['channel-alerts', selectedAgentId, metricsWindow],
     queryFn: () => getChannelAlerts(undefined, metricsWindow),
   })
+  const notificationTimeline = useQuery({
+    queryKey: [
+      'channel-alert-notifications',
+      selectedAgentId,
+      notificationStatus,
+      notificationAdapter,
+      notificationEvent,
+    ],
+    queryFn: () => getChannelNotificationTimeline({
+      status: notificationStatus || undefined,
+      adapter: notificationAdapter || undefined,
+      event: notificationEvent || undefined,
+      limit: 200,
+    }),
+  })
   const canWrite = session.data?.permissions.includes('channel:write') ?? false
   const canSend = session.data?.permissions.includes('channel:send') ?? false
   const canManageCredential = session.data?.permissions.includes('channel_credential:manage') ?? false
@@ -168,6 +197,7 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       invalidateAcrossTabs(queryClient, ['channel-error-metrics', selectedAgentId, metricsWindow]),
       invalidateAcrossTabs(queryClient, ['channel-health-trend', selectedAgentId, metricsWindow]),
       invalidateAcrossTabs(queryClient, ['channel-alerts', selectedAgentId, metricsWindow]),
+      invalidateAcrossTabs(queryClient, ['channel-alert-notifications', selectedAgentId]),
       ...(selectedTelegramChannelId
         ? [invalidateAcrossTabs(queryClient, ['telegram-webhook', selectedTelegramChannelId])]
         : []),
@@ -406,6 +436,19 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       </div>,
     },
   ], [alertDispositionMutation.isPending, canManageAlerts, instanceNames, runAlertDisposition, runUnsuppress, unsuppressMutation.isPending])
+  const notificationColumns = useMemo<Array<AdminTableColumn<NotificationDeliveryTimelineItem>>>(() => [
+    {
+      key: 'event', label: '事件',
+      render: (row) => <div className="table-primary"><strong>{notificationDeliveryEventLabels[row.event]}</strong><code>{notificationAdapterLabels[row.adapter as keyof typeof notificationAdapterLabels] ?? row.adapter}</code></div>,
+    },
+    { key: 'status', label: '状态', render: (row) => <span className={`entity-status task-${row.status}`}>{backgroundJobStatusLabels[row.status]}</span> },
+    { key: 'alerts', label: '告警数', render: (row) => row.alert_count.toLocaleString('zh-CN') },
+    { key: 'attempts', label: '尝试次数', render: (row) => `${row.attempt_count} / ${row.max_attempts}` },
+    { key: 'failures', label: '连续失败', render: (row) => row.consecutive_failures.toLocaleString('zh-CN') },
+    { key: 'result', label: '结果', render: (row) => row.delivered === true ? `已送达${row.status_code ? ` · ${row.status_code}` : ''}` : row.last_error_code ? <code>{row.last_error_code}</code> : '等待结果' },
+    { key: 'elapsed', label: '耗时', render: (row) => row.elapsed_ms === null || row.elapsed_ms === undefined ? '—' : `${row.elapsed_ms} ms` },
+    { key: 'created', label: '创建时间', render: (row) => new Date(row.created_at).toLocaleString('zh-CN') },
+  ], [])
   const metricTotals = useMemo(() => {
     const totals = (operationMetrics.data?.items ?? []).reduce(
       (result, row) => ({
@@ -457,7 +500,7 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
         <span className="phase-tag">Telegram 入站已接通</span>
       </section>
 
-      {(catalog.isError || models.isError || instances.isError || events.isError || operationMetrics.isError || errorMetrics.isError || healthTrend.isError || alerts.isError) && <div className="notice error">渠道数据读取失败，请检查 API 与迁移状态。</div>}
+      {(catalog.isError || models.isError || instances.isError || events.isError || operationMetrics.isError || errorMetrics.isError || healthTrend.isError || alerts.isError || notificationTimeline.isError) && <div className="notice error">渠道数据读取失败，请检查 API 与迁移状态。</div>}
       {(formError || operationError) && <div className="notice error">{formError || operationError?.message}</div>}
       <div className="notice info"><ShieldCheck size={17} /><div><strong>凭证只写入信封加密存储</strong><span>API、页面、诊断事件和审计记录只展示是否已配置；能力降级会明确列出，不会静默丢弃图片、文件、线程或流式语义。</span></div></div>
       <div className="notice info"><RadioTower size={17} /><div><strong>渠道严格归属当前智能体</strong><span>创建、凭证、连接测试、收发模拟和诊断事件均按全局选择隔离；当前标识：{selectedAgentId ?? '默认智能体'}。</span></div></div>
@@ -539,6 +582,21 @@ function ChannelsPageContent({ selectedAgentId }: { selectedAgentId: string | nu
       <section className="panel table-panel" aria-label="渠道告警">
         <div className="panel-heading task-panel-heading"><div><span>策略聚合 · 不含远端错误正文</span><h2><BellRing size={18} />活动告警</h2></div><div className="table-actions"><select value={alertNotificationWindow} onChange={(event) => setAlertNotificationWindow(Number(event.target.value))} aria-label="告警通知时间窗"><option value={15}>最近 15 分钟</option><option value={60}>最近 1 小时</option><option value={360}>最近 6 小时</option><option value={1440}>最近 24 小时</option></select><button disabled={!canManageNotifications || alertNotificationQueueMutation.isPending} onClick={notifyAlerts}><Send size={12} />加入通知队列</button><small>{alerts.data?.items.length ?? 0} 条</small></div></div>
         <AdminDataTable rows={alerts.data?.items ?? []} columns={alertColumns} rowKey={(row) => `${row.channel_id}:${row.code}:${row.error_code ?? ''}`} searchableText={(row) => `${row.title} ${row.code} ${row.error_code ?? ''} ${row.severity}`} searchPlaceholder="搜索告警规则、错误码或级别" emptyMessage={alerts.isLoading ? '正在读取告警…' : '当前窗口没有活动告警'} />
+      </section>
+
+      <section className="channel-operation-section" aria-label="告警通知投递">
+        <div className="panel-heading channel-operation-heading"><div><span>background_jobs 安全投影 · 不含目标、密钥和正文</span><h2><Send size={18} />通知投递</h2></div><label className="status-filter"><span>事件</span><select value={notificationEvent} onChange={(event) => setNotificationEvent(event.target.value as NotificationDeliveryEvent | '')}><option value="">全部事件</option>{Object.entries(notificationDeliveryEventLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label></div>
+        <div className="metric-grid channel-notification-metrics">
+          <article className="metric-card"><div className="metric-icon"><Send size={18} /></div><p>通知总量</p><strong>{notificationTimeline.data?.total ?? '—'}</strong><span>当前 Agent</span></article>
+          <article className="metric-card"><div className="metric-icon"><CheckCircle2 size={18} /></div><p>已完成</p><strong>{notificationTimeline.data?.succeeded ?? '—'}</strong><span>成功投递</span></article>
+          <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>处理中</p><strong>{notificationTimeline.data ? notificationTimeline.data.pending + notificationTimeline.data.running + notificationTimeline.data.retrying : '—'}</strong><span>等待、执行或重试</span></article>
+          <article className="metric-card"><div className="metric-icon"><TriangleAlert size={18} /></div><p>失败 / 死信</p><strong>{notificationTimeline.data ? notificationTimeline.data.failed + notificationTimeline.data.dead_letters : '—'}</strong><span>需人工关注</span></article>
+          <article className="metric-card"><div className="metric-icon"><RefreshCw size={18} /></div><p>当前连续失败</p><strong>{notificationTimeline.data?.current_consecutive_failures ?? '—'}</strong><span>{notificationTimeline.data?.last_succeeded_at ? `最近成功 ${new Date(notificationTimeline.data.last_succeeded_at).toLocaleString('zh-CN')}` : '尚无成功记录'}</span></article>
+        </div>
+        <div className="panel table-panel channel-operation-table">
+          <div className="panel-heading task-panel-heading"><div><span>可按安全状态、适配器和事件筛选</span><h2>投递时间线</h2></div><div className="table-actions"><label className="status-filter"><span>状态</span><select value={notificationStatus} onChange={(event) => setNotificationStatus(event.target.value as BackgroundJobStatus | '')}><option value="">全部状态</option>{Object.entries(backgroundJobStatusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label className="status-filter"><span>适配器</span><select value={notificationAdapter} onChange={(event) => setNotificationAdapter(event.target.value)}><option value="">全部适配器</option>{Object.entries(notificationAdapterLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><small>{notificationTimeline.data?.items.length ?? 0} 条</small></div></div>
+          <AdminDataTable rows={notificationTimeline.data?.items ?? []} columns={notificationColumns} rowKey={(row) => row.job_id} searchableText={(row) => `${row.adapter} ${row.event} ${row.status} ${row.last_error_code ?? ''}`} searchPlaceholder="搜索适配器、事件或安全错误码" emptyMessage={notificationTimeline.isLoading ? '正在读取通知投递…' : '暂无通知投递记录'} />
+        </div>
       </section>
 
       <section className="panel table-panel" aria-label="渠道错误指标">

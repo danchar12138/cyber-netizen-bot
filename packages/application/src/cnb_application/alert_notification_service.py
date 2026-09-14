@@ -3,9 +3,9 @@
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, cast
 from uuid import UUID
 
 from cnb_adapters import (
@@ -19,7 +19,9 @@ from cnb_adapters import (
 from cnb_application.channel_service import ChannelService
 from cnb_application.configuration_service import ConfigurationService, SecretStore
 from cnb_domain import (
+    BackgroundJob,
     BackgroundJobKind,
+    BackgroundJobStatus,
     ChannelAlert,
     ChannelAlertDispositionStatus,
     JsonValue,
@@ -79,6 +81,59 @@ class AlertNotificationResult:
     idempotency_key: str
     elapsed_ms: int
     status_code: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedAlertNotification:
+    """已通过配置校验、但仍不包含运行时密钥的通知准备结果。"""
+
+    adapter: str
+    target: str
+    secret_key: str
+    settings: dict[str, object]
+    timeout_seconds: int
+    max_retries: int
+    payload: dict[str, JsonValue]
+    idempotency_key: str
+    recovery_enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationDeliveryTimelineItem:
+    """通知任务的安全时间线投影。"""
+
+    job_id: UUID
+    status: BackgroundJobStatus
+    adapter: str
+    event: str
+    alert_count: int
+    attempt_count: int
+    max_attempts: int
+    consecutive_failures: int
+    last_error_code: str | None
+    delivered: bool | None
+    status_code: int | None
+    elapsed_ms: int | None
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationDeliveryTimeline:
+    """通知投递时间线及当前 Agent 的安全聚合。"""
+
+    total: int
+    pending: int
+    running: int
+    retrying: int
+    succeeded: int
+    failed: int
+    dead_letters: int
+    current_consecutive_failures: int
+    last_succeeded_at: datetime | None
+    items: tuple[NotificationDeliveryTimelineItem, ...]
 
 
 class AlertNotificationService:
@@ -156,9 +211,18 @@ class AlertNotificationService:
             )
         except (AlertNotificationDisabledError, AlertNotificationNotConfiguredError):
             return None
-        payload = prepared[6]
-        if payload.get("alert_count") == 0:
-            return None
+        if prepared.payload.get("alert_count") == 0:
+            if not prepared.recovery_enabled:
+                return None
+            recovery = await self._prepare_recovery(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                adapter=prepared.adapter,
+                generated_at=(now or datetime.now(UTC)).astimezone(UTC),
+            )
+            if recovery is None:
+                return None
+            prepared = replace(prepared, payload=recovery[0], idempotency_key=recovery[1])
         return await self._enqueue_prepared(
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -172,21 +236,16 @@ class AlertNotificationService:
         tenant_id: UUID,
         agent_id: UUID,
         actor_id: UUID,
-        prepared: tuple[str, str, str, dict[str, object], int, int, dict[str, JsonValue], str],
+        prepared: PreparedAlertNotification,
     ) -> "EnqueueResult":
         task_service = self._task_service
         if task_service is None:
             raise AlertNotificationValidationError("通知任务服务尚未就绪")
-        (
-            selected_adapter,
-            _target,
-            _secret_key,
-            _settings,
-            timeout_seconds,
-            max_retries,
-            payload,
-            idempotency_key,
-        ) = prepared
+        selected_adapter = prepared.adapter
+        payload = prepared.payload
+        idempotency_key = prepared.idempotency_key
+        timeout_seconds = prepared.timeout_seconds
+        max_retries = prepared.max_retries
         task_payload: dict[str, JsonValue] = {
             "agent_id": str(agent_id),
             "adapter": selected_adapter,
@@ -215,6 +274,65 @@ class AlertNotificationService:
             },
         )
         return result
+
+    async def timeline(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        status: BackgroundJobStatus | None = None,
+        adapter: str | None = None,
+        event: str | None = None,
+        limit: int = 100,
+    ) -> NotificationDeliveryTimeline:
+        """返回当前 Agent 的通知投递状态和连续失败趋势。"""
+        if self._task_service is None:
+            raise AlertNotificationValidationError("通知任务服务尚未就绪")
+        if not 1 <= limit <= 500:
+            raise AlertNotificationValidationError("通知时间线数量必须位于 1 到 500 之间")
+        selected_adapter = adapter.strip().casefold() if adapter is not None else None
+        if selected_adapter == "":
+            raise AlertNotificationValidationError("通知适配器不能为空")
+        selected_event = event.strip().casefold() if event else None
+        if selected_event not in {None, "active", "recovery", "unknown"}:
+            raise AlertNotificationValidationError("通知事件类型无效")
+        jobs = await self._task_service.list_notification_jobs(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            limit=500,
+        )
+        records: list[NotificationDeliveryTimelineItem] = []
+        consecutive = 0
+        last_succeeded_at: datetime | None = None
+        counts = {status: 0 for status in BackgroundJobStatus}
+        for job in sorted(jobs, key=lambda item: (item.created_at, str(item.id))):
+            counts[job.status] += 1
+            if job.status in {BackgroundJobStatus.FAILED, BackgroundJobStatus.DEAD_LETTER}:
+                consecutive += 1
+            elif job.status is BackgroundJobStatus.SUCCEEDED:
+                consecutive = 0
+                last_succeeded_at = job.completed_at or job.updated_at
+            item = self._timeline_item(job, consecutive)
+            if selected_adapter is not None and item.adapter.casefold() != selected_adapter:
+                continue
+            if status is not None and item.status is not status:
+                continue
+            if selected_event is not None and item.event != selected_event:
+                continue
+            records.append(item)
+        records.sort(key=lambda item: (item.created_at, str(item.job_id)), reverse=True)
+        return NotificationDeliveryTimeline(
+            total=len(jobs),
+            pending=counts[BackgroundJobStatus.PENDING],
+            running=counts[BackgroundJobStatus.RUNNING],
+            retrying=counts[BackgroundJobStatus.RETRYING],
+            succeeded=counts[BackgroundJobStatus.SUCCEEDED],
+            failed=counts[BackgroundJobStatus.FAILED],
+            dead_letters=counts[BackgroundJobStatus.DEAD_LETTER],
+            current_consecutive_failures=consecutive,
+            last_succeeded_at=last_succeeded_at,
+            items=tuple(records[:limit]),
+        )
 
     async def notify(
         self,
@@ -357,7 +475,7 @@ class AlertNotificationService:
         adapter_key: str | None,
         now: datetime | None,
         require_secret: bool,
-    ) -> tuple[str, str, str, dict[str, object], int, int, dict[str, JsonValue], str]:
+    ) -> PreparedAlertNotification:
         if not 5 <= window_minutes <= 1_440:
             raise AlertNotificationValidationError("告警通知时间窗必须位于 5 到 1440 分钟之间")
         effective = await self._configuration_service.resolve_effective(
@@ -416,15 +534,135 @@ class AlertNotificationService:
             )
             if selected_adapter != "email" and not secret:
                 raise AlertNotificationSecretMissingError("当前 Agent 尚未配置告警签名密钥")
-        return (
-            selected_adapter,
-            target,
-            secret_key,
-            adapter_settings,
-            timeout_seconds,
-            max_retries,
-            payload,
-            idempotency_key,
+        return PreparedAlertNotification(
+            adapter=selected_adapter,
+            target=target,
+            secret_key=secret_key,
+            settings=adapter_settings,
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+            payload=payload,
+            idempotency_key=idempotency_key,
+            recovery_enabled=self._boolean(
+                values.get("alerts.notification.recovery_enabled", True),
+                "alerts.notification.recovery_enabled",
+            ),
+        )
+
+    async def _prepare_recovery(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        adapter: str,
+        generated_at: datetime,
+    ) -> tuple[dict[str, JsonValue], str] | None:
+        """只从最近一次已成功活动通知派生一次恢复事件。"""
+        if self._task_service is None:
+            return None
+        jobs = await self._task_service.list_notification_jobs(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            limit=500,
+        )
+        for job in jobs:
+            if job.status is not BackgroundJobStatus.SUCCEEDED:
+                continue
+            if job.payload.get("adapter") != adapter:
+                continue
+            delivery_payload = job.payload.get("delivery_payload")
+            if not isinstance(delivery_payload, dict):
+                continue
+            if delivery_payload.get("event") != "channel.alerts.active":
+                return None
+            count = delivery_payload.get("alert_count")
+            if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+                continue
+            payload: dict[str, JsonValue] = {
+                "schema_version": "1",
+                "event": "channel.alerts.recovered",
+                "generated_at": generated_at.isoformat(),
+                "alert_count": count,
+                "recovered_alert_keys": self._recovered_keys(delivery_payload),
+            }
+            material = {
+                "tenant_id": str(tenant_id),
+                "agent_id": str(agent_id),
+                "adapter": adapter,
+                "source_job_id": str(job.id),
+                "event": "channel.alerts.recovered",
+            }
+            key = hashlib.sha256(
+                json.dumps(material, separators=(",", ":"), sort_keys=True).encode()
+            ).hexdigest()
+            return payload, key
+        return None
+
+    @staticmethod
+    def _recovered_keys(payload: Mapping[str, object]) -> list[JsonValue]:
+        entries = payload.get("alerts")
+        if not isinstance(entries, list):
+            return []
+        keys: list[JsonValue] = []
+        for entry in cast("list[object]", entries):
+            if not isinstance(entry, dict):
+                continue
+            key = cast("dict[str, object]", entry).get("alert_key")
+            if isinstance(key, str):
+                keys.append(key)
+        return keys
+
+    @staticmethod
+    def _timeline_item(
+        job: BackgroundJob,
+        consecutive_failures: int,
+    ) -> NotificationDeliveryTimelineItem:
+        adapter = job.payload.get("adapter")
+        selected_adapter = (
+            adapter.strip() if isinstance(adapter, str) and adapter.strip() else "unknown"
+        )
+        delivery_payload = job.payload.get("delivery_payload")
+        payload = delivery_payload if isinstance(delivery_payload, dict) else {}
+        event_value = payload.get("event")
+        event = (
+            "active"
+            if event_value == "channel.alerts.active"
+            else "recovery"
+            if event_value == "channel.alerts.recovered"
+            else "unknown"
+        )
+        alert_count = payload.get("alert_count", 0)
+        if not isinstance(alert_count, int) or isinstance(alert_count, bool) or alert_count < 0:
+            alert_count = 0
+        delivered = job.result_summary.get("delivered")
+        delivered_value = delivered if isinstance(delivered, bool) else None
+        status_code = job.result_summary.get("status_code")
+        status_code_value = (
+            status_code
+            if isinstance(status_code, int) and not isinstance(status_code, bool)
+            else None
+        )
+        elapsed_ms = job.result_summary.get("elapsed_ms")
+        elapsed_value = (
+            elapsed_ms if isinstance(elapsed_ms, int) and not isinstance(elapsed_ms, bool) else None
+        )
+        return NotificationDeliveryTimelineItem(
+            job_id=job.id,
+            status=job.status,
+            adapter=selected_adapter,
+            event=event,
+            alert_count=alert_count,
+            attempt_count=job.attempt_count,
+            max_attempts=job.max_attempts,
+            consecutive_failures=consecutive_failures,
+            last_error_code=job.last_error_code,
+            delivered=delivered_value,
+            status_code=status_code_value,
+            elapsed_ms=elapsed_value,
+            created_at=job.created_at,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            updated_at=job.updated_at,
         )
 
     @staticmethod
@@ -551,4 +789,7 @@ __all__ = [
     "AlertNotificationSecretMissingError",
     "AlertNotificationService",
     "AlertNotificationValidationError",
+    "NotificationDeliveryTimeline",
+    "NotificationDeliveryTimelineItem",
+    "PreparedAlertNotification",
 ]

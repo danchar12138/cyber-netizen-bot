@@ -5737,6 +5737,123 @@ export type NotificationDeliveryMetricsResponse = {
 };
 
 /**
+ * NotificationDeliveryTimelineItemResponse
+ *
+ * 单条通知任务的安全状态投影，不公开任务载荷。
+ */
+export type NotificationDeliveryTimelineItemResponse = {
+    /**
+     * Adapter
+     */
+    adapter: string;
+    /**
+     * Alert Count
+     */
+    alert_count: number;
+    /**
+     * Attempt Count
+     */
+    attempt_count: number;
+    /**
+     * Completed At
+     */
+    completed_at: string | null;
+    /**
+     * Consecutive Failures
+     */
+    consecutive_failures: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Delivered
+     */
+    delivered: boolean | null;
+    /**
+     * Elapsed Ms
+     */
+    elapsed_ms?: number | null;
+    /**
+     * Event
+     */
+    event: 'active' | 'recovery' | 'unknown';
+    /**
+     * Job Id
+     */
+    job_id: string;
+    /**
+     * Last Error Code
+     */
+    last_error_code?: string | null;
+    /**
+     * Max Attempts
+     */
+    max_attempts: number;
+    /**
+     * Started At
+     */
+    started_at: string | null;
+    status: BackgroundJobStatus;
+    /**
+     * Status Code
+     */
+    status_code?: number | null;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * NotificationDeliveryTimelineResponse
+ *
+ * 当前 Agent 的通知投递汇总和可筛选时间线。
+ */
+export type NotificationDeliveryTimelineResponse = {
+    /**
+     * Current Consecutive Failures
+     */
+    current_consecutive_failures: number;
+    /**
+     * Dead Letters
+     */
+    dead_letters: number;
+    /**
+     * Failed
+     */
+    failed: number;
+    /**
+     * Items
+     */
+    items: Array<NotificationDeliveryTimelineItemResponse>;
+    /**
+     * Last Succeeded At
+     */
+    last_succeeded_at: string | null;
+    /**
+     * Pending
+     */
+    pending: number;
+    /**
+     * Retrying
+     */
+    retrying: number;
+    /**
+     * Running
+     */
+    running: number;
+    /**
+     * Succeeded
+     */
+    succeeded: number;
+    /**
+     * Total
+     */
+    total: number;
+};
+
+/**
  * ObservabilityDashboardResponse
  *
  * 管理后台可观测性完整聚合视图。
@@ -8266,6 +8383,80 @@ export type GetApiV1ChannelsOperationsAlertsResponses = {
 };
 
 export type GetApiV1ChannelsOperationsAlertsResponse = GetApiV1ChannelsOperationsAlertsResponses[keyof GetApiV1ChannelsOperationsAlertsResponses];
+
+export type GetApiV1ChannelsOperationsAlertsNotificationsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Status
+         */
+        status?: BackgroundJobStatus | null;
+        /**
+         * Adapter
+         */
+        adapter?: string | null;
+        /**
+         * Event
+         */
+        event?: 'active' | 'recovery' | 'unknown' | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/channels/operations/alerts/notifications';
+};
+
+export type GetApiV1ChannelsOperationsAlertsNotificationsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ChannelsOperationsAlertsNotificationsError = GetApiV1ChannelsOperationsAlertsNotificationsErrors[keyof GetApiV1ChannelsOperationsAlertsNotificationsErrors];
+
+export type GetApiV1ChannelsOperationsAlertsNotificationsResponses = {
+    /**
+     * 请求成功
+     */
+    200: NotificationDeliveryTimelineResponse;
+};
+
+export type GetApiV1ChannelsOperationsAlertsNotificationsResponse = GetApiV1ChannelsOperationsAlertsNotificationsResponses[keyof GetApiV1ChannelsOperationsAlertsNotificationsResponses];
 
 export type PostApiV1ChannelsOperationsAlertsNotifyData = {
     body: ChannelAlertNotificationCommand;

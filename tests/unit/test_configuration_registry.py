@@ -98,6 +98,18 @@ def test_model_comparison_candidate_limit_is_runtime_managed() -> None:
     assert ConfigScope.AGENT in definition.scopes
 
 
+def test_alert_recovery_notification_is_runtime_managed_and_enabled_by_default() -> None:
+    definition = {item.key: item for item in build_default_registry().all()}[
+        "alerts.notification.recovery_enabled"
+    ]
+
+    assert definition.section == "observability"
+    assert definition.label == "启用告警恢复通知"
+    assert definition.value_kind is ConfigValueKind.BOOLEAN
+    assert definition.default is True
+    assert ConfigScope.AGENT in definition.scopes
+
+
 def test_registry_rejects_duplicate_keys() -> None:
     definition = ConfigDefinition(
         key="test.enabled",

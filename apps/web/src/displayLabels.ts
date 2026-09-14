@@ -146,6 +146,12 @@ export const backgroundJobStatusLabels = {
   canceled: '已取消',
 } satisfies Labels<BackgroundJobStatus>
 
+export const notificationDeliveryEventLabels = {
+  active: '活动告警',
+  recovery: '恢复通知',
+  unknown: '未知事件',
+} as const
+
 export const scheduledActionStatusLabels = {
   pending: '待调度',
   dispatched: '已分发',

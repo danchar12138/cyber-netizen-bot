@@ -100,6 +100,14 @@ class TaskRepository(Protocol):
         limit: int,
     ) -> tuple[BackgroundJob, ...]: ...
 
+    async def list_notification_jobs(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        limit: int,
+    ) -> tuple[BackgroundJob, ...]: ...
+
     async def list_attempts(self, *, tenant_id: UUID, job_id: UUID) -> tuple[JobAttempt, ...]: ...
 
     async def get_counts(self, *, tenant_id: UUID) -> TaskCounts: ...
@@ -454,6 +462,20 @@ class BackgroundTaskService:
             tenant_id=tenant_id,
             status=status,
             kind=kind,
+            limit=self._limit(limit),
+        )
+
+    async def list_notification_jobs(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        limit: int,
+    ) -> tuple[BackgroundJob, ...]:
+        """按 Agent 隔离返回通知任务，原始载荷仅供应用层生成安全投影。"""
+        return await self._repository.list_notification_jobs(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
             limit=self._limit(limit),
         )
 

@@ -4,6 +4,7 @@ import {
   adminRoleLabels,
   auditActionLabels,
   auditResourceLabels,
+  backgroundJobStatusLabels,
   channelCapabilityLabels,
   channelDegradationLabels,
   cognitiveActionLabels,
@@ -18,6 +19,7 @@ import {
   memorySensitivityLabels,
   memorySourceKindLabels,
   memoryVisibilityLabels,
+  notificationDeliveryEventLabels,
   relationshipStageLabels,
   secretIntegrityLabels,
 } from './displayLabels'
@@ -49,6 +51,8 @@ describe('管理后台中文显示文案', () => {
   it('覆盖渠道能力与透明降级原因', () => {
     expect(channelCapabilityLabels.streaming).toBe('流式响应')
     expect(channelDegradationLabels.streaming_to_buffered).toBe('流式响应改为缓冲后发送')
+    expect(backgroundJobStatusLabels.dead_letter).toBe('死信')
+    expect(notificationDeliveryEventLabels.recovery).toBe('恢复通知')
   })
 
   it('未知协议值保留原值以便定位兼容性问题', () => {

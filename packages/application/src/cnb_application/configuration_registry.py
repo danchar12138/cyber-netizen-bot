@@ -533,6 +533,15 @@ def build_default_registry() -> ConfigurationRegistry:
                 scopes=per_agent,
             ),
             ConfigDefinition(
+                key="alerts.notification.recovery_enabled",
+                section="observability",
+                label="启用告警恢复通知",
+                description="此前已成功通知的活动告警全部恢复后，自动且仅一次投递恢复摘要。",
+                value_kind=ConfigValueKind.BOOLEAN,
+                default=True,
+                scopes=per_agent,
+            ),
+            ConfigDefinition(
                 key="alerts.notification.feishu_webhook_url",
                 section="observability",
                 label="飞书 Webhook 地址",
