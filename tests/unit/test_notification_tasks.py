@@ -19,9 +19,11 @@ from cnb_application import (
     build_default_registry,
 )
 from cnb_domain import (
+    AlertSeverity,
     BackgroundJob,
     BackgroundJobKind,
     BackgroundJobStatus,
+    ChannelAlert,
     ConfigEntry,
     ConfigScope,
     JsonValue,
@@ -83,6 +85,27 @@ class EmptyAlerts:
         return ()
 
 
+class ActiveAlerts:
+    async def alerts(self, **_: object) -> tuple[ChannelAlert, ...]:
+        now = datetime.now(UTC)
+        return (
+            ChannelAlert(
+                channel_id=uuid4(),
+                code="channel_error_rate",
+                error_code="telegram_http_error",
+                severity=AlertSeverity.CRITICAL,
+                title="渠道异常",
+                summary="安全摘要",
+                occurrences=3,
+                current_value=100.0,
+                threshold_value=5.0,
+                unit="%",
+                last_occurred_at=now,
+                cooldown_until=now,
+            ),
+        )
+
+
 async def _configuration(
     tenant_id: UUID,
     agent_id: UUID,
@@ -141,6 +164,69 @@ async def test_alert_notification_enqueue_does_not_store_target_or_secret() -> N
     assert payload["adapter"] == "webhook"
     assert result.job.kind is BackgroundJobKind.NOTIFICATION_DELIVERY
     assert audit.events[0]["job_id"] == str(result.job.id)
+
+
+@pytest.mark.asyncio
+async def test_alert_notification_enqueue_if_active_skips_empty_alerts() -> None:
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
+    configuration = await _configuration(tenant_id, agent_id)
+    secrets = MemorySecretStore()
+    await secrets.set_secret(
+        key="alerts.notification.webhook_signing_secret",
+        scope_type=ConfigScope.AGENT,
+        scope_id=agent_id,
+        plaintext="runtime-secret",
+        actor_id=actor_id,
+    )
+    service = AlertNotificationService(
+        channel_service=EmptyAlerts(),  # type: ignore[arg-type]
+        configuration_service=configuration,
+        secret_store=secrets,
+        adapter_registry=NotificationAdapterRegistry((RecordingAdapter(),)),
+        audit_recorder=RecordingAudit(),
+        task_service=BackgroundTaskService(InMemoryTaskRepository()),
+    )
+
+    assert (
+        await service.enqueue_if_active(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            actor_id=actor_id,
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_alert_notification_enqueue_if_active_queues_active_alerts() -> None:
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
+    configuration = await _configuration(tenant_id, agent_id)
+    secrets = MemorySecretStore()
+    await secrets.set_secret(
+        key="alerts.notification.webhook_signing_secret",
+        scope_type=ConfigScope.AGENT,
+        scope_id=agent_id,
+        plaintext="runtime-secret",
+        actor_id=actor_id,
+    )
+    tasks = InMemoryTaskRepository()
+    service = AlertNotificationService(
+        channel_service=ActiveAlerts(),  # type: ignore[arg-type]
+        configuration_service=configuration,
+        secret_store=secrets,
+        adapter_registry=NotificationAdapterRegistry((RecordingAdapter(),)),
+        audit_recorder=RecordingAudit(),
+        task_service=BackgroundTaskService(tasks),
+    )
+
+    result = await service.enqueue_if_active(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        actor_id=actor_id,
+    )
+
+    assert result is not None
+    assert result.job.kind is BackgroundJobKind.NOTIFICATION_DELIVERY
 
 
 @pytest.mark.asyncio

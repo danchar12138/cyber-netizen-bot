@@ -16,6 +16,7 @@ from dramatiq.middleware import AsyncIO
 
 from cnb_adapters import build_default_channel_registry, build_default_notification_registry
 from cnb_application import (
+    AlertNotificationService,
     AttachmentService,
     BackgroundJobHandler,
     BackgroundTaskService,
@@ -57,6 +58,7 @@ from cnb_infrastructure import (
     AesGcmEnvelopeCipher,
     ConfiguredModelProviderResolver,
     MinioObjectStorage,
+    SqlAlchemyAdministrationRepository,
     SqlAlchemyAttachmentRepository,
     SqlAlchemyChannelRepository,
     SqlAlchemyCognitionRepository,
@@ -79,6 +81,7 @@ session_factory = create_session_factory(settings)
 task_repository = SqlAlchemyTaskRepository(session_factory)
 memory_repository = SqlAlchemyMemoryRepository(session_factory)
 configuration_repository = SqlAlchemyConfigurationRepository(session_factory)
+administration_repository = SqlAlchemyAdministrationRepository(session_factory)
 conversation_repository = SqlAlchemyConversationRepository(session_factory)
 cognition_repository = SqlAlchemyCognitionRepository(session_factory)
 attachment_repository = SqlAlchemyAttachmentRepository(session_factory)
@@ -105,6 +108,14 @@ channel_probe_scheduler = ChannelConnectionProbeScheduler(
     repository=channel_repository,
     task_service=task_service,
     configuration=configuration_service,
+)
+alert_notification_service = AlertNotificationService(
+    channel_service=channel_service,
+    configuration_service=configuration_service,
+    secret_store=secret_store,
+    adapter_registry=build_default_notification_registry(),
+    audit_recorder=administration_repository,
+    task_service=task_service,
 )
 worker_id = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}"
 worker_started_at = datetime.now(UTC)
@@ -280,7 +291,10 @@ _handlers: dict[BackgroundJobKind, BackgroundJobHandler] = {
         configuration_service,
         secret_store,
     ),
-    BackgroundJobKind.CHANNEL_CONNECTION_TEST: ChannelConnectionProbeTaskHandler(channel_service),
+    BackgroundJobKind.CHANNEL_CONNECTION_TEST: ChannelConnectionProbeTaskHandler(
+        channel_service,
+        alert_notification_service,
+    ),
 }
 _actors_by_queue: dict[str, _ActorSender] = {
     "memory": cast(_ActorSender, process_memory_job),

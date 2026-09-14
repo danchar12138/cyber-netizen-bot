@@ -132,6 +132,14 @@ class _RecordingChannelService:
         return self.result
 
 
+class _RecordingNotifications:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def enqueue_if_active(self, **kwargs: object) -> None:
+        self.calls.append(kwargs)
+
+
 def _job(channel: ChannelInstance, payload: Mapping[str, JsonValue]) -> BackgroundJob:
     now = datetime.now(UTC)
     return BackgroundJob(
@@ -181,7 +189,11 @@ async def test_handler_returns_safe_health_summary(health: ChannelHealthStatus) 
         capabilities=ChannelCapabilities(text=True),
     )
     service = _RecordingChannelService(view)
-    handler = ChannelConnectionProbeTaskHandler(service)  # type: ignore[arg-type]
+    notifications = _RecordingNotifications()
+    handler = ChannelConnectionProbeTaskHandler(
+        service,  # type: ignore[arg-type]
+        notifications,  # type: ignore[arg-type]
+    )
     result = await handler.handle(
         _job(
             channel,
@@ -200,6 +212,7 @@ async def test_handler_returns_safe_health_summary(health: ChannelHealthStatus) 
     }
     assert "credential" not in repr(result).lower()
     assert "secret" not in repr(result).lower()
+    assert notifications.calls[0]["agent_id"] == channel.agent_id
 
 
 async def test_handler_rejects_malformed_payload_permanently() -> None:

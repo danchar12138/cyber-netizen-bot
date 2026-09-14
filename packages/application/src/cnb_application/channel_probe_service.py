@@ -16,6 +16,20 @@ class ChannelProbeRepository(Protocol):
     async def list_probe_candidates(self) -> tuple[ChannelInstance, ...]: ...
 
 
+class ChannelAlertNotificationPort(Protocol):
+    """探测完成后尝试入队告警通知的最小端口。"""
+
+    async def enqueue_if_active(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        actor_id: UUID,
+        window_minutes: int = 60,
+        now: datetime | None = None,
+    ) -> object | None: ...
+
+
 class ChannelConnectionProbeScheduler:
     """按渠道配置间隔创建去重的连接探测任务。"""
 
@@ -68,8 +82,13 @@ class ChannelConnectionProbeScheduler:
 class ChannelConnectionProbeTaskHandler:
     """执行一次连接探测并仅返回健康状态摘要。"""
 
-    def __init__(self, channel_service: ChannelService) -> None:
+    def __init__(
+        self,
+        channel_service: ChannelService,
+        alert_notifications: ChannelAlertNotificationPort | None = None,
+    ) -> None:
         self._channel_service = channel_service
+        self._alert_notifications = alert_notifications
 
     async def handle(self, job: BackgroundJob) -> dict[str, JsonValue]:
         try:
@@ -84,6 +103,13 @@ class ChannelConnectionProbeTaskHandler:
             channel_id=channel_id,
             actor_id=actor_id,
         )
+        if self._alert_notifications is not None:
+            await self._alert_notifications.enqueue_if_active(
+                tenant_id=job.tenant_id,
+                agent_id=agent_id,
+                actor_id=actor_id,
+                now=result.instance.last_checked_at,
+            )
         return {
             "channel_id": str(channel_id),
             "health_status": result.instance.health_status.value,
@@ -101,6 +127,7 @@ class ChannelConnectionProbeTaskHandler:
 
 
 __all__ = [
+    "ChannelAlertNotificationPort",
     "ChannelConnectionProbeScheduler",
     "ChannelConnectionProbeTaskHandler",
     "ChannelProbeRepository",

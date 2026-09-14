@@ -37,6 +37,7 @@ from cnb_application.authorization import (
     require_admin_permission,
 )
 from cnb_application.channel_probe_service import (
+    ChannelAlertNotificationPort,
     ChannelConnectionProbeScheduler,
     ChannelConnectionProbeTaskHandler,
     ChannelProbeRepository,
@@ -217,6 +218,7 @@ __all__ = [
     "BackgroundJobHandler",
     "BackgroundTaskService",
     "ChannelAlert",
+    "ChannelAlertNotificationPort",
     "ChannelCatalogItem",
     "ChannelConflictError",
     "ChannelConnectionProbeScheduler",

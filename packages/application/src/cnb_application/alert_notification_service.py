@@ -126,6 +126,57 @@ class AlertNotificationService:
             now=now,
             require_secret=True,
         )
+        return await self._enqueue_prepared(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            actor_id=actor_id,
+            prepared=prepared,
+        )
+
+    async def enqueue_if_active(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        actor_id: UUID,
+        window_minutes: int = 60,
+        now: datetime | None = None,
+    ) -> "EnqueueResult | None":
+        """有活动告警且通知完整配置时入队；禁用或未配置时安全跳过。"""
+        if self._task_service is None:
+            raise AlertNotificationValidationError("通知任务服务尚未就绪")
+        try:
+            prepared = await self._prepare(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                window_minutes=window_minutes,
+                adapter_key=None,
+                now=now,
+                require_secret=True,
+            )
+        except (AlertNotificationDisabledError, AlertNotificationNotConfiguredError):
+            return None
+        payload = prepared[6]
+        if payload.get("alert_count") == 0:
+            return None
+        return await self._enqueue_prepared(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            actor_id=actor_id,
+            prepared=prepared,
+        )
+
+    async def _enqueue_prepared(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        actor_id: UUID,
+        prepared: tuple[str, str, str, dict[str, object], int, int, dict[str, JsonValue], str],
+    ) -> "EnqueueResult":
+        task_service = self._task_service
+        if task_service is None:
+            raise AlertNotificationValidationError("通知任务服务尚未就绪")
         (
             selected_adapter,
             _target,
@@ -144,7 +195,7 @@ class AlertNotificationService:
             "timeout_seconds": timeout_seconds,
             "max_retries": max_retries,
         }
-        result = await self._task_service.enqueue(
+        result = await task_service.enqueue(
             tenant_id=tenant_id,
             kind=BackgroundJobKind.NOTIFICATION_DELIVERY,
             payload=task_payload,
