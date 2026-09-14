@@ -9,6 +9,7 @@ import {
   getAdminSession,
   getBackgroundJobs,
   getBackgroundJobReplayChain,
+  getChannelInstances,
   getDevelopmentIdentity,
   getScheduledActions,
   getTaskDashboard,
@@ -39,6 +40,9 @@ export function TaskStatusPage() {
   const selectedAgentId = useSelectedAgentId()
   const [statusFilter, setStatusFilter] = useState<BackgroundJobStatus | ''>('')
   const [reason, setReason] = useState('在合适时间自然跟进上次交流')
+  const [channelId, setChannelId] = useState('')
+  const [recipientId, setRecipientId] = useState('')
+  const [message, setMessage] = useState('想起你之前提到的事情，最近进展还顺利吗？')
   const [scheduledFor, setScheduledFor] = useState(() => localInputValue(new Date(Date.now() + 60_000)))
   const [replayChainJobId, setReplayChainJobId] = useState<string | null>(null)
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
@@ -59,6 +63,9 @@ export function TaskStatusPage() {
     queryFn: () => getScheduledActions(),
     refetchInterval: 15_000,
   })
+  const channels = useQuery({ queryKey: ['channels', selectedAgentId], queryFn: getChannelInstances, refetchInterval: 30_000 })
+  const proactiveChannels = channels.data?.items.filter((item) => item.status === 'enabled' && item.implementation_status === 'ready' && item.capabilities.proactive_messages) ?? []
+  const effectiveChannelId = channelId || proactiveChannels[0]?.id || ''
   const canManageTasks = session.data?.permissions.includes('task:manage') ?? false
   const canManageProactive = session.data?.permissions.includes('proactive:manage') ?? false
 
@@ -84,7 +91,14 @@ export function TaskStatusPage() {
       expires_at: new Date(new Date(scheduledFor).getTime() + 24 * 3600_000).toISOString(),
       idempotency_key: crypto.randomUUID(),
       reason,
-      payload: { importance: 0.75, confidence: 0.8, last_user_activity_at: new Date().toISOString() },
+      payload: {
+        channel_id: effectiveChannelId,
+        recipient_id: recipientId.trim(),
+        message: message.trim(),
+        importance: 0.75,
+        confidence: 0.8,
+        last_user_activity_at: new Date().toISOString(),
+      },
       social_cost: 1,
     }),
     onSuccess: refresh,
@@ -92,7 +106,7 @@ export function TaskStatusPage() {
 
   const submitAction = (event: FormEvent) => {
     event.preventDefault()
-    if (!identity.data || !reason.trim() || !scheduledFor) return
+    if (!identity.data || !reason.trim() || !scheduledFor || !effectiveChannelId || !recipientId.trim() || !message.trim()) return
     createAction.mutate()
   }
   const runCancel = useCallback((job: BackgroundJob) => {
@@ -161,7 +175,7 @@ export function TaskStatusPage() {
         <span className="phase-tag">每 15 秒刷新</span>
       </section>
 
-      {(dashboard.isError || jobs.isError || scheduled.isError) && <div className="notice error">任务数据读取失败，请检查 API、迁移与数据库连接。</div>}
+      {(dashboard.isError || jobs.isError || scheduled.isError || channels.isError) && <div className="notice error">任务数据读取失败，请检查 API、迁移与数据库连接。</div>}
       {operationError && <div className="notice error">{operationError.message}</div>}
       <section className="metric-grid" aria-label="任务指标">
         <article className="metric-card"><div className="metric-icon"><ListTodo size={18} /></div><p>待处理 / 重试</p><strong>{data ? `${data.pending} / ${data.retrying}` : '—'}</strong><span>由 Outbox 恢复投递</span></article>
@@ -175,9 +189,12 @@ export function TaskStatusPage() {
       <section className="panel task-create-panel">
         <div className="panel-heading"><div><span>主动行为</span><h2>新建定时候选</h2></div></div>
         <form className="task-create-form" onSubmit={submitAction}>
+          <label><span>出站渠道</span><select value={effectiveChannelId} onChange={(event) => setChannelId(event.target.value)} required><option value="">选择已启用的 IM 渠道</option>{proactiveChannels.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.display_name}</option>)}</select></label>
+          <label><span>收件人标识</span><input value={recipientId} maxLength={255} placeholder="Telegram chat_id 或 Web 用户标识" onChange={(event) => setRecipientId(event.target.value)} required /></label>
+          <label><span>消息正文</span><textarea value={message} maxLength={20_000} rows={3} onChange={(event) => setMessage(event.target.value)} required /></label>
           <label><span>执行时间</span><input type="datetime-local" value={scheduledFor} onChange={(event) => setScheduledFor(event.target.value)} required /></label>
           <label><span>可审计原因</span><input value={reason} maxLength={500} onChange={(event) => setReason(event.target.value)} required /></label>
-          <button className="primary-button" type="submit" disabled={!canManageProactive || !identity.data || createAction.isPending}><Plus size={14} />创建候选</button>
+          <button className="primary-button" type="submit" disabled={!canManageProactive || !identity.data || !effectiveChannelId || !recipientId.trim() || !message.trim() || createAction.isPending}><Plus size={14} />创建候选</button>
         </form>
       </section>
 

@@ -245,6 +245,7 @@ _handlers: dict[BackgroundJobKind, BackgroundJobHandler] = {
         scheduled_actions=scheduled_action_service,
         configuration=configuration_service,
         memory=memory_service,
+        channel_service=channel_service,
     ),
     BackgroundJobKind.INBOUND_MESSAGE: InboundMessageTaskHandler(
         InboundConversationProcessor(

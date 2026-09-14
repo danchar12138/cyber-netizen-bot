@@ -12,6 +12,7 @@ from cnb_adapters import (
     NotificationAdapterValidationError,
     NotificationDeliveryCommand,
 )
+from cnb_application.channel_service import ChannelDeliveryReceipt, ChannelService
 from cnb_application.configuration_service import ConfigurationService, SecretStore
 from cnb_application.memory_service import MemoryService, MemorySourceDraft
 from cnb_application.task_service import (
@@ -30,13 +31,17 @@ from cnb_cognition import (
 )
 from cnb_domain import (
     BackgroundJob,
+    ContentBlockKind,
     JsonValue,
     MemoryConfirmation,
     MemoryKind,
     MemorySensitivity,
     MemorySourceKind,
     MemoryVisibility,
+    MultimodalContentBlock,
     PendingAgentRun,
+    ScheduledAction,
+    ScheduledActionKind,
     ScheduledActionStatus,
 )
 
@@ -403,11 +408,13 @@ class ScheduledActionTaskHandler:
         scheduled_actions: ScheduledActionService,
         configuration: ConfigurationService,
         memory: MemoryService,
+        channel_service: ChannelService | None = None,
     ) -> None:
         self._repository = repository
         self._scheduled_actions = scheduled_actions
         self._configuration = configuration
         self._memory = memory
+        self._channel_service = channel_service
 
     async def handle(self, job: BackgroundJob) -> dict[str, JsonValue]:
         action_id = _uuid(job, "scheduled_action_id")
@@ -418,6 +425,12 @@ class ScheduledActionTaskHandler:
         if action is None:
             raise PermanentTaskError(f"定时行为不存在：{action_id}")
         if action.status is not ScheduledActionStatus.PENDING:
+            if (
+                action.status is ScheduledActionStatus.DISPATCHED
+                and action.kind is ScheduledActionKind.PROACTIVE_MESSAGE
+            ):
+                receipt = await self._dispatch_proactive(action)
+                return self._delivery_result(action, receipt)
             return {"scheduled_action_id": str(action.id), "status": action.status.value}
         snapshot = await self._configuration.resolve_effective(
             tenant_id=job.tenant_id,
@@ -448,6 +461,8 @@ class ScheduledActionTaskHandler:
         last_activity = (
             _payload_datetime(action.payload, "last_user_activity_at") or action.created_at
         )
+        if action.kind is ScheduledActionKind.PROACTIVE_MESSAGE:
+            self._proactive_payload(action)
         decision = await self._scheduled_actions.evaluate(
             tenant_id=job.tenant_id,
             action_id=action.id,
@@ -473,18 +488,103 @@ class ScheduledActionTaskHandler:
             ),
             budget_date=now.astimezone(timezone).date(),
         )
-        return {
+        result: dict[str, JsonValue] = {
             "scheduled_action_id": str(decision.id),
             "status": decision.status.value,
             "score": decision.score,
             "decision_reasons": list(decision.decision_reasons),
         }
+        if (
+            decision.status is ScheduledActionStatus.DISPATCHED
+            and decision.kind is ScheduledActionKind.PROACTIVE_MESSAGE
+        ):
+            result.update(self._delivery_result(decision, await self._dispatch_proactive(decision)))
+        return result
+
+    async def _dispatch_proactive(self, action: ScheduledAction) -> ChannelDeliveryReceipt:
+        if self._channel_service is None:
+            raise PermanentTaskError("主动消息渠道服务尚未配置")
+        channel_id, recipient_id, message, thread_id, edit_message_id, request_streaming = (
+            self._proactive_payload(action)
+        )
+        return await self._channel_service.deliver(
+            tenant_id=action.tenant_id,
+            agent_id=action.agent_id,
+            channel_id=channel_id,
+            recipient_id=recipient_id,
+            blocks=(MultimodalContentBlock(kind=ContentBlockKind.TEXT, text=message),),
+            idempotency_key=f"proactive:{action.id}",
+            request_streaming=request_streaming,
+            thread_id=thread_id,
+            edit_message_id=edit_message_id,
+            proactive=True,
+        )
+
+    @staticmethod
+    def _delivery_result(
+        action: ScheduledAction,
+        receipt: ChannelDeliveryReceipt,
+    ) -> dict[str, JsonValue]:
+        return {
+            "scheduled_action_id": str(action.id),
+            "status": action.status.value,
+            "delivery_status": receipt.status.value,
+            "external_message_id": receipt.external_message_id,
+            "delivery_degradations": list(receipt.degradations),
+            "delivery_idempotent_replay": receipt.idempotent_replay,
+        }
+
+    @staticmethod
+    def _proactive_payload(
+        action: ScheduledAction,
+    ) -> tuple[UUID, str, str, str | None, str | None, bool]:
+        payload = action.payload
+        channel_id = _action_uuid(payload, "channel_id")
+        recipient_id = _action_text(payload, "recipient_id", 255)
+        message = _action_text(payload, "message", 20_000)
+        thread_id = _action_optional_text(payload, "thread_id", 255)
+        edit_message_id = _action_optional_text(payload, "edit_message_id", 255)
+        request_streaming = payload.get("request_streaming", False)
+        if not isinstance(request_streaming, bool):
+            raise PermanentTaskError("主动消息载荷 request_streaming 格式无效")
+        return channel_id, recipient_id, message, thread_id, edit_message_id, request_streaming
 
 
 def _value(job: BackgroundJob, key: str) -> JsonValue:
     if key not in job.payload:
         raise PermanentTaskError(f"任务载荷缺少字段：{key}")
     return job.payload[key]
+
+
+def _action_value(payload: Mapping[str, JsonValue], key: str) -> JsonValue:
+    value = payload.get(key)
+    if value is None:
+        raise PermanentTaskError(f"主动行为载荷缺少字段：{key}")
+    return value
+
+
+def _action_text(payload: Mapping[str, JsonValue], key: str, maximum: int) -> str:
+    value = _action_value(payload, key)
+    if not isinstance(value, str) or not value.strip() or len(value.strip()) > maximum:
+        raise PermanentTaskError(f"主动行为载荷字符串无效：{key}")
+    return value.strip()
+
+
+def _action_optional_text(payload: Mapping[str, JsonValue], key: str, maximum: int) -> str | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value.strip()) > maximum:
+        raise PermanentTaskError(f"主动行为载荷字符串无效：{key}")
+    return value.strip() or None
+
+
+def _action_uuid(payload: Mapping[str, JsonValue], key: str) -> UUID:
+    value = _action_text(payload, key, 36)
+    try:
+        return UUID(value)
+    except ValueError as error:
+        raise PermanentTaskError(f"主动行为载荷 UUID 无效：{key}") from error
 
 
 def _string(job: BackgroundJob, key: str) -> str:
