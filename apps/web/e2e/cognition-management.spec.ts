@@ -339,6 +339,23 @@ test('可以按 Run ID 查看安全认知轨迹', async ({ page }) => {
         agent_runs: { terminal_runs: 20, completed_runs: 20, unsuccessful_runs: 0, success_rate_percent: 100, latency: { p50_ms: 800, p95_ms: 1400, p99_ms: 1800 } },
         models: [{ provider: 'development', model: 'friendly-echo-v1', invocations: 20, failed_invocations: 0, input_tokens: 2400, output_tokens: 640, estimated_cost_microusd: 0, latency: { p50_ms: 18, p95_ms: 40, p99_ms: 55 } }],
         queue: { backlog: 0, oldest_wait_seconds: 0 },
+        channel_delivery: {
+          attempts: 0,
+          delivered: 0,
+          degraded: 0,
+          failed: 0,
+          rate_limited: 0,
+          failure_rate_percent: 0,
+        },
+        notification_delivery: {
+          total: 0,
+          pending: 0,
+          running: 0,
+          retrying: 0,
+          succeeded: 0,
+          failed: 0,
+          dead_letters: 0,
+        },
         total_estimated_cost_microusd: 0,
         alerts: [],
       },
@@ -401,7 +418,7 @@ test('可以按 Run ID 查看安全认知轨迹', async ({ page }) => {
   await expect(page.getByText(/用途 对话自然表达/)).toBeVisible()
   await expect(page.getByText('策略已选')).toBeVisible()
   await expect(page.getByText('development / friendly-echo-v1').last()).toBeVisible()
-  await expect(page.getByText('API 错误率')).toBeVisible()
+  await expect(page.getByText('应用接口错误率')).toBeVisible()
   await expect(page.getByText('消息正文、完整提示词、隐藏推理')).toBeVisible()
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
 })

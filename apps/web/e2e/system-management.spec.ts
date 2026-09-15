@@ -127,7 +127,7 @@ test('运行总览聚合健康、质量、任务、渠道与告警', async ({ pa
   await page.goto('/')
   await expect(page.getByRole('heading', { name: '系统状态、运行质量与风险，一页掌握。' })).toBeVisible()
   await expect(page.getByText('95.00%', { exact: true })).toBeVisible()
-  await expect(page.getByText('10,500 Token · 租户聚合', { exact: true })).toBeVisible()
+  await expect(page.getByText('10,500 词元 · 当前智能体', { exact: true })).toBeVisible()
   await expect(page.getByText('API 错误率偏高', { exact: true })).toBeVisible()
   await expect(page.getByText('ConnectionError', { exact: true })).toBeVisible()
   await expect(page.getByText('2 个任务进程心跳正常。', { exact: true })).toBeVisible()

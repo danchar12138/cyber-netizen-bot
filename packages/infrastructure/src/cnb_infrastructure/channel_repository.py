@@ -1056,7 +1056,7 @@ class SqlAlchemyChannelRepository:
                 tuple[_OperationAggregateRow, ...],
                 (await session.execute(aggregate_statement)).all(),
             )
-        # Keep the aggregate query narrow and construct zero rows for quiet channels.
+        # 聚合查询只读取必要字段；没有事件的安静渠道由应用层补齐零值行。
         aggregates = {row[0]: row for row in rows}
         return tuple(
             ChannelOperationMetrics(
