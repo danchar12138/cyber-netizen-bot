@@ -7565,6 +7565,14 @@
             "title": "Export Max Records",
             "type": "integer"
           },
+          "observability_disposition_event_days": {
+            "title": "Observability Disposition Event Days",
+            "type": "integer"
+          },
+          "observability_replay_review_days": {
+            "title": "Observability Replay Review Days",
+            "type": "integer"
+          },
           "orphan_grace_hours": {
             "title": "Orphan Grace Hours",
             "type": "integer"
@@ -7574,6 +7582,8 @@
           "deleted_agent_days",
           "deleted_conversation_days",
           "deleted_attachment_days",
+          "observability_disposition_event_days",
+          "observability_replay_review_days",
           "orphan_grace_hours",
           "batch_size",
           "export_max_records",
@@ -7587,6 +7597,7 @@
         "description": "管理后台可触发或登记的数据生命周期动作。",
         "enum": [
           "user_export",
+          "observability_alert_history_export",
           "user_forget",
           "retention_cleanup",
           "orphan_cleanup",
@@ -10627,6 +10638,22 @@
         ],
         "title": "ObservabilityAlertDispositionStatus",
         "type": "string"
+      },
+      "ObservabilityAlertHistoryExportCommand": {
+        "description": "按受限时间窗口导出当前 Agent 的安全告警运营历史。",
+        "properties": {
+          "window_minutes": {
+            "maximum": 525600.0,
+            "minimum": 5.0,
+            "title": "Window Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window_minutes"
+        ],
+        "title": "ObservabilityAlertHistoryExportCommand",
+        "type": "object"
       },
       "ObservabilityAlertLifecycleMetricsResponse": {
         "description": "当前 Agent 的通用告警生命周期聚合与趋势。",
@@ -24831,6 +24858,121 @@
           }
         },
         "summary": "清理 MinIO 孤儿对象",
+        "tags": [
+          "数据生命周期"
+        ]
+      }
+    },
+    "/api/v1/data-lifecycle/observability-alert-history/exports": {
+      "post": {
+        "description": "生成当前 Agent 的一次性安全告警运营历史 JSON 下载。",
+        "operationId": "post_api_v1_data_lifecycle_observability_alert_history_exports",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObservabilityAlertHistoryExportCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "生成当前 Agent 的一次性安全告警运营历史 JSON 下载",
         "tags": [
           "数据生命周期"
         ]

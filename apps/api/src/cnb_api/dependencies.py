@@ -483,11 +483,20 @@ def get_observability_service(
 def get_data_lifecycle_service(
     repository: Annotated[DataLifecycleRepository, Depends(get_data_lifecycle_repository)],
     object_storage: Annotated[ObjectStorage, Depends(get_object_storage)],
+    observability_repository: Annotated[
+        ObservabilityRepository, Depends(get_observability_repository)
+    ],
     configuration_service: Annotated[ConfigurationService, Depends(get_configuration_service)],
     identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
 ) -> DataLifecycleService:
     """构建绑定当前租户、用户和 Agent 的数据生命周期服务。"""
-    return DataLifecycleService(repository, object_storage, configuration_service, identity)
+    return DataLifecycleService(
+        repository,
+        object_storage,
+        configuration_service,
+        identity,
+        observability_repository,
+    )
 
 
 def get_attachment_service(

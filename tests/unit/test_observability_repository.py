@@ -194,6 +194,60 @@ async def test_postgresql_replay_review_query_keeps_scope_filters_and_cursor() -
     assert (metrics.total, metrics.allowed, metrics.blocked) == (0, 0, 0)
 
 
+async def test_postgresql_history_export_and_retention_keep_scope_and_bounds() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    ended_at = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    started_at = ended_at - timedelta(days=7)
+    captured = _CapturingSession()
+    session = cast(AsyncSession, captured)
+
+    class _SessionContext:
+        async def __aenter__(self) -> AsyncSession:
+            return session
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+    class _SessionFactory:
+        def __call__(self) -> _SessionContext:
+            return _SessionContext()
+
+        def begin(self) -> _SessionContext:
+            return _SessionContext()
+
+    repository = SqlAlchemyObservabilityRepository(cast(Any, _SessionFactory()))
+    snapshot = await repository.collect_observability_alert_history(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        window_started_at=started_at,
+        window_ended_at=ended_at,
+        max_records=100,
+    )
+
+    export_sql = [_sql(item) for item in captured.statements]
+    assert snapshot.record_count == 0
+    assert len(export_sql) == 6
+    assert all(str(tenant_id) in statement for statement in export_sql)
+    assert all(str(agent_id) in statement for statement in export_sql)
+    assert all("BETWEEN" in statement for statement in export_sql)
+
+    captured.statements.clear()
+    result = await repository.purge_observability_alert_history(
+        tenant_id=tenant_id,
+        disposition_events_before=started_at,
+        replay_reviews_before=started_at,
+        limit=25,
+    )
+
+    retention_sql = [_sql(item) for item in captured.statements]
+    assert result.disposition_events_purged == 0
+    assert result.replay_reviews_purged == 0
+    assert len(retention_sql) == 2
+    assert all(str(tenant_id) in statement for statement in retention_sql)
+    assert all("<= " in statement and "LIMIT 25" in statement for statement in retention_sql)
+    assert all("FOR UPDATE SKIP LOCKED" in statement for statement in retention_sql)
+
+
 async def test_postgresql_lifecycle_metrics_query_keeps_scope_and_filters() -> None:
     """通用趋势查询必须独立使用通用生命周期表并下推全部作用域。"""
     agent_id = uuid4()

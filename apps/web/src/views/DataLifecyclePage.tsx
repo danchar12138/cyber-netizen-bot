@@ -6,6 +6,7 @@ import {
   Download,
   Eraser,
   HardDrive,
+  History,
   ShieldAlert,
   Trash2,
 } from 'lucide-react'
@@ -13,6 +14,7 @@ import { useState, type FormEvent } from 'react'
 
 import {
   downloadUserDataExport,
+  downloadObservabilityAlertHistory,
   forgetUserData,
   getAdminSession,
   getDataLifecycleOverview,
@@ -31,6 +33,7 @@ const BACKUP_RESTORE_CONFIRMATION = '确认备份恢复演练已验证'
 
 const runKindLabels: Record<LifecycleRunKind, string> = {
   user_export: '用户数据导出',
+  observability_alert_history_export: '告警运营历史导出',
   user_forget: '用户数据遗忘',
   retention_cleanup: '保留期清理',
   orphan_cleanup: 'MinIO 孤儿清理',
@@ -103,6 +106,7 @@ export function DataLifecyclePage() {
   })
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const [userId, setUserId] = useState('')
+  const [historyWindowMinutes, setHistoryWindowMinutes] = useState(1_440)
   const [forgetConfirmation, setForgetConfirmation] = useState('')
   const [retentionConfirmed, setRetentionConfirmed] = useState(false)
   const [orphanConfirmed, setOrphanConfirmed] = useState(false)
@@ -144,6 +148,23 @@ export function DataLifecyclePage() {
     onSuccess: async () => {
       setNotice({ tone: 'info', message: '用户正文、身份绑定、记忆、关系与私有对象已按策略处理。' })
       setForgetConfirmation('')
+      await refresh()
+    },
+    onError: failed,
+  })
+  const alertHistoryExportMutation = useMutation({
+    mutationFn: () => downloadObservabilityAlertHistory(historyWindowMinutes),
+    onSuccess: async (download) => {
+      const url = URL.createObjectURL(download.blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = download.filename
+      anchor.click()
+      URL.revokeObjectURL(url)
+      setNotice({
+        tone: 'info',
+        message: `告警运营历史已开始下载${download.sha256 ? `，SHA-256：${download.sha256}` : ''}。`,
+      })
       await refresh()
     },
     onError: failed,
@@ -217,9 +238,29 @@ export function DataLifecyclePage() {
       <section className="lifecycle-policy-grid" aria-label="生效策略">
         <article className="metric-card"><span>已删除智能体保留</span><strong>{overview.data?.policy.deleted_agent_days ?? '—'} 天</strong><small>关联数据仅由保留流程物理清理</small></article>
         <article className="metric-card"><span>已删除会话保留</span><strong>{overview.data?.policy.deleted_conversation_days ?? '—'} 天</strong><small>超过截止时间后才物理清理</small></article>
+        <article className="metric-card"><span>告警处置历史保留</span><strong>{overview.data?.policy.observability_disposition_event_days ?? '—'} 天</strong><small>到期后进入受控批量清理</small></article>
+        <article className="metric-card"><span>重放复核历史保留</span><strong>{overview.data?.policy.observability_replay_review_days ?? '—'} 天</strong><small>到期后进入受控批量清理</small></article>
         <article className="metric-card"><span>孤儿对象宽限</span><strong>{overview.data?.policy.orphan_grace_hours ?? '—'} 小时</strong><small>保护在途上传与新对象</small></article>
         <article className="metric-card"><span>单批上限</span><strong>{overview.data?.policy.batch_size ?? '—'} 项</strong><small>限制同步管理请求负载</small></article>
         <article className="metric-card"><span>导出大小上限</span><strong>{overview.data ? Math.round(overview.data.policy.export_max_bytes / 1024 / 1024) : '—'} MiB</strong><small>服务端不保存导出文件</small></article>
+      </section>
+
+      <section className="panel lifecycle-alert-export-panel">
+        <div className="panel-heading"><div><p className="eyebrow">可观测运营归档</p><h2>告警历史导出</h2></div><History size={20} /></div>
+        <div className="lifecycle-alert-export-controls">
+          <label className="lifecycle-field">
+            导出窗口
+            <select value={historyWindowMinutes} onChange={(event) => setHistoryWindowMinutes(Number(event.target.value))}>
+              <option value={1_440}>最近 24 小时</option>
+              <option value={10_080}>最近 7 天</option>
+              <option value={43_200}>最近 30 天</option>
+              <option value={129_600}>最近 90 天</option>
+            </select>
+          </label>
+          <button className="secondary-button" type="button" disabled={!can('data_lifecycle:export') || alertHistoryExportMutation.isPending} onClick={() => alertHistoryExportMutation.mutate()}>
+            <Download size={15} /> {alertHistoryExportMutation.isPending ? '正在生成' : '下载告警历史 JSON'}
+          </button>
+        </div>
       </section>
 
       <section className="lifecycle-grid">
@@ -248,7 +289,7 @@ export function DataLifecyclePage() {
 
         <article className="panel lifecycle-card">
           <div className="panel-heading"><div><p className="eyebrow">受控清理</p><h2>保留期与 MinIO</h2></div><HardDrive size={20} /></div>
-          <p className="lifecycle-help">每次只处理当前租户和配置批量上限。对象删除失败时不会物理删除对应会话或智能体数据库记录。</p>
+          <p className="lifecycle-help">每类数据每次只处理当前租户和配置批量上限。对象删除失败时不会物理删除对应会话或智能体数据库记录。</p>
           <div className="lifecycle-cleanup-action">
             <div><strong>保留期清理</strong><span>清理到期软删除会话、智能体关联数据、对象和过期附件元数据。</span></div>
             <label><input type="checkbox" checked={retentionConfirmed} onChange={(event) => setRetentionConfirmed(event.target.checked)} /> 我确认执行</label>

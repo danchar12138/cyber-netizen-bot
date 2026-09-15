@@ -17,6 +17,7 @@ from cnb_contracts import (
     DataLifecycleOverviewResponse,
     LifecyclePolicyResponse,
     LifecycleRunResponse,
+    ObservabilityAlertHistoryExportCommand,
     UserDataExportCommand,
     UserDataForgetCommand,
 )
@@ -89,6 +90,33 @@ async def export_user_data(
         DataLifecycleOperationError,
         DataLifecycleValidationError,
     ) as error:
+        _raise_http_error(error)
+    return Response(
+        content=artifact.content,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{artifact.filename}"',
+            "X-Content-SHA256": artifact.sha256,
+            "X-Export-Run-ID": str(artifact.run.id),
+        },
+    )
+
+
+@router.post(
+    "/observability-alert-history/exports",
+    response_class=Response,
+    dependencies=[Depends(require_permission(AdminPermission.DATA_EXPORT))],
+)
+async def export_observability_alert_history(
+    command: ObservabilityAlertHistoryExportCommand,
+    service: Annotated[DataLifecycleService, Depends(get_data_lifecycle_service)],
+) -> Response:
+    """生成当前 Agent 的一次性安全告警运营历史 JSON 下载。"""
+    try:
+        artifact = await service.export_observability_alert_history(
+            window_minutes=command.window_minutes
+        )
+    except (DataLifecycleOperationError, DataLifecycleValidationError) as error:
         _raise_http_error(error)
     return Response(
         content=artifact.content,

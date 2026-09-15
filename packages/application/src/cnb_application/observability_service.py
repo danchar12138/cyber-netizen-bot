@@ -7,6 +7,7 @@ from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
 from cnb_application.configuration_service import ConfigurationService
+from cnb_application.data_lifecycle_service import ObservabilityHistoryRepository
 from cnb_application.pagination import (
     EntityCursor,
     InvalidCursorError,
@@ -117,7 +118,7 @@ class ObservabilityNotFoundError(LookupError):
     """当前租户与 Agent 作用域内不存在目标通用告警。"""
 
 
-class ObservabilityRepository(Protocol):
+class ObservabilityRepository(ObservabilityHistoryRepository, Protocol):
     """请求指标写入及租户隔离聚合边界。"""
 
     async def record_api_request(self, observation: ApiRequestObservation) -> None: ...

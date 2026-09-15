@@ -24,6 +24,8 @@ def test_data_lifecycle_settings_are_runtime_managed_and_bounded() -> None:
         "data.retention.deleted_agent_days",
         "data.retention.deleted_conversation_days",
         "data.retention.deleted_attachment_days",
+        "data.retention.observability_disposition_event_days",
+        "data.retention.observability_replay_review_days",
         "data.retention.orphan_grace_hours",
         "data.retention.batch_size",
         "data.export.max_records",

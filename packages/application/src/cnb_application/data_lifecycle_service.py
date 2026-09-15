@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from typing import Protocol
+from typing import Protocol, cast
 from uuid import UUID
 
 from cnb_application.configuration_service import ConfigurationService
@@ -19,6 +19,9 @@ from cnb_domain import (
     LifecycleRun,
     LifecycleRunKind,
     LifecycleRunStatus,
+    ObservabilityAlertDispositionEvent,
+    ObservabilityAlertLifecycle,
+    ObservabilityAlertReplayReview,
 )
 
 
@@ -67,12 +70,36 @@ class AgentRetentionCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class ObservabilityAlertHistorySnapshot:
+    """受上限保护的当前 Agent 告警运营历史。"""
+
+    lifecycles: tuple[ObservabilityAlertLifecycle, ...]
+    disposition_events: tuple[ObservabilityAlertDispositionEvent, ...]
+    replay_reviews: tuple[ObservabilityAlertReplayReview, ...]
+    truncated: bool = False
+
+    @property
+    def record_count(self) -> int:
+        return len(self.lifecycles) + len(self.disposition_events) + len(self.replay_reviews)
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityHistoryRetentionResult:
+    """单次租户隔离告警历史清理计数。"""
+
+    disposition_events_purged: int
+    replay_reviews_purged: int
+
+
+@dataclass(frozen=True, slots=True)
 class DataLifecyclePolicy:
     """从版本化运行配置解析出的生命周期边界。"""
 
     deleted_agent_days: int
     deleted_conversation_days: int
     deleted_attachment_days: int
+    observability_disposition_event_days: int
+    observability_replay_review_days: int
     orphan_grace_hours: int
     batch_size: int
     export_max_records: int
@@ -174,6 +201,29 @@ class DataLifecycleRepository(Protocol):
     async def list_known_object_keys(self, *, tenant_id: UUID) -> frozenset[str]: ...
 
 
+class ObservabilityHistoryRepository(Protocol):
+    """告警历史导出与保留清理使用的最小仓储边界。"""
+
+    async def collect_observability_alert_history(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+        max_records: int,
+    ) -> ObservabilityAlertHistorySnapshot: ...
+
+    async def purge_observability_alert_history(
+        self,
+        *,
+        tenant_id: UUID,
+        disposition_events_before: datetime,
+        replay_reviews_before: datetime,
+        limit: int,
+    ) -> ObservabilityHistoryRetentionResult: ...
+
+
 class DataLifecycleService:
     """执行有上限、可审计、默认不泄露内部数据的生命周期操作。"""
 
@@ -205,11 +255,13 @@ class DataLifecycleService:
         object_storage: ObjectStorage,
         configuration_service: ConfigurationService,
         identity: DevelopmentIdentity,
+        observability_repository: ObservabilityHistoryRepository,
     ) -> None:
         self._repository = repository
         self._object_storage = object_storage
         self._configuration_service = configuration_service
         self._identity = identity
+        self._observability_repository = observability_repository
 
     async def policy(self) -> DataLifecyclePolicy:
         configuration = await self._configuration_service.resolve_effective(
@@ -224,6 +276,12 @@ class DataLifecycleService:
                 values, "data.retention.deleted_conversation_days"
             ),
             deleted_attachment_days=self._integer(values, "data.retention.deleted_attachment_days"),
+            observability_disposition_event_days=self._integer(
+                values, "data.retention.observability_disposition_event_days"
+            ),
+            observability_replay_review_days=self._integer(
+                values, "data.retention.observability_replay_review_days"
+            ),
             orphan_grace_hours=self._integer(values, "data.retention.orphan_grace_hours"),
             batch_size=self._integer(values, "data.retention.batch_size"),
             export_max_records=self._integer(values, "data.export.max_records"),
@@ -290,6 +348,89 @@ class DataLifecycleService:
             await self._fail_run(run.id, error_code="export_failed")
             raise DataLifecycleOperationError("用户数据导出执行失败") from None
 
+    async def export_observability_alert_history(
+        self, *, window_minutes: int
+    ) -> DataExportArtifact:
+        """生成当前 Agent 的一次性安全告警运营历史下载。"""
+        if not 5 <= window_minutes <= 525_600:
+            raise DataLifecycleValidationError("告警历史导出窗口必须位于 5 到 525600 分钟之间")
+        policy = await self.policy()
+        run = await self._repository.start_run(
+            tenant_id=self._identity.tenant_id,
+            actor_id=self._identity.user_id,
+            subject_user_id=None,
+            kind=LifecycleRunKind.OBSERVABILITY_ALERT_HISTORY_EXPORT,
+        )
+        window_ended_at = datetime.now(UTC)
+        window_started_at = window_ended_at - timedelta(minutes=window_minutes)
+        try:
+            snapshot = await self._observability_repository.collect_observability_alert_history(
+                tenant_id=self._identity.tenant_id,
+                agent_id=self._identity.agent_id,
+                window_started_at=window_started_at,
+                window_ended_at=window_ended_at,
+                max_records=policy.export_max_records,
+            )
+            if snapshot.truncated or snapshot.record_count > policy.export_max_records:
+                raise DataLifecycleValidationError("告警历史超过已配置的导出记录上限")
+            data = self._observability_export_data(snapshot)
+            self._assert_export_keys(data)
+            package = cast(
+                dict[str, JsonValue],
+                {
+                    "schema_version": "cnb-observability-alert-history-v1",
+                    "export_id": str(run.id),
+                    "generated_at": window_ended_at.isoformat(),
+                    "tenant_id": str(self._identity.tenant_id),
+                    "agent_id": str(self._identity.agent_id),
+                    "window": {
+                        "started_at": window_started_at.isoformat(),
+                        "ended_at": window_ended_at.isoformat(),
+                        "minutes": window_minutes,
+                    },
+                    "data": data,
+                },
+            )
+            content = json.dumps(
+                package,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            if len(content) > policy.export_max_bytes:
+                raise DataLifecycleValidationError("告警历史导出超过已配置的安全大小上限")
+            digest = sha256(content).hexdigest()
+            completed = await self._repository.finish_run(
+                run.id,
+                tenant_id=self._identity.tenant_id,
+                status=LifecycleRunStatus.SUCCEEDED,
+                counters={
+                    "records": snapshot.record_count,
+                    "bytes": len(content),
+                    "alert_lifecycles": len(snapshot.lifecycles),
+                    "disposition_events": len(snapshot.disposition_events),
+                    "replay_reviews": len(snapshot.replay_reviews),
+                },
+                evidence={
+                    "schema_version": "cnb-observability-alert-history-v1",
+                    "sha256": digest,
+                    "window_started_at": window_started_at.isoformat(),
+                    "window_ended_at": window_ended_at.isoformat(),
+                },
+            )
+            return DataExportArtifact(
+                run=completed,
+                filename=f"cyber-netizen-alert-history-{self._identity.agent_id}.json",
+                content=content,
+                sha256=digest,
+            )
+        except DataLifecycleValidationError:
+            await self._fail_run(run.id, error_code="observability_export_rejected")
+            raise
+        except Exception:
+            await self._fail_run(run.id, error_code="observability_export_failed")
+            raise DataLifecycleOperationError("告警运营历史导出执行失败") from None
+
     async def forget_user_data(self, user_id: UUID, *, confirmation: str) -> LifecycleRun:
         expected = f"{USER_DATA_FORGET_CONFIRMATION_PREFIX}{user_id}"
         if confirmation != expected:
@@ -347,7 +488,8 @@ class DataLifecycleService:
             subject_user_id=None,
             kind=LifecycleRunKind.RETENTION_CLEANUP,
         )
-        deleted_before = datetime.now(UTC) - timedelta(days=policy.deleted_conversation_days)
+        cleanup_started_at = datetime.now(UTC)
+        deleted_before = cleanup_started_at - timedelta(days=policy.deleted_conversation_days)
         try:
             candidates = await self._repository.list_retention_candidates(
                 tenant_id=self._identity.tenant_id,
@@ -374,13 +516,13 @@ class DataLifecycleService:
                     deleted_before=deleted_before,
                 ):
                     conversations_purged += 1
-            attachment_cutoff = datetime.now(UTC) - timedelta(days=policy.deleted_attachment_days)
+            attachment_cutoff = cleanup_started_at - timedelta(days=policy.deleted_attachment_days)
             attachment_metadata_purged = await self._repository.purge_expired_attachment_metadata(
                 tenant_id=self._identity.tenant_id,
                 deleted_before=attachment_cutoff,
                 limit=policy.batch_size,
             )
-            agent_purge_before = datetime.now(UTC)
+            agent_purge_before = cleanup_started_at
             agent_candidates = await self._repository.list_agent_retention_candidates(
                 tenant_id=self._identity.tenant_id,
                 purge_before=agent_purge_before,
@@ -405,6 +547,20 @@ class DataLifecycleService:
                     purge_before=agent_purge_before,
                 ):
                     agents_purged += 1
+            disposition_event_cutoff = cleanup_started_at - timedelta(
+                days=policy.observability_disposition_event_days
+            )
+            replay_review_cutoff = cleanup_started_at - timedelta(
+                days=policy.observability_replay_review_days
+            )
+            observability_history = (
+                await self._observability_repository.purge_observability_alert_history(
+                    tenant_id=self._identity.tenant_id,
+                    disposition_events_before=disposition_event_cutoff,
+                    replay_reviews_before=replay_review_cutoff,
+                    limit=policy.batch_size,
+                )
+            )
             counters = {
                 "candidates": len(candidates),
                 "conversations_purged": conversations_purged,
@@ -414,6 +570,12 @@ class DataLifecycleService:
                 "objects_deleted": objects_deleted,
                 "candidates_failed": candidates_failed,
                 "agent_candidates_failed": agent_candidates_failed,
+                "observability_disposition_events_purged": (
+                    observability_history.disposition_events_purged
+                ),
+                "observability_replay_reviews_purged": (
+                    observability_history.replay_reviews_purged
+                ),
             }
             return await self._repository.finish_run(
                 run.id,
@@ -426,7 +588,12 @@ class DataLifecycleService:
                 counters=counters,
                 evidence={
                     "conversation_cutoff": deleted_before.isoformat(),
+                    "attachment_cutoff": attachment_cutoff.isoformat(),
                     "agent_purge_before": agent_purge_before.isoformat(),
+                    "observability_disposition_event_cutoff": (
+                        disposition_event_cutoff.isoformat()
+                    ),
+                    "observability_replay_review_cutoff": replay_review_cutoff.isoformat(),
                 },
                 error_code=(
                     "object_cleanup_failed"
@@ -557,6 +724,75 @@ class DataLifecycleService:
             for index, nested in enumerate(value):
                 cls._assert_export_keys(nested, path=f"{path}[{index}]")
 
+    @staticmethod
+    def _observability_export_data(
+        snapshot: ObservabilityAlertHistorySnapshot,
+    ) -> dict[str, JsonValue]:
+        """只序列化审定字段；处置自由文本和任务载荷不进入导出。"""
+        return cast(
+            dict[str, JsonValue],
+            {
+                "alert_lifecycles": [
+                    {
+                        "id": str(item.id),
+                        "source_type": item.source_type,
+                        "source_key": item.source_key,
+                        "code": item.code,
+                        "status": item.status.value,
+                        "severity": item.severity.value,
+                        "occurrences": item.occurrences,
+                        "current_value": item.current_value,
+                        "threshold_value": item.threshold_value,
+                        "unit": item.unit,
+                        "first_occurred_at": item.first_occurred_at.isoformat(),
+                        "last_occurred_at": item.last_occurred_at.isoformat(),
+                        "last_evaluated_at": item.last_evaluated_at.isoformat(),
+                        "resolved_at": (
+                            item.resolved_at.isoformat() if item.resolved_at is not None else None
+                        ),
+                        "updated_at": item.updated_at.isoformat(),
+                    }
+                    for item in snapshot.lifecycles
+                ],
+                "disposition_events": [
+                    {
+                        "id": str(item.id),
+                        "lifecycle_id": str(item.lifecycle_id),
+                        "source_type": item.source_type,
+                        "source_key": item.source_key,
+                        "code": item.code,
+                        "action": item.action.value,
+                        "actor_id": str(item.actor_id),
+                        "expires_at": (
+                            item.expires_at.isoformat() if item.expires_at is not None else None
+                        ),
+                        "occurred_at": item.occurred_at.isoformat(),
+                    }
+                    for item in snapshot.disposition_events
+                ],
+                "replay_reviews": [
+                    {
+                        "id": str(item.id),
+                        "source_job_id": (
+                            str(item.source_job_id) if item.source_job_id is not None else None
+                        ),
+                        "source_type": item.source_type,
+                        "source_key": item.source_key,
+                        "decision": item.decision.value,
+                        "reason_code": item.reason_code.value,
+                        "actor_id": str(item.actor_id),
+                        "suppression_expires_at": (
+                            item.suppression_expires_at.isoformat()
+                            if item.suppression_expires_at is not None
+                            else None
+                        ),
+                        "reviewed_at": item.reviewed_at.isoformat(),
+                    }
+                    for item in snapshot.replay_reviews
+                ],
+            },
+        )
+
     async def _fail_run(
         self,
         run_id: UUID,
@@ -594,5 +830,8 @@ __all__ = [
     "DataLifecycleValidationError",
     "ExportSnapshot",
     "ForgetResult",
+    "ObservabilityAlertHistorySnapshot",
+    "ObservabilityHistoryRepository",
+    "ObservabilityHistoryRetentionResult",
     "RetentionCandidate",
 ]

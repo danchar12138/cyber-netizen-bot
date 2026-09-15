@@ -149,6 +149,7 @@ from cnb_contracts.data_lifecycle import (
     DataLifecycleOverviewResponse,
     LifecyclePolicyResponse,
     LifecycleRunResponse,
+    ObservabilityAlertHistoryExportCommand,
     UserDataExportCommand,
     UserDataForgetCommand,
 )
@@ -481,6 +482,7 @@ __all__ = [
     "ObservabilityAlertDispositionCommand",
     "ObservabilityAlertDispositionEventResponse",
     "ObservabilityAlertDispositionResponse",
+    "ObservabilityAlertHistoryExportCommand",
     "ObservabilityAlertLifecycleMetricsResponse",
     "ObservabilityAlertLifecyclePageResponse",
     "ObservabilityAlertLifecycleResponse",

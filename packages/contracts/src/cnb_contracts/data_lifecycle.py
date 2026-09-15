@@ -20,6 +20,8 @@ class LifecyclePolicyResponse(BaseModel):
     deleted_agent_days: int
     deleted_conversation_days: int
     deleted_attachment_days: int
+    observability_disposition_event_days: int
+    observability_replay_review_days: int
     orphan_grace_hours: int
     batch_size: int
     export_max_records: int
@@ -54,6 +56,12 @@ class UserDataExportCommand(BaseModel):
     """按租户隔离导出一个用户的白名单数据。"""
 
     user_id: UUID
+
+
+class ObservabilityAlertHistoryExportCommand(BaseModel):
+    """按受限时间窗口导出当前 Agent 的安全告警运营历史。"""
+
+    window_minutes: int = Field(ge=5, le=525_600)
 
 
 class UserDataForgetCommand(BaseModel):
@@ -93,6 +101,7 @@ __all__ = [
     "DataLifecycleOverviewResponse",
     "LifecyclePolicyResponse",
     "LifecycleRunResponse",
+    "ObservabilityAlertHistoryExportCommand",
     "UserDataExportCommand",
     "UserDataForgetCommand",
 ]

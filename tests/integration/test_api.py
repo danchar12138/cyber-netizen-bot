@@ -407,6 +407,21 @@ async def test_data_lifecycle_api_enforces_permissions_and_returns_safe_download
             json={"user_id": str(identity.user_id)},
             headers={"X-CNB-Development-Role": "viewer"},
         )
+        alert_history_export = await client.post(
+            "/api/v1/data-lifecycle/observability-alert-history/exports",
+            json={"window_minutes": 1_440},
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+        viewer_alert_history_export = await client.post(
+            "/api/v1/data-lifecycle/observability-alert-history/exports",
+            json={"window_minutes": 1_440},
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        invalid_alert_history_export = await client.post(
+            "/api/v1/data-lifecycle/observability-alert-history/exports",
+            json={"window_minutes": 4},
+            headers={"X-CNB-Development-Role": "operator"},
+        )
         operator_forget = await client.post(
             "/api/v1/data-lifecycle/forget",
             json={
@@ -421,13 +436,29 @@ async def test_data_lifecycle_api_enforces_permissions_and_returns_safe_download
     assert overview_response.status_code == 200
     assert overview.policy.deleted_agent_days == 30
     assert overview.policy.deleted_conversation_days == 30
+    assert overview.policy.observability_disposition_event_days == 90
+    assert overview.policy.observability_replay_review_days == 90
     assert export_response.status_code == 200
     assert export_response.headers["content-disposition"].endswith('.json"')
     assert len(export_response.headers["x-content-sha256"]) == 64
     assert export_response.headers["x-export-run-id"]
     assert private_object_key not in export_response.text
     assert exported["schema_version"] == "cnb-user-export-v1"
+    alert_history = alert_history_export.json()
+    assert alert_history_export.status_code == 200
+    assert alert_history_export.headers["content-disposition"].endswith('.json"')
+    assert len(alert_history_export.headers["x-content-sha256"]) == 64
+    assert alert_history_export.headers["x-export-run-id"]
+    assert alert_history["schema_version"] == "cnb-observability-alert-history-v1"
+    assert alert_history["agent_id"] == str(identity.agent_id)
+    assert alert_history["data"] == {
+        "alert_lifecycles": [],
+        "disposition_events": [],
+        "replay_reviews": [],
+    }
     assert viewer_export.status_code == 403
+    assert viewer_alert_history_export.status_code == 403
+    assert invalid_alert_history_export.status_code == 422
     assert operator_forget.status_code == 403
 
 

@@ -691,6 +691,11 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .lifecycle-field input { min-width: 0; min-height: 38px; padding: 8px 10px; color: #b8d0c6; border: 1px solid #294a3f; background: #0b1b16; border-radius: 7px; }
 .lifecycle-field code, .lifecycle-run code { color: #9ac9b7; overflow-wrap: anywhere; }
 .lifecycle-actions { display: flex; gap: 8px; margin-top: 11px; }
+.lifecycle-alert-export-panel { margin-bottom: 13px; }
+.lifecycle-alert-export-panel .panel-heading svg { color: #68d99a; }
+.lifecycle-alert-export-controls { display: flex; align-items: end; gap: 10px; }
+.lifecycle-alert-export-controls .lifecycle-field { min-width: 180px; }
+.lifecycle-alert-export-controls select { min-height: 38px; }
 .lifecycle-danger-zone { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; margin-top: 17px; padding-top: 16px; border-top: 1px solid #442921; }
 .lifecycle-cleanup-action { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px 12px; align-items: center; padding: 13px 0; border-top: 1px solid #173029; }
 .lifecycle-cleanup-action:first-of-type { border-top: 0; }
@@ -735,6 +740,7 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .recall-results { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lifecycle-policy-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lifecycle-grid, .lifecycle-drill-form { grid-template-columns: 1fr; }
+  .lifecycle-alert-export-controls { align-items: stretch; flex-direction: column; }
     .evaluation-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .agent-create-panel { grid-template-columns: 1fr; }
   .agent-impact-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }

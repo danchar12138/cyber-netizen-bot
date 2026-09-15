@@ -15,6 +15,7 @@ class LifecycleRunKind(StrEnum):
     """管理后台可触发或登记的数据生命周期动作。"""
 
     USER_EXPORT = "user_export"
+    OBSERVABILITY_ALERT_HISTORY_EXPORT = "observability_alert_history_export"
     USER_FORGET = "user_forget"
     RETENTION_CLEANUP = "retention_cleanup"
     ORPHAN_CLEANUP = "orphan_cleanup"

@@ -4602,6 +4602,14 @@ export type LifecyclePolicyResponse = {
      */
     export_max_records: number;
     /**
+     * Observability Disposition Event Days
+     */
+    observability_disposition_event_days: number;
+    /**
+     * Observability Replay Review Days
+     */
+    observability_replay_review_days: number;
+    /**
      * Orphan Grace Hours
      */
     orphan_grace_hours: number;
@@ -4612,7 +4620,7 @@ export type LifecyclePolicyResponse = {
  *
  * 管理后台可触发或登记的数据生命周期动作。
  */
-export type LifecycleRunKind = 'user_export' | 'user_forget' | 'retention_cleanup' | 'orphan_cleanup' | 'backup_restore_drill';
+export type LifecycleRunKind = 'user_export' | 'observability_alert_history_export' | 'user_forget' | 'retention_cleanup' | 'orphan_cleanup' | 'backup_restore_drill';
 
 /**
  * LifecycleRunResponse
@@ -6322,6 +6330,18 @@ export type ObservabilityAlertDispositionResponse = {
  * 通用告警处置状态。
  */
 export type ObservabilityAlertDispositionStatus = 'acknowledged' | 'suppressed';
+
+/**
+ * ObservabilityAlertHistoryExportCommand
+ *
+ * 按受限时间窗口导出当前 Agent 的安全告警运营历史。
+ */
+export type ObservabilityAlertHistoryExportCommand = {
+    /**
+     * Window Minutes
+     */
+    window_minutes: number;
+};
 
 /**
  * ObservabilityAlertLifecycleMetricsResponse
@@ -13382,6 +13402,61 @@ export type PostApiV1DataLifecycleObjectsOrphansCleanupResponses = {
 };
 
 export type PostApiV1DataLifecycleObjectsOrphansCleanupResponse = PostApiV1DataLifecycleObjectsOrphansCleanupResponses[keyof PostApiV1DataLifecycleObjectsOrphansCleanupResponses];
+
+export type PostApiV1DataLifecycleObservabilityAlertHistoryExportsData = {
+    body: ObservabilityAlertHistoryExportCommand;
+    path?: never;
+    query?: never;
+    url: '/api/v1/data-lifecycle/observability-alert-history/exports';
+};
+
+export type PostApiV1DataLifecycleObservabilityAlertHistoryExportsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1DataLifecycleObservabilityAlertHistoryExportsError = PostApiV1DataLifecycleObservabilityAlertHistoryExportsErrors[keyof PostApiV1DataLifecycleObservabilityAlertHistoryExportsErrors];
+
+export type PostApiV1DataLifecycleObservabilityAlertHistoryExportsResponses = {
+    /**
+     * 请求成功
+     */
+    200: unknown;
+};
 
 export type GetApiV1DataLifecycleOverviewData = {
     body?: never;

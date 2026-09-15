@@ -338,6 +338,7 @@ def create_app(
             "X-Request-ID",
         ],
         expose_headers=[
+            "Content-Disposition",
             "Retry-After",
             "X-Request-ID",
             "X-Content-SHA256",

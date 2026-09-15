@@ -5,6 +5,7 @@ import {
   batchDisposeObservabilityAlerts,
   clearObservabilityAlertDisposition,
   type ConfigPackageDocument,
+  downloadObservabilityAlertHistory,
   exportConfigPackage,
   formatConfigValue,
   formatConfigVersionStatus,
@@ -322,5 +323,38 @@ describe('配置包客户端', () => {
     await expect(exportConfigPackage('version-id')).rejects.toThrow(
       '无法连接 API 服务，请检查网络或服务状态',
     )
+  })
+})
+
+describe('告警运营历史导出客户端', () => {
+  it('传递窗口、内存令牌与当前 Agent，并解析安全下载响应头', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"data":{}}', {
+      status: 200,
+      headers: {
+        'Content-Disposition': 'attachment; filename="alert-history.json"',
+        'Content-Type': 'application/json',
+        'X-Content-SHA256': 'a'.repeat(64),
+        'X-Export-Run-ID': '00000000-0000-4000-8000-000000000001',
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    setApiAccessToken('signed-access-token')
+    setSelectedAgentId('33333333-3333-4333-8333-333333333333')
+
+    const download = await downloadObservabilityAlertHistory(10_080)
+    const request = fetchMock.mock.calls[0]?.[0] as Request
+
+    expect(download.filename).toBe('alert-history.json')
+    expect(download.sha256).toBe('a'.repeat(64))
+    expect(download.runId).toBe('00000000-0000-4000-8000-000000000001')
+    expect(request.url).toBe(
+      'http://localhost:3000/api/v1/data-lifecycle/observability-alert-history/exports',
+    )
+    expect(request.method).toBe('POST')
+    expect(request.headers.get('Authorization')).toBe('Bearer signed-access-token')
+    expect(request.headers.get('X-CNB-Agent-ID')).toBe(
+      '33333333-3333-4333-8333-333333333333',
+    )
+    expect(await request.json()).toEqual({ window_minutes: 10_080 })
   })
 })

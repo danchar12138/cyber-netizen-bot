@@ -7,7 +7,7 @@ from math import ceil
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased
@@ -15,7 +15,9 @@ from sqlalchemy.orm import aliased
 from cnb_application import (
     ApiRequestObservation,
     EntityCursor,
+    ObservabilityAlertHistorySnapshot,
     ObservabilityAlertLifecycleReconciliation,
+    ObservabilityHistoryRetentionResult,
 )
 from cnb_domain import (
     ActiveAlert,
@@ -591,6 +593,105 @@ class MemoryObservabilityRepository:
                 if (source_values := tuple(item for item in values if item.source_type == source))
             ),
         )
+
+    async def collect_observability_alert_history(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+        max_records: int,
+    ) -> ObservabilityAlertHistorySnapshot:
+        async with self._lock:
+            lifecycles = tuple(
+                sorted(
+                    (
+                        item
+                        for item in self._lifecycles.values()
+                        if item.tenant_id == tenant_id
+                        and item.agent_id == agent_id
+                        and window_started_at <= item.updated_at <= window_ended_at
+                    ),
+                    key=lambda item: (item.updated_at, str(item.id)),
+                )
+            )
+            disposition_events = tuple(
+                sorted(
+                    (
+                        item
+                        for item in self._disposition_events
+                        if item.tenant_id == tenant_id
+                        and item.agent_id == agent_id
+                        and window_started_at <= item.occurred_at <= window_ended_at
+                    ),
+                    key=lambda item: (item.occurred_at, str(item.id)),
+                )
+            )
+            replay_reviews = tuple(
+                sorted(
+                    (
+                        item
+                        for item in self._replay_reviews
+                        if item.tenant_id == tenant_id
+                        and item.agent_id == agent_id
+                        and window_started_at <= item.reviewed_at <= window_ended_at
+                    ),
+                    key=lambda item: (item.reviewed_at, str(item.id)),
+                )
+            )
+            truncated = (
+                len(lifecycles) + len(disposition_events) + len(replay_reviews) > max_records
+            )
+            return ObservabilityAlertHistorySnapshot(
+                lifecycles=() if truncated else lifecycles,
+                disposition_events=() if truncated else disposition_events,
+                replay_reviews=() if truncated else replay_reviews,
+                truncated=truncated,
+            )
+
+    async def purge_observability_alert_history(
+        self,
+        *,
+        tenant_id: UUID,
+        disposition_events_before: datetime,
+        replay_reviews_before: datetime,
+        limit: int,
+    ) -> ObservabilityHistoryRetentionResult:
+        async with self._lock:
+            event_ids = {
+                item.id
+                for item in sorted(
+                    (
+                        item
+                        for item in self._disposition_events
+                        if item.tenant_id == tenant_id
+                        and item.occurred_at <= disposition_events_before
+                    ),
+                    key=lambda item: (item.occurred_at, str(item.id)),
+                )[:limit]
+            }
+            review_ids = {
+                item.id
+                for item in sorted(
+                    (
+                        item
+                        for item in self._replay_reviews
+                        if item.tenant_id == tenant_id and item.reviewed_at <= replay_reviews_before
+                    ),
+                    key=lambda item: (item.reviewed_at, str(item.id)),
+                )[:limit]
+            }
+            self._disposition_events = [
+                item for item in self._disposition_events if item.id not in event_ids
+            ]
+            self._replay_reviews = [
+                item for item in self._replay_reviews if item.id not in review_ids
+            ]
+            return ObservabilityHistoryRetentionResult(
+                disposition_events_purged=len(event_ids),
+                replay_reviews_purged=len(review_ids),
+            )
 
     def _find_active_lifecycle(
         self,
@@ -1633,6 +1734,160 @@ class SqlAlchemyObservabilityRepository:
                 for row in source_rows
             ),
         )
+
+    async def collect_observability_alert_history(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+        max_records: int,
+    ) -> ObservabilityAlertHistorySnapshot:
+        lifecycle_filters = (
+            ObservabilityAlertLifecycleModel.tenant_id == tenant_id,
+            ObservabilityAlertLifecycleModel.agent_id == agent_id,
+            ObservabilityAlertLifecycleModel.updated_at.between(window_started_at, window_ended_at),
+        )
+        event_filters = (
+            ObservabilityAlertDispositionEventModel.tenant_id == tenant_id,
+            ObservabilityAlertDispositionEventModel.agent_id == agent_id,
+            ObservabilityAlertDispositionEventModel.occurred_at.between(
+                window_started_at, window_ended_at
+            ),
+        )
+        review_filters = (
+            ObservabilityAlertReplayReviewModel.tenant_id == tenant_id,
+            ObservabilityAlertReplayReviewModel.agent_id == agent_id,
+            ObservabilityAlertReplayReviewModel.reviewed_at.between(
+                window_started_at, window_ended_at
+            ),
+        )
+        async with self._session_factory() as session:
+            counts = (
+                await session.scalar(
+                    select(func.count(ObservabilityAlertLifecycleModel.id)).where(
+                        *lifecycle_filters
+                    )
+                )
+                or 0,
+                await session.scalar(
+                    select(func.count(ObservabilityAlertDispositionEventModel.id)).where(
+                        *event_filters
+                    )
+                )
+                or 0,
+                await session.scalar(
+                    select(func.count(ObservabilityAlertReplayReviewModel.id)).where(
+                        *review_filters
+                    )
+                )
+                or 0,
+            )
+            if sum(counts) > max_records:
+                return ObservabilityAlertHistorySnapshot((), (), (), truncated=True)
+            lifecycles = (
+                await session.scalars(
+                    select(ObservabilityAlertLifecycleModel)
+                    .where(*lifecycle_filters)
+                    .order_by(
+                        ObservabilityAlertLifecycleModel.updated_at,
+                        ObservabilityAlertLifecycleModel.id,
+                    )
+                    .limit(max_records + 1)
+                )
+            ).all()
+            events = (
+                await session.scalars(
+                    select(ObservabilityAlertDispositionEventModel)
+                    .where(*event_filters)
+                    .order_by(
+                        ObservabilityAlertDispositionEventModel.occurred_at,
+                        ObservabilityAlertDispositionEventModel.id,
+                    )
+                    .limit(max_records + 1)
+                )
+            ).all()
+            reviews = (
+                await session.scalars(
+                    select(ObservabilityAlertReplayReviewModel)
+                    .where(*review_filters)
+                    .order_by(
+                        ObservabilityAlertReplayReviewModel.reviewed_at,
+                        ObservabilityAlertReplayReviewModel.id,
+                    )
+                    .limit(max_records + 1)
+                )
+            ).all()
+        return ObservabilityAlertHistorySnapshot(
+            lifecycles=tuple(self._observability_lifecycle(item) for item in lifecycles),
+            disposition_events=tuple(
+                self._observability_disposition_event(item) for item in events
+            ),
+            replay_reviews=tuple(self._observability_replay_review(item) for item in reviews),
+        )
+
+    async def purge_observability_alert_history(
+        self,
+        *,
+        tenant_id: UUID,
+        disposition_events_before: datetime,
+        replay_reviews_before: datetime,
+        limit: int,
+    ) -> ObservabilityHistoryRetentionResult:
+        async with self._session_factory.begin() as session:
+            event_ids = list(
+                (
+                    await session.scalars(
+                        select(ObservabilityAlertDispositionEventModel.id)
+                        .where(
+                            ObservabilityAlertDispositionEventModel.tenant_id == tenant_id,
+                            ObservabilityAlertDispositionEventModel.occurred_at
+                            <= disposition_events_before,
+                        )
+                        .order_by(
+                            ObservabilityAlertDispositionEventModel.occurred_at,
+                            ObservabilityAlertDispositionEventModel.id,
+                        )
+                        .limit(limit)
+                        .with_for_update(skip_locked=True)
+                    )
+                ).all()
+            )
+            review_ids = list(
+                (
+                    await session.scalars(
+                        select(ObservabilityAlertReplayReviewModel.id)
+                        .where(
+                            ObservabilityAlertReplayReviewModel.tenant_id == tenant_id,
+                            ObservabilityAlertReplayReviewModel.reviewed_at
+                            <= replay_reviews_before,
+                        )
+                        .order_by(
+                            ObservabilityAlertReplayReviewModel.reviewed_at,
+                            ObservabilityAlertReplayReviewModel.id,
+                        )
+                        .limit(limit)
+                        .with_for_update(skip_locked=True)
+                    )
+                ).all()
+            )
+            if event_ids:
+                await session.execute(
+                    delete(ObservabilityAlertDispositionEventModel).where(
+                        ObservabilityAlertDispositionEventModel.id.in_(event_ids)
+                    )
+                )
+            if review_ids:
+                await session.execute(
+                    delete(ObservabilityAlertReplayReviewModel).where(
+                        ObservabilityAlertReplayReviewModel.id.in_(review_ids)
+                    )
+                )
+            return ObservabilityHistoryRetentionResult(
+                disposition_events_purged=len(event_ids),
+                replay_reviews_purged=len(review_ids),
+            )
 
     async def mark_observability_alert_lifecycles_escalated(
         self,

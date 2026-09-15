@@ -351,6 +351,11 @@ class ObservabilityAlertDispositionEventModel(Base):
             "occurred_at",
         ),
         Index(
+            "ix_observability_alert_disposition_events_tenant_time",
+            "tenant_id",
+            "occurred_at",
+        ),
+        Index(
             "ix_observability_alert_disposition_events_lifecycle_time",
             "tenant_id",
             "agent_id",
@@ -398,6 +403,11 @@ class ObservabilityAlertReplayReviewModel(Base):
             "ix_observability_alert_replay_reviews_tenant_agent_time",
             "tenant_id",
             "agent_id",
+            "reviewed_at",
+        ),
+        Index(
+            "ix_observability_alert_replay_reviews_tenant_time",
+            "tenant_id",
             "reviewed_at",
         ),
         Index(
@@ -637,8 +647,8 @@ class DataLifecycleRunModel(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "kind IN ('user_export', 'user_forget', 'retention_cleanup', "
-            "'orphan_cleanup', 'backup_restore_drill')",
+            "kind IN ('user_export', 'observability_alert_history_export', 'user_forget', "
+            "'retention_cleanup', 'orphan_cleanup', 'backup_restore_drill')",
             name="ck_data_lifecycle_runs_kind",
         ),
         CheckConstraint(

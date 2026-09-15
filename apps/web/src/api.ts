@@ -362,6 +362,7 @@ export type AdminPermission =
 
 export type LifecycleRunKind =
   | 'user_export'
+  | 'observability_alert_history_export'
   | 'user_forget'
   | 'retention_cleanup'
   | 'orphan_cleanup'
@@ -384,8 +385,11 @@ export interface LifecycleRun {
 }
 
 export interface LifecyclePolicy {
+  deleted_agent_days: number
   deleted_conversation_days: number
   deleted_attachment_days: number
+  observability_disposition_event_days: number
+  observability_replay_review_days: number
   orphan_grace_hours: number
   batch_size: number
   export_max_records: number
@@ -1516,6 +1520,28 @@ export async function downloadUserDataExport(userId: string): Promise<DataExport
   return {
     blob: data,
     filename: `cyber-netizen-user-${userId}.json`,
+    sha256: response.headers.get('X-Content-SHA256'),
+    runId: response.headers.get('X-Export-Run-ID'),
+  }
+}
+
+export async function downloadObservabilityAlertHistory(
+  windowMinutes: number,
+): Promise<DataExportDownload> {
+  const { data, response } = await apiClient.post<{ 200: Blob }, unknown, true, 'fields'>({
+    url: '/api/v1/data-lifecycle/observability-alert-history/exports',
+    body: { window_minutes: windowMinutes },
+    headers: { 'Content-Type': 'application/json' },
+    parseAs: 'blob',
+    responseStyle: 'fields',
+    throwOnError: true,
+  })
+  const disposition = response.headers.get('Content-Disposition')
+  const filename = disposition?.match(/filename="([^"]+)"/)?.[1]
+    ?? 'cyber-netizen-alert-history.json'
+  return {
+    blob: data,
+    filename,
     sha256: response.headers.get('X-Content-SHA256'),
     runId: response.headers.get('X-Export-Run-ID'),
   }
