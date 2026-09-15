@@ -148,8 +148,9 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .notice.warning { color: #d8b979; border: 1px solid #665026; background: #261e0e; }
 .notice.error { color: #e9a08b; border: 1px solid #6b3528; background: #2b1511; }
 .notice.info { color: #8dcfad; border: 1px solid #22513d; background: #0e281f; }
-.notice.info div { display: flex; flex-direction: column; gap: 2px; }
-.notice.info span { color: #78a092; }
+.notice.success { color: #98dfb4; border: 1px solid #2d6548; background: #102a20; }
+.notice.info div, .notice.success div { display: flex; flex-direction: column; gap: 2px; }
+.notice.info span, .notice.success span { color: #78a092; }
 .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 13px; }
 .metric-card, .panel { border: 1px solid #1a342c; background: linear-gradient(145deg, #0d1d19, #0a1714); border-radius: 12px; box-shadow: 0 18px 60px #0000001f; }
 .metric-card { padding: 17px; }
@@ -576,6 +577,11 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .observability-lifecycle-table .severity-label.critical { color: #e18470; }
 .observability-lifecycle-table .severity-label.warning { color: #d8ad65; }
 .entity-status.resolved { color: #80b8a1; border-color: #305748; background: #10251d; }
+.entity-status.disposition-acknowledged { color: #8fc8df; border-color: #31586b; background: #102631; }
+.entity-status.disposition-suppressed { color: #d8b979; border-color: #665026; background: #261e0e; }
+.disposition-summary { min-width: 130px; max-width: 220px; }
+.disposition-summary small { overflow-wrap: anywhere; }
+.disposition-actions { min-width: 96px; }
 .lifecycle-observability-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .lifecycle-trend-panel { padding-top: 12px; }
 .lifecycle-trend-legend { display: flex; justify-content: flex-end; gap: 14px; margin-bottom: 10px; color: #78998d; font-size: 8px; }

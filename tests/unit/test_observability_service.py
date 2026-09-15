@@ -3,19 +3,26 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+import pytest
+
 from cnb_application import (
     ApiRequestObservation,
     ConfigurationService,
+    ObservabilityNotFoundError,
     ObservabilityService,
+    ObservabilityValidationError,
     build_default_registry,
 )
 from cnb_domain import (
+    ActiveAlert,
     AgentRunSloMetrics,
+    AlertSeverity,
     ApiSloMetrics,
     ChannelDeliveryMetrics,
     LatencyPercentiles,
     ModelUsageMetrics,
     NotificationDeliveryMetrics,
+    ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycleStatus,
     ObservabilityMetrics,
     QueueMetrics,
@@ -360,3 +367,162 @@ async def test_unattributed_api_observations_are_excluded_from_agent_scan() -> N
     )
 
     assert await repository.list_observability_agent_ids() == ()
+
+
+async def test_observability_alert_filters_and_dispositions_form_a_scoped_lifecycle() -> None:
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
+    repository = MemoryObservabilityRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+    started_at = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    reconciliation = await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(
+            ActiveAlert(
+                code="api_error_rate",
+                severity=AlertSeverity.CRITICAL,
+                title="API 错误率",
+                summary="安全摘要",
+                current_value=20,
+                threshold_value=1,
+                unit="%",
+                source_type="api",
+                source_key="api_error_rate",
+                first_occurred_at=started_at - timedelta(minutes=40),
+            ),
+            ActiveAlert(
+                code="queue_backlog",
+                severity=AlertSeverity.WARNING,
+                title="任务积压",
+                summary="安全摘要",
+                current_value=101,
+                threshold_value=100,
+                unit="jobs",
+                source_type="task_queue",
+                source_key="queue_backlog",
+                first_occurred_at=started_at - timedelta(minutes=5),
+            ),
+        ),
+        observed_at=started_at,
+    )
+    target = next(item for item in reconciliation.active_lifecycles if item.source_type == "api")
+
+    with pytest.raises(ObservabilityValidationError, match="明确确认"):
+        await service.acknowledge_alert(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lifecycle_id=target.id,
+            reason="已交由值班人员处理",
+            actor_id=actor_id,
+            confirmed=False,
+            now=started_at,
+        )
+
+    acknowledged = await service.acknowledge_alert(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=target.id,
+        reason="  已交由值班人员处理  ",
+        actor_id=actor_id,
+        confirmed=True,
+        now=started_at,
+    )
+    filtered = await service.alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        status=ObservabilityAlertLifecycleStatus.ACTIVE,
+        source_type="api",
+        severity=AlertSeverity.CRITICAL,
+        minimum_duration_minutes=30,
+        now=started_at,
+    )
+
+    assert len(filtered) == 1
+    assert filtered[0].id == target.id
+    assert filtered[0].disposition_status is ObservabilityAlertDispositionStatus.ACKNOWLEDGED
+    assert filtered[0].disposition_reason == "已交由值班人员处理"
+
+    suppressed = await service.suppress_alert(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=target.id,
+        reason="维护窗口",
+        expires_at=started_at + timedelta(hours=1),
+        actor_id=actor_id,
+        confirmed=True,
+        now=started_at,
+    )
+    assert suppressed.id == acknowledged.id
+    assert suppressed.created_at == acknowledged.created_at
+
+    before_expiry = await service.alert_lifecycles(
+        tenant_id=tenant_id, agent_id=agent_id, now=started_at + timedelta(minutes=59)
+    )
+    after_expiry = await service.alert_lifecycles(
+        tenant_id=tenant_id, agent_id=agent_id, now=started_at + timedelta(hours=1)
+    )
+    before_target = next(item for item in before_expiry if item.id == target.id)
+    after_target = next(item for item in after_expiry if item.id == target.id)
+    assert before_target.disposition_status is ObservabilityAlertDispositionStatus.SUPPRESSED
+    assert after_target.disposition_status is None
+
+    with pytest.raises(ObservabilityNotFoundError, match="生命周期不存在"):
+        await service.clear_alert_disposition(
+            tenant_id=tenant_id,
+            agent_id=uuid4(),
+            lifecycle_id=target.id,
+            actor_id=actor_id,
+            confirmed=True,
+        )
+
+    removed = await service.clear_alert_disposition(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=target.id,
+        actor_id=actor_id,
+        confirmed=True,
+    )
+    assert removed.status is ObservabilityAlertDispositionStatus.SUPPRESSED
+    assert (
+        await repository.list_observability_alert_dispositions(
+            tenant_id=tenant_id, agent_id=agent_id
+        )
+        == ()
+    )
+
+
+async def test_suppressed_observability_alert_is_excluded_from_escalation_candidates() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    repository = FixedObservabilityRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+    started_at = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    first = await service.reconcile_alert_lifecycles(
+        tenant_id=tenant_id, agent_id=agent_id, now=started_at
+    )
+    target = next(item for item in first.active_lifecycles if item.code == "api_error_rate")
+    await service.suppress_alert(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=target.id,
+        reason="调查中",
+        expires_at=started_at + timedelta(hours=2),
+        actor_id=uuid4(),
+        confirmed=True,
+        now=started_at,
+    )
+
+    evaluation = await service.reconcile_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=started_at + timedelta(minutes=31),
+    )
+
+    assert "api_error_rate" not in {item.lifecycle.code for item in evaluation.due_escalations}
+    enriched = next(item for item in evaluation.active_lifecycles if item.id == target.id)
+    assert enriched.disposition_status is ObservabilityAlertDispositionStatus.SUPPRESSED

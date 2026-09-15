@@ -36,6 +36,7 @@ from cnb_domain import (
     ConfigEntry,
     ConfigScope,
     JsonValue,
+    ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycle,
     ObservabilityAlertLifecycleStatus,
 )
@@ -912,6 +913,57 @@ async def test_observability_notifications_cover_one_complete_reactivation_cycle
     assert all("target" not in job.payload for job in tasks.jobs.values())
     assert all("secret" not in str(job.payload).casefold() for job in tasks.jobs.values())
     assert all("notify.example.invalid" not in str(job.payload) for job in tasks.jobs.values())
+
+
+async def test_effective_observability_suppression_blocks_all_lifecycle_notifications() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    tasks = InMemoryTaskRepository()
+    secrets = MemorySecretStore()
+    await secrets.set_secret(
+        key="alerts.notification.webhook_signing_secret",
+        scope_type=ConfigScope.AGENT,
+        scope_id=agent_id,
+        plaintext="runtime-secret",
+        actor_id=None,
+    )
+    service = AlertNotificationService(
+        channel_service=EmptyAlerts(),  # type: ignore[arg-type]
+        configuration_service=await _configuration(tenant_id, agent_id),
+        secret_store=secrets,
+        adapter_registry=NotificationAdapterRegistry((RecordingAdapter(),)),
+        audit_recorder=RecordingAudit(),
+        task_service=BackgroundTaskService(tasks),
+    )
+    now = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    active = await _observability_lifecycle(
+        MemoryObservabilityRepository(), tenant_id=tenant_id, agent_id=agent_id, now=now
+    )
+    suppressed = replace(
+        active,
+        disposition_status=ObservabilityAlertDispositionStatus.SUPPRESSED,
+        disposition_reason="维护窗口",
+        disposition_expires_at=now + timedelta(hours=1),
+    )
+    recovered = replace(
+        suppressed,
+        status=ObservabilityAlertLifecycleStatus.RESOLVED,
+        resolved_at=now,
+    )
+
+    assert await service.enqueue_observability_active(lifecycle=suppressed, now=now) is None
+    assert (
+        await service.enqueue_observability_escalation(
+            lifecycle=suppressed, target_level=1, adapter_key="webhook", now=now
+        )
+        is None
+    )
+    assert await service.enqueue_observability_recovery(lifecycle=recovered, now=now) is None
+    assert tasks.jobs == {}
+
+    expired = replace(suppressed, disposition_expires_at=now)
+    resumed = await service.enqueue_observability_active(lifecycle=expired, now=now)
+    assert resumed is not None and resumed.created is True
+    assert len(tasks.jobs) == 1
 
 
 async def test_observability_recovery_notification_honors_runtime_setting() -> None:

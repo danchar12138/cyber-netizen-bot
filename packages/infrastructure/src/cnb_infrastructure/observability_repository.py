@@ -2,7 +2,7 @@
 
 import asyncio
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from math import ceil
 from typing import Any
 from uuid import UUID, uuid4
@@ -22,6 +22,8 @@ from cnb_domain import (
     LatencyPercentiles,
     ModelUsageMetrics,
     NotificationDeliveryMetrics,
+    ObservabilityAlertDisposition,
+    ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycle,
     ObservabilityAlertLifecycleStatus,
     ObservabilityMetrics,
@@ -31,10 +33,12 @@ from cnb_infrastructure.models import (
     Agent,
     AgentRunModel,
     ApiRequestMetricModel,
+    AuditLog,
     BackgroundJobModel,
     ChannelDiagnosticEventModel,
     ChannelInstanceModel,
     ModelInvocationModel,
+    ObservabilityAlertDispositionModel,
     ObservabilityAlertLifecycleModel,
 )
 
@@ -45,6 +49,7 @@ class MemoryObservabilityRepository:
     def __init__(self) -> None:
         self._requests: list[ApiRequestObservation] = []
         self._lifecycles: dict[UUID, ObservabilityAlertLifecycle] = {}
+        self._dispositions: dict[tuple[UUID, UUID, str, str], ObservabilityAlertDisposition] = {}
         self._lock = asyncio.Lock()
 
     async def record_api_request(self, observation: ApiRequestObservation) -> None:
@@ -192,8 +197,13 @@ class MemoryObservabilityRepository:
         tenant_id: UUID,
         agent_id: UUID,
         status: ObservabilityAlertLifecycleStatus | None = None,
+        source_type: str | None = None,
+        severity: AlertSeverity | None = None,
+        minimum_duration_minutes: int | None = None,
+        evaluated_at: datetime | None = None,
         limit: int = 100,
     ) -> tuple[ObservabilityAlertLifecycle, ...]:
+        checked_at = evaluated_at or datetime.now(UTC)
         async with self._lock:
             values = [
                 item
@@ -201,8 +211,96 @@ class MemoryObservabilityRepository:
                 if item.tenant_id == tenant_id
                 and item.agent_id == agent_id
                 and (status is None or item.status is status)
+                and (source_type is None or item.source_type == source_type)
+                and (severity is None or item.severity is severity)
+                and (
+                    minimum_duration_minutes is None
+                    or int(
+                        ((item.resolved_at or checked_at) - item.first_occurred_at).total_seconds()
+                    )
+                    >= minimum_duration_minutes * 60
+                )
             ]
             return tuple(sorted(values, key=lambda item: item.updated_at, reverse=True)[:limit])
+
+    async def get_observability_alert_lifecycle(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_id: UUID,
+    ) -> ObservabilityAlertLifecycle | None:
+        async with self._lock:
+            item = self._lifecycles.get(lifecycle_id)
+            if item is None or item.tenant_id != tenant_id or item.agent_id != agent_id:
+                return None
+            return item
+
+    async def get_observability_alert_disposition(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        source_type: str,
+        source_key: str,
+    ) -> ObservabilityAlertDisposition | None:
+        async with self._lock:
+            return self._dispositions.get((tenant_id, agent_id, source_type, source_key))
+
+    async def list_observability_alert_dispositions(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+    ) -> tuple[ObservabilityAlertDisposition, ...]:
+        async with self._lock:
+            return tuple(
+                sorted(
+                    (
+                        item
+                        for item in self._dispositions.values()
+                        if item.tenant_id == tenant_id and item.agent_id == agent_id
+                    ),
+                    key=lambda item: item.updated_at,
+                    reverse=True,
+                )
+            )
+
+    async def save_observability_alert_disposition(
+        self, disposition: ObservabilityAlertDisposition
+    ) -> ObservabilityAlertDisposition:
+        async with self._lock:
+            lifecycle_exists = any(
+                item.tenant_id == disposition.tenant_id
+                and item.agent_id == disposition.agent_id
+                and item.source_type == disposition.source_type
+                and item.source_key == disposition.source_key
+                and item.status is ObservabilityAlertLifecycleStatus.ACTIVE
+                for item in self._lifecycles.values()
+            )
+            if not lifecycle_exists:
+                raise LookupError("活动通用告警不存在")
+            key = (
+                disposition.tenant_id,
+                disposition.agent_id,
+                disposition.source_type,
+                disposition.source_key,
+            )
+            self._dispositions[key] = disposition
+            return disposition
+
+    async def clear_observability_alert_disposition(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        source_type: str,
+        source_key: str,
+        actor_id: UUID,
+    ) -> ObservabilityAlertDisposition | None:
+        del actor_id
+        async with self._lock:
+            return self._dispositions.pop((tenant_id, agent_id, source_type, source_key), None)
 
     async def mark_observability_alert_lifecycles_escalated(
         self,
@@ -419,6 +517,10 @@ class SqlAlchemyObservabilityRepository:
         tenant_id: UUID,
         agent_id: UUID,
         status: ObservabilityAlertLifecycleStatus | None = None,
+        source_type: str | None = None,
+        severity: AlertSeverity | None = None,
+        minimum_duration_minutes: int | None = None,
+        evaluated_at: datetime | None = None,
         limit: int = 100,
     ) -> tuple[ObservabilityAlertLifecycle, ...]:
         statement = (
@@ -432,9 +534,199 @@ class SqlAlchemyObservabilityRepository:
         )
         if status is not None:
             statement = statement.where(ObservabilityAlertLifecycleModel.status == status.value)
+        if source_type is not None:
+            statement = statement.where(ObservabilityAlertLifecycleModel.source_type == source_type)
+        if severity is not None:
+            statement = statement.where(ObservabilityAlertLifecycleModel.severity == severity.value)
+        if minimum_duration_minutes is not None:
+            statement = statement.where(
+                func.coalesce(
+                    ObservabilityAlertLifecycleModel.resolved_at,
+                    evaluated_at or datetime.now(UTC),
+                )
+                - ObservabilityAlertLifecycleModel.first_occurred_at
+                >= timedelta(minutes=minimum_duration_minutes)
+            )
         async with self._session_factory() as session:
             rows = (await session.scalars(statement)).all()
         return tuple(self._observability_lifecycle(row) for row in rows)
+
+    async def get_observability_alert_lifecycle(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_id: UUID,
+    ) -> ObservabilityAlertLifecycle | None:
+        statement = select(ObservabilityAlertLifecycleModel).where(
+            ObservabilityAlertLifecycleModel.id == lifecycle_id,
+            ObservabilityAlertLifecycleModel.tenant_id == tenant_id,
+            ObservabilityAlertLifecycleModel.agent_id == agent_id,
+        )
+        async with self._session_factory() as session:
+            row = await session.scalar(statement)
+        return None if row is None else self._observability_lifecycle(row)
+
+    async def get_observability_alert_disposition(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        source_type: str,
+        source_key: str,
+    ) -> ObservabilityAlertDisposition | None:
+        statement = select(ObservabilityAlertDispositionModel).where(
+            ObservabilityAlertDispositionModel.tenant_id == tenant_id,
+            ObservabilityAlertDispositionModel.agent_id == agent_id,
+            ObservabilityAlertDispositionModel.source_type == source_type,
+            ObservabilityAlertDispositionModel.source_key == source_key,
+        )
+        async with self._session_factory() as session:
+            row = await session.scalar(statement)
+        return None if row is None else self._observability_disposition(row)
+
+    async def list_observability_alert_dispositions(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+    ) -> tuple[ObservabilityAlertDisposition, ...]:
+        statement = (
+            select(ObservabilityAlertDispositionModel)
+            .where(
+                ObservabilityAlertDispositionModel.tenant_id == tenant_id,
+                ObservabilityAlertDispositionModel.agent_id == agent_id,
+            )
+            .order_by(ObservabilityAlertDispositionModel.updated_at.desc())
+        )
+        async with self._session_factory() as session:
+            rows = (await session.scalars(statement)).all()
+        return tuple(self._observability_disposition(row) for row in rows)
+
+    async def save_observability_alert_disposition(
+        self, disposition: ObservabilityAlertDisposition
+    ) -> ObservabilityAlertDisposition:
+        async with self._session_factory.begin() as session:
+            lock_key = (
+                f"observability-disposition:{disposition.tenant_id}:"
+                f"{disposition.agent_id}:{disposition.source_type}:{disposition.source_key}"
+            )
+            await session.execute(
+                select(func.pg_advisory_xact_lock(func.hashtextextended(lock_key, 0)))
+            )
+            lifecycle = await session.scalar(
+                select(ObservabilityAlertLifecycleModel)
+                .where(
+                    ObservabilityAlertLifecycleModel.tenant_id == disposition.tenant_id,
+                    ObservabilityAlertLifecycleModel.agent_id == disposition.agent_id,
+                    ObservabilityAlertLifecycleModel.source_type == disposition.source_type,
+                    ObservabilityAlertLifecycleModel.source_key == disposition.source_key,
+                    ObservabilityAlertLifecycleModel.status
+                    == ObservabilityAlertLifecycleStatus.ACTIVE.value,
+                )
+                .with_for_update()
+            )
+            if lifecycle is None:
+                raise LookupError("活动通用告警不存在")
+            row = await session.scalar(
+                select(ObservabilityAlertDispositionModel)
+                .where(
+                    ObservabilityAlertDispositionModel.tenant_id == disposition.tenant_id,
+                    ObservabilityAlertDispositionModel.agent_id == disposition.agent_id,
+                    ObservabilityAlertDispositionModel.source_type == disposition.source_type,
+                    ObservabilityAlertDispositionModel.source_key == disposition.source_key,
+                )
+                .with_for_update()
+            )
+            if row is None:
+                row = ObservabilityAlertDispositionModel(
+                    id=disposition.id,
+                    tenant_id=disposition.tenant_id,
+                    agent_id=disposition.agent_id,
+                    source_type=disposition.source_type,
+                    source_key=disposition.source_key,
+                    code=disposition.code,
+                    status=disposition.status.value,
+                    reason=disposition.reason,
+                    actor_id=disposition.actor_id,
+                    expires_at=disposition.expires_at,
+                    created_at=disposition.created_at,
+                    updated_at=disposition.updated_at,
+                )
+                session.add(row)
+            else:
+                row.code = disposition.code
+                row.status = disposition.status.value
+                row.reason = disposition.reason
+                row.actor_id = disposition.actor_id
+                row.expires_at = disposition.expires_at
+                row.updated_at = disposition.updated_at
+            session.add(
+                AuditLog(
+                    tenant_id=disposition.tenant_id,
+                    actor_id=disposition.actor_id,
+                    action=f"observability_alert.{disposition.status.value}",
+                    resource_type="observability_alert_disposition",
+                    resource_id=disposition.alert_key,
+                    detail={
+                        "agent_id": str(disposition.agent_id),
+                        "code": disposition.code,
+                        "status": disposition.status.value,
+                        "expires_at": (
+                            disposition.expires_at.isoformat()
+                            if disposition.expires_at is not None
+                            else None
+                        ),
+                    },
+                )
+            )
+            await session.flush()
+            return self._observability_disposition(row)
+
+    async def clear_observability_alert_disposition(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        source_type: str,
+        source_key: str,
+        actor_id: UUID,
+    ) -> ObservabilityAlertDisposition | None:
+        async with self._session_factory.begin() as session:
+            row = await session.scalar(
+                select(ObservabilityAlertDispositionModel)
+                .where(
+                    ObservabilityAlertDispositionModel.tenant_id == tenant_id,
+                    ObservabilityAlertDispositionModel.agent_id == agent_id,
+                    ObservabilityAlertDispositionModel.source_type == source_type,
+                    ObservabilityAlertDispositionModel.source_key == source_key,
+                )
+                .with_for_update()
+            )
+            if row is None:
+                return None
+            removed = self._observability_disposition(row)
+            session.add(
+                AuditLog(
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                    action="observability_alert.disposition_cleared",
+                    resource_type="observability_alert_disposition",
+                    resource_id=removed.alert_key,
+                    detail={
+                        "agent_id": str(agent_id),
+                        "code": removed.code,
+                        "status": removed.status.value,
+                        "expires_at": (
+                            removed.expires_at.isoformat()
+                            if removed.expires_at is not None
+                            else None
+                        ),
+                    },
+                )
+            )
+            await session.delete(row)
+            return removed
 
     async def mark_observability_alert_lifecycles_escalated(
         self,
@@ -508,6 +800,25 @@ class SqlAlchemyObservabilityRepository:
             updated_at=row.updated_at,
             escalation_level=row.escalation_level,
             last_escalated_at=row.last_escalated_at,
+        )
+
+    @staticmethod
+    def _observability_disposition(
+        row: ObservabilityAlertDispositionModel,
+    ) -> ObservabilityAlertDisposition:
+        return ObservabilityAlertDisposition(
+            id=row.id,
+            tenant_id=row.tenant_id,
+            agent_id=row.agent_id,
+            source_type=row.source_type,
+            source_key=row.source_key,
+            code=row.code,
+            status=ObservabilityAlertDispositionStatus(row.status),
+            reason=row.reason,
+            actor_id=row.actor_id,
+            expires_at=row.expires_at,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
         )
 
     @staticmethod

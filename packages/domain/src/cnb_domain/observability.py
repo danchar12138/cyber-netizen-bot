@@ -140,6 +140,13 @@ class ObservabilityAlertLifecycleStatus(StrEnum):
     RESOLVED = "resolved"
 
 
+class ObservabilityAlertDispositionStatus(StrEnum):
+    """通用告警处置状态。"""
+
+    ACKNOWLEDGED = "acknowledged"
+    SUPPRESSED = "suppressed"
+
+
 @dataclass(frozen=True, slots=True)
 class ObservabilityAlertLifecycle:
     """不含业务正文的通用可观测告警事件生命周期。"""
@@ -166,10 +173,36 @@ class ObservabilityAlertLifecycle:
     updated_at: datetime
     escalation_level: int = 0
     last_escalated_at: datetime | None = None
+    disposition_status: ObservabilityAlertDispositionStatus | None = None
+    disposition_reason: str | None = None
+    disposition_expires_at: datetime | None = None
 
     @property
     def alert_key(self) -> str:
         """返回来源类型和来源键组成的稳定告警键。"""
+        return f"{self.source_type}:{self.source_key}"
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertDisposition:
+    """按稳定来源键保存的通用告警确认或临时抑制记录。"""
+
+    id: UUID
+    tenant_id: UUID
+    agent_id: UUID
+    source_type: str
+    source_key: str
+    code: str
+    status: ObservabilityAlertDispositionStatus
+    reason: str
+    actor_id: UUID
+    expires_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+    @property
+    def alert_key(self) -> str:
+        """返回与生命周期一致的稳定告警键。"""
         return f"{self.source_type}:{self.source_key}"
 
 

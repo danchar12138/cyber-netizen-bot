@@ -3,6 +3,7 @@ import type {
   AgentLifecycleImpactResponse,
   AgentLifecycleStatus,
   AgentRunResponse,
+  AlertSeverity,
   AlertPolicySimulationCommand,
   AlertPolicySimulationResponse,
   AttachmentReservationResponse,
@@ -35,7 +36,12 @@ import type {
   ManagedUserDetailResponse,
   NotificationDeliveryTimelineItemResponse,
   NotificationDeliveryTimelineResponse,
+  ObservabilityAlertDispositionClearCommand,
+  ObservabilityAlertDispositionCommand,
+  ObservabilityAlertDispositionResponse,
+  ObservabilityAlertLifecycleResponse,
   ObservabilityAlertLifecycleStatus,
+  ObservabilityAlertSuppressionCommand,
   TelegramWebhookStatusResponse,
 } from './api-client/generated/types.gen'
 import {
@@ -330,6 +336,7 @@ export type AdminPermission =
   | 'channel_credential:manage'
   | 'channel_alert:manage'
   | 'channel_notification:manage'
+  | 'observability_alert:manage'
   | 'integration:read'
   | 'integration:manage'
   | 'inbox:replay'
@@ -1670,10 +1677,46 @@ export const getCognitiveRunTrace = (runId: string) =>
 export const getObservabilityDashboard = () =>
   apiSdk.getApiV1ObservabilityDashboard()
 
-export const getObservabilityAlertLifecycles = (status?: ObservabilityAlertLifecycleStatus) =>
+export type ObservabilityAlertLifecycle = ObservabilityAlertLifecycleResponse
+export type ObservabilityAlertDisposition = ObservabilityAlertDispositionResponse
+
+export interface ObservabilityAlertLifecycleFilters {
+  status?: ObservabilityAlertLifecycleStatus
+  source_type?: string
+  severity?: AlertSeverity
+  minimum_duration_minutes?: number
+}
+
+export const getObservabilityAlertLifecycles = (
+  filters: ObservabilityAlertLifecycleFilters = {},
+) =>
   apiSdk.getApiV1ObservabilityAlertLifecycles({
-    query: { status, limit: 100 },
+    query: { ...filters, limit: 100 },
   })
+
+export const acknowledgeObservabilityAlert = (
+  lifecycleId: string,
+  command: ObservabilityAlertDispositionCommand,
+) => apiSdk.postApiV1ObservabilityAlertLifecyclesByLifecycleIdAcknowledge({
+  path: { lifecycle_id: lifecycleId },
+  body: command,
+})
+
+export const suppressObservabilityAlert = (
+  lifecycleId: string,
+  command: ObservabilityAlertSuppressionCommand,
+) => apiSdk.postApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppress({
+  path: { lifecycle_id: lifecycleId },
+  body: command,
+})
+
+export const clearObservabilityAlertDisposition = (
+  lifecycleId: string,
+  command: ObservabilityAlertDispositionClearCommand,
+) => apiSdk.postApiV1ObservabilityAlertLifecyclesByLifecycleIdClearDisposition({
+  path: { lifecycle_id: lifecycleId },
+  body: command,
+})
 
 export const runCognitionEvaluationSuite = () =>
   apiSdk.postApiV1CognitionEvaluationsRun()

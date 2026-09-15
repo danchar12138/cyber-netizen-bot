@@ -96,7 +96,7 @@ export type ActiveAlertResponse = {
  *
  * API 按能力而非页面名称执行的细粒度权限。
  */
-export type AdminPermission = 'dashboard:read' | 'configuration:read' | 'configuration:write' | 'secret:manage' | 'conversation:read' | 'conversation:use' | 'access_control:read' | 'agent:read' | 'agent:write' | 'cognition:read' | 'cognition:write' | 'cognition:evaluate' | 'evaluation:review' | 'memory:read' | 'memory:write' | 'memory:rebuild' | 'task:read' | 'task:manage' | 'proactive:manage' | 'channel:read' | 'channel:write' | 'channel:send' | 'channel_credential:manage' | 'channel_alert:manage' | 'channel_notification:manage' | 'integration:read' | 'integration:manage' | 'inbox:replay' | 'trace:read' | 'user:read' | 'user:write' | 'user:role_write' | 'audit:read' | 'data_lifecycle:read' | 'data_lifecycle:export' | 'data_lifecycle:forget' | 'data_lifecycle:retention_manage' | 'data_lifecycle:backup_drill_record';
+export type AdminPermission = 'dashboard:read' | 'configuration:read' | 'configuration:write' | 'secret:manage' | 'conversation:read' | 'conversation:use' | 'access_control:read' | 'agent:read' | 'agent:write' | 'cognition:read' | 'cognition:write' | 'cognition:evaluate' | 'evaluation:review' | 'memory:read' | 'memory:write' | 'memory:rebuild' | 'task:read' | 'task:manage' | 'proactive:manage' | 'channel:read' | 'channel:write' | 'channel:send' | 'channel_credential:manage' | 'channel_alert:manage' | 'channel_notification:manage' | 'observability_alert:manage' | 'integration:read' | 'integration:manage' | 'inbox:replay' | 'trace:read' | 'user:read' | 'user:write' | 'user:role_write' | 'audit:read' | 'data_lifecycle:read' | 'data_lifecycle:export' | 'data_lifecycle:forget' | 'data_lifecycle:retention_manage' | 'data_lifecycle:backup_drill_record';
 
 /**
  * AdminRole
@@ -564,7 +564,7 @@ export type ApiErrorResponse = {
 /**
  * ApiSloResponse
  *
- * API 请求量、5xx 错误率与延迟。
+ * 应用接口请求量、服务端错误率与延迟。
  */
 export type ApiSloResponse = {
     /**
@@ -905,6 +905,10 @@ export type BackgroundJobReplayChainResponse = {
  * 不返回原始业务载荷的后台任务安全摘要。
  */
 export type BackgroundJobResponse = {
+    /**
+     * Agent Id
+     */
+    agent_id: string | null;
     /**
      * Attempt Count
      */
@@ -6002,7 +6006,7 @@ export type MultimodalContentBlockResponse = {
 /**
  * NotificationDeliveryMetricsResponse
  *
- * 告警通知任务的安全状态计数。
+ * 告警通知任务窗口计数与尚未安全重放的死信数量。
  */
 export type NotificationDeliveryMetricsResponse = {
     /**
@@ -6153,6 +6157,81 @@ export type NotificationDeliveryTimelineResponse = {
 };
 
 /**
+ * ObservabilityAlertDispositionClearCommand
+ *
+ * 解除当前通用告警处置的显式确认命令。
+ */
+export type ObservabilityAlertDispositionClearCommand = {
+    /**
+     * Confirmed
+     */
+    confirmed?: boolean;
+};
+
+/**
+ * ObservabilityAlertDispositionCommand
+ *
+ * 通用告警确认命令，调用方必须显式确认。
+ */
+export type ObservabilityAlertDispositionCommand = {
+    /**
+     * Confirmed
+     */
+    confirmed?: boolean;
+    /**
+     * Reason
+     */
+    reason: string;
+};
+
+/**
+ * ObservabilityAlertDispositionResponse
+ *
+ * 通用告警处置结果，不包含通知目标、Secret 或业务正文。
+ */
+export type ObservabilityAlertDispositionResponse = {
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Expires At
+     */
+    expires_at: string | null;
+    /**
+     * Lifecycle Id
+     */
+    lifecycle_id: string;
+    /**
+     * Reason
+     */
+    reason: string;
+    /**
+     * Source Key
+     */
+    source_key: string;
+    /**
+     * Source Type
+     */
+    source_type: string;
+    /**
+     * Status
+     */
+    status: 'acknowledged' | 'suppressed' | 'cleared';
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * ObservabilityAlertDispositionStatus
+ *
+ * 通用告警处置状态。
+ */
+export type ObservabilityAlertDispositionStatus = 'acknowledged' | 'suppressed';
+
+/**
  * ObservabilityAlertLifecycleResponse
  *
  * 通用可观测告警生命周期，不含通知目标或 Secret。
@@ -6170,6 +6249,15 @@ export type ObservabilityAlertLifecycleResponse = {
      * Current Value
      */
     current_value: number;
+    /**
+     * Disposition Expires At
+     */
+    disposition_expires_at?: string | null;
+    /**
+     * Disposition Reason
+     */
+    disposition_reason?: string | null;
+    disposition_status?: ObservabilityAlertDispositionStatus | null;
     /**
      * Escalated At
      */
@@ -6236,6 +6324,26 @@ export type ObservabilityAlertLifecycleResponse = {
  * 通用可观测告警生命周期状态。
  */
 export type ObservabilityAlertLifecycleStatus = 'active' | 'resolved';
+
+/**
+ * ObservabilityAlertSuppressionCommand
+ *
+ * 带明确到期时间的通用告警临时抑制命令。
+ */
+export type ObservabilityAlertSuppressionCommand = {
+    /**
+     * Confirmed
+     */
+    confirmed?: boolean;
+    /**
+     * Expires At
+     */
+    expires_at: string;
+    /**
+     * Reason
+     */
+    reason: string;
+};
 
 /**
  * ObservabilityDashboardResponse
@@ -15367,6 +15475,18 @@ export type GetApiV1ObservabilityAlertLifecyclesData = {
          */
         status?: ObservabilityAlertLifecycleStatus | null;
         /**
+         * Source Type
+         */
+        source_type?: string | null;
+        /**
+         * Severity
+         */
+        severity?: AlertSeverity | null;
+        /**
+         * Minimum Duration Minutes
+         */
+        minimum_duration_minutes?: number | null;
+        /**
          * Limit
          */
         limit?: number;
@@ -15425,6 +15545,192 @@ export type GetApiV1ObservabilityAlertLifecyclesResponses = {
 };
 
 export type GetApiV1ObservabilityAlertLifecyclesResponse = GetApiV1ObservabilityAlertLifecyclesResponses[keyof GetApiV1ObservabilityAlertLifecyclesResponses];
+
+export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdAcknowledgeData = {
+    body: ObservabilityAlertDispositionCommand;
+    path: {
+        /**
+         * Lifecycle Id
+         */
+        lifecycle_id: string;
+    };
+    query?: never;
+    url: '/api/v1/observability/alert-lifecycles/{lifecycle_id}/acknowledge';
+};
+
+export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdAcknowledgeErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdAcknowledgeError = PostApiV1ObservabilityAlertLifecyclesByLifecycleIdAcknowledgeErrors[keyof PostApiV1ObservabilityAlertLifecyclesByLifecycleIdAcknowledgeErrors];
+
+export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdAcknowledgeResponses = {
+    /**
+     * 请求成功
+     */
+    200: ObservabilityAlertDispositionResponse;
+};
+
+export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdAcknowledgeResponse = PostApiV1ObservabilityAlertLifecyclesByLifecycleIdAcknowledgeResponses[keyof PostApiV1ObservabilityAlertLifecyclesByLifecycleIdAcknowledgeResponses];
+
+export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdClearDispositionData = {
+    body: ObservabilityAlertDispositionClearCommand;
+    path: {
+        /**
+         * Lifecycle Id
+         */
+        lifecycle_id: string;
+    };
+    query?: never;
+    url: '/api/v1/observability/alert-lifecycles/{lifecycle_id}/clear-disposition';
+};
+
+export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdClearDispositionErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdClearDispositionError = PostApiV1ObservabilityAlertLifecyclesByLifecycleIdClearDispositionErrors[keyof PostApiV1ObservabilityAlertLifecyclesByLifecycleIdClearDispositionErrors];
+
+export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdClearDispositionResponses = {
+    /**
+     * 请求成功
+     */
+    200: ObservabilityAlertDispositionResponse;
+};
+
+export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdClearDispositionResponse = PostApiV1ObservabilityAlertLifecyclesByLifecycleIdClearDispositionResponses[keyof PostApiV1ObservabilityAlertLifecyclesByLifecycleIdClearDispositionResponses];
+
+export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressData = {
+    body: ObservabilityAlertSuppressionCommand;
+    path: {
+        /**
+         * Lifecycle Id
+         */
+        lifecycle_id: string;
+    };
+    query?: never;
+    url: '/api/v1/observability/alert-lifecycles/{lifecycle_id}/suppress';
+};
+
+export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressError = PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressErrors[keyof PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressErrors];
+
+export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressResponses = {
+    /**
+     * 请求成功
+     */
+    200: ObservabilityAlertDispositionResponse;
+};
+
+export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressResponse = PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressResponses[keyof PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressResponses];
 
 export type GetApiV1ObservabilityDashboardData = {
     body?: never;

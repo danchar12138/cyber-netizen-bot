@@ -1,12 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  acknowledgeObservabilityAlert,
+  clearObservabilityAlertDisposition,
   type ConfigPackageDocument,
   exportConfigPackage,
   formatConfigValue,
   formatConfigVersionStatus,
+  getObservabilityAlertLifecycles,
   importConfigPackage,
   setApiAccessToken,
+  suppressObservabilityAlert,
 } from './api'
 import { setSelectedAgentId } from './agentSelection'
 
@@ -33,6 +37,78 @@ describe('formatConfigVersionStatus', () => {
     expect(formatConfigVersionStatus('draft')).toBe('草稿')
     expect(formatConfigVersionStatus('published')).toBe('已发布')
     expect(formatConfigVersionStatus('superseded')).toBe('已被替代')
+  })
+})
+
+describe('通用告警客户端', () => {
+  it('完整传递生命周期组合筛选参数', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getObservabilityAlertLifecycles({
+      status: 'active',
+      source_type: 'model_runtime',
+      severity: 'critical',
+      minimum_duration_minutes: 30,
+    })
+
+    const request = fetchMock.mock.calls[0]?.[0] as Request
+    const url = new URL(request.url)
+    expect(url.pathname).toBe('/api/v1/observability/alert-lifecycles')
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      status: 'active',
+      source_type: 'model_runtime',
+      severity: 'critical',
+      minimum_duration_minutes: '30',
+      limit: '100',
+    })
+  })
+
+  it('使用专用路径和显式确认请求体执行三种处置', async () => {
+    const lifecycleId = '11111111-1111-4111-8111-111111111111'
+    const response = {
+      lifecycle_id: lifecycleId,
+      code: 'model_failure_rate',
+      source_type: 'model_runtime',
+      source_key: 'openai:gpt-5',
+      status: 'acknowledged',
+      reason: '值班人员正在处理',
+      expires_at: null,
+      updated_at: '2026-09-14T04:00:00Z',
+    }
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(
+      JSON.stringify(response),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await acknowledgeObservabilityAlert(lifecycleId, {
+      confirmed: true,
+      reason: '值班人员正在处理',
+    })
+    await suppressObservabilityAlert(lifecycleId, {
+      confirmed: true,
+      reason: '计划内维护',
+      expires_at: '2026-09-14T06:00:00Z',
+    })
+    await clearObservabilityAlertDisposition(lifecycleId, { confirmed: true })
+
+    const requests = fetchMock.mock.calls.map((call) => call[0] as Request)
+    expect(requests.map((request) => new URL(request.url).pathname)).toEqual([
+      `/api/v1/observability/alert-lifecycles/${lifecycleId}/acknowledge`,
+      `/api/v1/observability/alert-lifecycles/${lifecycleId}/suppress`,
+      `/api/v1/observability/alert-lifecycles/${lifecycleId}/clear-disposition`,
+    ])
+    expect(await requests[0]!.json()).toEqual({ confirmed: true, reason: '值班人员正在处理' })
+    expect(await requests[1]!.json()).toEqual({
+      confirmed: true,
+      reason: '计划内维护',
+      expires_at: '2026-09-14T06:00:00Z',
+    })
+    expect(await requests[2]!.json()).toEqual({ confirmed: true })
   })
 })
 

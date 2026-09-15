@@ -31,6 +31,7 @@ from cnb_domain import (
     ChannelAlertDispositionStatus,
     ChannelAlertLifecycle,
     JsonValue,
+    ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycle,
 )
 
@@ -227,7 +228,13 @@ class AlertNotificationService:
         now: datetime | None,
     ) -> "EnqueueResult | None":
         task_service = self._task_service
-        if task_service is None:
+        checked_at = (now or datetime.now(UTC)).astimezone(UTC)
+        suppression_is_active = (
+            lifecycle.disposition_status is ObservabilityAlertDispositionStatus.SUPPRESSED
+            and lifecycle.disposition_expires_at is not None
+            and lifecycle.disposition_expires_at > checked_at
+        )
+        if task_service is None or suppression_is_active:
             return None
         effective = await self._configuration_service.resolve_effective(
             tenant_id=lifecycle.tenant_id,

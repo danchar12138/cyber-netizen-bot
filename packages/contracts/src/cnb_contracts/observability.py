@@ -1,11 +1,16 @@
 """性能、成本、服务等级与活动告警接口契约。"""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from cnb_domain import AlertSeverity, ObservabilityAlertLifecycleStatus
+from cnb_domain import (
+    AlertSeverity,
+    ObservabilityAlertDispositionStatus,
+    ObservabilityAlertLifecycleStatus,
+)
 
 
 class LatencyPercentilesResponse(BaseModel):
@@ -114,6 +119,41 @@ class ObservabilityAlertLifecycleResponse(BaseModel):
     last_escalated_at: datetime | None
     resolved_at: datetime | None
     recovery_duration_seconds: int | None = Field(default=None, ge=0)
+    disposition_status: ObservabilityAlertDispositionStatus | None = None
+    disposition_reason: str | None = Field(default=None, max_length=500)
+    disposition_expires_at: datetime | None = None
+
+
+class ObservabilityAlertDispositionCommand(BaseModel):
+    """通用告警确认命令，调用方必须显式确认。"""
+
+    reason: str = Field(min_length=1, max_length=500)
+    confirmed: bool = False
+
+
+class ObservabilityAlertSuppressionCommand(ObservabilityAlertDispositionCommand):
+    """带明确到期时间的通用告警临时抑制命令。"""
+
+    expires_at: datetime
+
+
+class ObservabilityAlertDispositionClearCommand(BaseModel):
+    """解除当前通用告警处置的显式确认命令。"""
+
+    confirmed: bool = False
+
+
+class ObservabilityAlertDispositionResponse(BaseModel):
+    """通用告警处置结果，不包含通知目标、Secret 或业务正文。"""
+
+    lifecycle_id: UUID
+    source_type: str
+    source_key: str
+    code: str
+    status: Literal["acknowledged", "suppressed", "cleared"]
+    reason: str
+    expires_at: datetime | None
+    updated_at: datetime
 
 
 class ObservabilityDashboardResponse(BaseModel):

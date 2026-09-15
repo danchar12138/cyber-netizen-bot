@@ -1,8 +1,9 @@
 """性能、成本、服务等级与活动告警管理接口。"""
 
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from cnb_api.dependencies import (
     get_admin_principal,
@@ -10,7 +11,11 @@ from cnb_api.dependencies import (
     get_request_identity,
     require_permission,
 )
-from cnb_application import ObservabilityService
+from cnb_application import (
+    ObservabilityNotFoundError,
+    ObservabilityService,
+    ObservabilityValidationError,
+)
 from cnb_contracts import (
     ActiveAlertResponse,
     AgentRunSloResponse,
@@ -18,14 +23,20 @@ from cnb_contracts import (
     ChannelDeliveryMetricsResponse,
     ModelUsageResponse,
     NotificationDeliveryMetricsResponse,
+    ObservabilityAlertDispositionClearCommand,
+    ObservabilityAlertDispositionCommand,
+    ObservabilityAlertDispositionResponse,
     ObservabilityAlertLifecycleResponse,
+    ObservabilityAlertSuppressionCommand,
     ObservabilityDashboardResponse,
     QueueMetricsResponse,
 )
 from cnb_domain import (
     AdminPermission,
     AdminPrincipal,
+    AlertSeverity,
     DevelopmentIdentity,
+    ObservabilityAlertDisposition,
     ObservabilityAlertLifecycleStatus,
 )
 
@@ -84,12 +95,132 @@ async def alert_lifecycles(
     identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
     service: Annotated[ObservabilityService, Depends(get_observability_service)],
     status: ObservabilityAlertLifecycleStatus | None = None,
+    source_type: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
+    severity: AlertSeverity | None = None,
+    minimum_duration_minutes: Annotated[int | None, Query(ge=0, le=525_600)] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> tuple[ObservabilityAlertLifecycleResponse, ...]:
     rows = await service.alert_lifecycles(
-        tenant_id=principal.tenant_id, agent_id=identity.agent_id, status=status, limit=limit
+        tenant_id=principal.tenant_id,
+        agent_id=identity.agent_id,
+        status=status,
+        source_type=source_type,
+        severity=severity,
+        minimum_duration_minutes=minimum_duration_minutes,
+        limit=limit,
     )
     return tuple(
         ObservabilityAlertLifecycleResponse.model_validate(item, from_attributes=True)
         for item in rows
     )
+
+
+def _disposition_response(
+    lifecycle_id: UUID,
+    item: ObservabilityAlertDisposition,
+    *,
+    cleared: bool = False,
+) -> ObservabilityAlertDispositionResponse:
+    return ObservabilityAlertDispositionResponse(
+        lifecycle_id=lifecycle_id,
+        source_type=item.source_type,
+        source_key=item.source_key,
+        code=item.code,
+        status="cleared" if cleared else item.status.value,
+        reason=item.reason,
+        expires_at=item.expires_at,
+        updated_at=item.updated_at,
+    )
+
+
+@router.post(
+    "/alert-lifecycles/{lifecycle_id}/acknowledge",
+    response_model=ObservabilityAlertDispositionResponse,
+    dependencies=[Depends(require_permission(AdminPermission.OBSERVABILITY_ALERT_MANAGE))],
+)
+async def acknowledge_alert(
+    lifecycle_id: UUID,
+    command: ObservabilityAlertDispositionCommand,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ObservabilityService, Depends(get_observability_service)],
+) -> ObservabilityAlertDispositionResponse:
+    """确认当前 Agent 的活动通用告警。"""
+    try:
+        item = await service.acknowledge_alert(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            lifecycle_id=lifecycle_id,
+            reason=command.reason,
+            actor_id=principal.user_id,
+            confirmed=command.confirmed,
+        )
+    except ObservabilityNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except ObservabilityValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return _disposition_response(lifecycle_id, item)
+
+
+@router.post(
+    "/alert-lifecycles/{lifecycle_id}/suppress",
+    response_model=ObservabilityAlertDispositionResponse,
+    dependencies=[Depends(require_permission(AdminPermission.OBSERVABILITY_ALERT_MANAGE))],
+)
+async def suppress_alert(
+    lifecycle_id: UUID,
+    command: ObservabilityAlertSuppressionCommand,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ObservabilityService, Depends(get_observability_service)],
+) -> ObservabilityAlertDispositionResponse:
+    """临时抑制当前 Agent 的活动通用告警通知。"""
+    try:
+        item = await service.suppress_alert(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            lifecycle_id=lifecycle_id,
+            reason=command.reason,
+            expires_at=command.expires_at,
+            actor_id=principal.user_id,
+            confirmed=command.confirmed,
+        )
+    except ObservabilityNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except ObservabilityValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return _disposition_response(lifecycle_id, item)
+
+
+@router.post(
+    "/alert-lifecycles/{lifecycle_id}/clear-disposition",
+    response_model=ObservabilityAlertDispositionResponse,
+    dependencies=[Depends(require_permission(AdminPermission.OBSERVABILITY_ALERT_MANAGE))],
+)
+async def clear_alert_disposition(
+    lifecycle_id: UUID,
+    command: ObservabilityAlertDispositionClearCommand,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ObservabilityService, Depends(get_observability_service)],
+) -> ObservabilityAlertDispositionResponse:
+    """解除当前 Agent 的通用告警处置。"""
+    try:
+        item = await service.clear_alert_disposition(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            lifecycle_id=lifecycle_id,
+            actor_id=principal.user_id,
+            confirmed=command.confirmed,
+        )
+    except ObservabilityNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except ObservabilityValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return _disposition_response(lifecycle_id, item, cleared=True)

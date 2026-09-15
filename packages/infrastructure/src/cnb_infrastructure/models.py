@@ -263,6 +263,56 @@ class ObservabilityAlertLifecycleModel(Base):
     )
 
 
+class ObservabilityAlertDispositionModel(Base):
+    """通用告警确认或临时抑制的租户隔离处置记录。"""
+
+    __tablename__ = "observability_alert_dispositions"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    source_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    code: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    actor_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('acknowledged', 'suppressed')",
+            name="ck_observability_alert_dispositions_status",
+        ),
+        CheckConstraint(
+            "(status = 'acknowledged' AND expires_at IS NULL) OR "
+            "(status = 'suppressed' AND expires_at IS NOT NULL)",
+            name="ck_observability_alert_dispositions_expiry",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "agent_id",
+            "source_type",
+            "source_key",
+            name="uq_observability_alert_disposition_key",
+        ),
+        Index(
+            "ix_observability_alert_dispositions_tenant_agent",
+            "tenant_id",
+            "agent_id",
+            "updated_at",
+        ),
+    )
+
+
 class Tenant(Base):
     """承载全部业务数据隔离边界的租户。"""
 

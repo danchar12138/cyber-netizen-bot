@@ -4,13 +4,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from cnb_application.configuration_service import ConfigurationService
 from cnb_domain import (
     ActiveAlert,
     AlertSeverity,
     JsonValue,
+    ObservabilityAlertDisposition,
+    ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycle,
     ObservabilityAlertLifecycleStatus,
     ObservabilityDashboard,
@@ -38,6 +40,14 @@ class ObservabilityAlertLifecycleReconciliation:
     active_lifecycles: tuple[ObservabilityAlertLifecycle, ...]
     activated_lifecycles: tuple[ObservabilityAlertLifecycle, ...]
     recovered_lifecycles: tuple[ObservabilityAlertLifecycle, ...]
+
+
+class ObservabilityValidationError(ValueError):
+    """通用告警查询或处置参数不合法。"""
+
+
+class ObservabilityNotFoundError(LookupError):
+    """当前租户与 Agent 作用域内不存在目标通用告警。"""
 
 
 class ObservabilityRepository(Protocol):
@@ -69,8 +79,50 @@ class ObservabilityRepository(Protocol):
         tenant_id: UUID,
         agent_id: UUID,
         status: ObservabilityAlertLifecycleStatus | None = None,
+        source_type: str | None = None,
+        severity: AlertSeverity | None = None,
+        minimum_duration_minutes: int | None = None,
+        evaluated_at: datetime | None = None,
         limit: int = 100,
     ) -> tuple[ObservabilityAlertLifecycle, ...]: ...
+
+    async def get_observability_alert_lifecycle(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_id: UUID,
+    ) -> ObservabilityAlertLifecycle | None: ...
+
+    async def get_observability_alert_disposition(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        source_type: str,
+        source_key: str,
+    ) -> ObservabilityAlertDisposition | None: ...
+
+    async def list_observability_alert_dispositions(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+    ) -> tuple[ObservabilityAlertDisposition, ...]: ...
+
+    async def save_observability_alert_disposition(
+        self, disposition: ObservabilityAlertDisposition
+    ) -> ObservabilityAlertDisposition: ...
+
+    async def clear_observability_alert_disposition(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        source_type: str,
+        source_key: str,
+        actor_id: UUID,
+    ) -> ObservabilityAlertDisposition | None: ...
 
     async def mark_observability_alert_lifecycles_escalated(
         self,
@@ -160,14 +212,13 @@ class ObservabilityService:
         )
         total_cost = sum(item.estimated_cost_microusd for item in metrics.models)
         alerts = self._alerts(metrics, total_cost, configuration.values)
-        lifecycles = (
-            await self._repository.list_observability_alert_lifecycles(
+        lifecycles = ()
+        if agent_id is not None:
+            lifecycles = await self.alert_lifecycles(
                 tenant_id=tenant_id,
                 agent_id=agent_id,
+                now=window_ended_at,
             )
-            if agent_id is not None
-            else ()
-        )
         return ObservabilityDashboard(
             metrics=metrics,
             total_estimated_cost_microusd=total_cost,
@@ -200,7 +251,18 @@ class ObservabilityService:
         reconciliation = await self._repository.reconcile_observability_alert_lifecycles(
             tenant_id=tenant_id, agent_id=agent_id, alerts=alerts, observed_at=observed_at
         )
-        active = reconciliation.active_lifecycles
+        dispositions = await self._repository.list_observability_alert_dispositions(
+            tenant_id=tenant_id, agent_id=agent_id
+        )
+        active = self._attach_dispositions(
+            reconciliation.active_lifecycles, dispositions, observed_at
+        )
+        activated = self._attach_dispositions(
+            reconciliation.activated_lifecycles, dispositions, observed_at
+        )
+        recovered = self._attach_dispositions(
+            reconciliation.recovered_lifecycles, dispositions, observed_at
+        )
         from cnb_application.alert_policy import AlertEscalationPolicy
 
         policy = AlertEscalationPolicy.from_values(configuration.values)
@@ -211,6 +273,7 @@ class ObservabilityService:
                 adapter=decision.adapter,
             )
             for item in active
+            if item.disposition_status is not ObservabilityAlertDispositionStatus.SUPPRESSED
             if (
                 decision := policy.evaluate(
                     severity=item.severity,
@@ -226,8 +289,8 @@ class ObservabilityService:
         return ObservabilityAlertLifecycleEvaluation(
             alerts=alerts,
             active_lifecycles=active,
-            activated_lifecycles=reconciliation.activated_lifecycles,
-            recovered_lifecycles=reconciliation.recovered_lifecycles,
+            activated_lifecycles=activated,
+            recovered_lifecycles=recovered,
             due_escalations=due,
         )
 
@@ -237,12 +300,203 @@ class ObservabilityService:
         tenant_id: UUID,
         agent_id: UUID,
         status: ObservabilityAlertLifecycleStatus | None = None,
+        source_type: str | None = None,
+        severity: AlertSeverity | None = None,
+        minimum_duration_minutes: int | None = None,
         limit: int = 100,
+        now: datetime | None = None,
     ) -> tuple[ObservabilityAlertLifecycle, ...]:
         if not 1 <= limit <= 500:
-            raise ValueError("通用告警生命周期数量必须位于 1 到 500 之间")
-        return await self._repository.list_observability_alert_lifecycles(
-            tenant_id=tenant_id, agent_id=agent_id, status=status, limit=limit
+            raise ObservabilityValidationError("通用告警生命周期数量必须位于 1 到 500 之间")
+        normalized_source = source_type.strip() if source_type is not None else None
+        if source_type is not None and not normalized_source:
+            raise ObservabilityValidationError("通用告警来源类型不能为空")
+        if normalized_source is not None and len(normalized_source) > 80:
+            raise ObservabilityValidationError("通用告警来源类型不能超过 80 个字符")
+        if minimum_duration_minutes is not None and not 0 <= minimum_duration_minutes <= 525_600:
+            raise ObservabilityValidationError("最短持续时间必须位于 0 到 525600 分钟之间")
+        evaluated_at = (now or datetime.now(UTC)).astimezone(UTC)
+        rows = await self._repository.list_observability_alert_lifecycles(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            status=status,
+            source_type=normalized_source,
+            severity=severity,
+            minimum_duration_minutes=minimum_duration_minutes,
+            evaluated_at=evaluated_at,
+            limit=limit,
+        )
+        dispositions = await self._repository.list_observability_alert_dispositions(
+            tenant_id=tenant_id, agent_id=agent_id
+        )
+        return self._attach_dispositions(rows, dispositions, evaluated_at)
+
+    async def acknowledge_alert(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_id: UUID,
+        reason: str,
+        actor_id: UUID,
+        confirmed: bool,
+        now: datetime | None = None,
+    ) -> ObservabilityAlertDisposition:
+        return await self._set_alert_disposition(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lifecycle_id=lifecycle_id,
+            status=ObservabilityAlertDispositionStatus.ACKNOWLEDGED,
+            reason=reason,
+            expires_at=None,
+            actor_id=actor_id,
+            confirmed=confirmed,
+            now=now,
+        )
+
+    async def suppress_alert(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_id: UUID,
+        reason: str,
+        expires_at: datetime,
+        actor_id: UUID,
+        confirmed: bool,
+        now: datetime | None = None,
+    ) -> ObservabilityAlertDisposition:
+        return await self._set_alert_disposition(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lifecycle_id=lifecycle_id,
+            status=ObservabilityAlertDispositionStatus.SUPPRESSED,
+            reason=reason,
+            expires_at=expires_at,
+            actor_id=actor_id,
+            confirmed=confirmed,
+            now=now,
+        )
+
+    async def clear_alert_disposition(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_id: UUID,
+        actor_id: UUID,
+        confirmed: bool,
+    ) -> ObservabilityAlertDisposition:
+        if not confirmed:
+            raise ObservabilityValidationError("解除通用告警处置必须明确确认")
+        lifecycle = await self._get_lifecycle(
+            tenant_id=tenant_id, agent_id=agent_id, lifecycle_id=lifecycle_id
+        )
+        removed = await self._repository.clear_observability_alert_disposition(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            source_type=lifecycle.source_type,
+            source_key=lifecycle.source_key,
+            actor_id=actor_id,
+        )
+        if removed is None:
+            raise ObservabilityNotFoundError("通用告警处置不存在")
+        return removed
+
+    async def _set_alert_disposition(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_id: UUID,
+        status: ObservabilityAlertDispositionStatus,
+        reason: str,
+        expires_at: datetime | None,
+        actor_id: UUID,
+        confirmed: bool,
+        now: datetime | None,
+    ) -> ObservabilityAlertDisposition:
+        if not confirmed:
+            raise ObservabilityValidationError("通用告警处置必须明确确认")
+        normalized_reason = reason.strip()
+        if not normalized_reason:
+            raise ObservabilityValidationError("通用告警处置原因不能为空")
+        if len(normalized_reason) > 500:
+            raise ObservabilityValidationError("通用告警处置原因不能超过 500 个字符")
+        changed_at = (now or datetime.now(UTC)).astimezone(UTC)
+        if status is ObservabilityAlertDispositionStatus.SUPPRESSED:
+            if expires_at is None:
+                raise ObservabilityValidationError("临时抑制必须设置到期时间")
+            if expires_at.tzinfo is None or expires_at.utcoffset() is None:
+                raise ObservabilityValidationError("临时抑制到期时间必须包含时区")
+            expires_at = expires_at.astimezone(UTC)
+            if expires_at <= changed_at:
+                raise ObservabilityValidationError("临时抑制到期时间必须晚于当前时间")
+        lifecycle = await self._get_lifecycle(
+            tenant_id=tenant_id, agent_id=agent_id, lifecycle_id=lifecycle_id
+        )
+        if lifecycle.status is not ObservabilityAlertLifecycleStatus.ACTIVE:
+            raise ObservabilityValidationError("只能确认或抑制活动中的通用告警")
+        existing = await self._repository.get_observability_alert_disposition(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            source_type=lifecycle.source_type,
+            source_key=lifecycle.source_key,
+        )
+        disposition = ObservabilityAlertDisposition(
+            id=existing.id if existing is not None else uuid4(),
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            source_type=lifecycle.source_type,
+            source_key=lifecycle.source_key,
+            code=lifecycle.code,
+            status=status,
+            reason=normalized_reason,
+            actor_id=actor_id,
+            expires_at=expires_at,
+            created_at=existing.created_at if existing is not None else changed_at,
+            updated_at=changed_at,
+        )
+        try:
+            return await self._repository.save_observability_alert_disposition(disposition)
+        except LookupError as error:
+            raise ObservabilityNotFoundError("活动通用告警不存在") from error
+
+    async def _get_lifecycle(
+        self, *, tenant_id: UUID, agent_id: UUID, lifecycle_id: UUID
+    ) -> ObservabilityAlertLifecycle:
+        lifecycle = await self._repository.get_observability_alert_lifecycle(
+            tenant_id=tenant_id, agent_id=agent_id, lifecycle_id=lifecycle_id
+        )
+        if lifecycle is None:
+            raise ObservabilityNotFoundError("通用告警生命周期不存在")
+        return lifecycle
+
+    @staticmethod
+    def _attach_dispositions(
+        lifecycles: tuple[ObservabilityAlertLifecycle, ...],
+        dispositions: tuple[ObservabilityAlertDisposition, ...],
+        evaluated_at: datetime,
+    ) -> tuple[ObservabilityAlertLifecycle, ...]:
+        by_key = {
+            (item.source_type, item.source_key): item
+            for item in dispositions
+            if item.status is ObservabilityAlertDispositionStatus.ACKNOWLEDGED
+            or (
+                item.status is ObservabilityAlertDispositionStatus.SUPPRESSED
+                and item.expires_at is not None
+                and item.expires_at > evaluated_at
+            )
+        }
+        return tuple(
+            replace(
+                lifecycle,
+                disposition_status=disposition.status if disposition is not None else None,
+                disposition_reason=disposition.reason if disposition is not None else None,
+                disposition_expires_at=disposition.expires_at if disposition is not None else None,
+            )
+            for lifecycle in lifecycles
+            for disposition in (by_key.get((lifecycle.source_type, lifecycle.source_key)),)
         )
 
     async def mark_alert_lifecycles_escalated(

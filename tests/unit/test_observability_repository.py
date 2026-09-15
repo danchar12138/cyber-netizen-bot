@@ -7,6 +7,7 @@ from uuid import uuid4
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cnb_domain import AlertSeverity, ObservabilityAlertLifecycleStatus
 from cnb_infrastructure import SqlAlchemyObservabilityRepository
 
 
@@ -33,6 +34,10 @@ class _CapturingSession:
     async def scalar(self, statement: Any) -> int:
         self.statements.append(statement)
         return 0
+
+    async def scalars(self, statement: Any) -> _CapturedResult:
+        self.statements.append(statement)
+        return _CapturedResult(())
 
 
 def _sql(statement: Any) -> str:
@@ -91,3 +96,40 @@ async def test_postgresql_metrics_apply_agent_scope_to_every_runtime_source() ->
     notification_sql = "\n".join(_sql(item) for item in captured.statements[before:])
     assert notification_sql.count(str(agent_id)) == 2
     assert "replayed_from_id" in notification_sql
+
+
+async def test_postgresql_lifecycle_filters_keep_tenant_and_agent_scope() -> None:
+    """组合筛选必须全部下推到数据库且保留双重隔离条件。"""
+    agent_id = uuid4()
+    tenant_id = uuid4()
+    evaluated_at = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    captured = _CapturingSession()
+    session = cast(AsyncSession, captured)
+
+    class _SessionContext:
+        async def __aenter__(self) -> AsyncSession:
+            return session
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+    repository = SqlAlchemyObservabilityRepository(cast(Any, lambda: _SessionContext()))
+    await repository.list_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        status=ObservabilityAlertLifecycleStatus.ACTIVE,
+        source_type="model_runtime",
+        severity=AlertSeverity.CRITICAL,
+        minimum_duration_minutes=30,
+        evaluated_at=evaluated_at,
+        limit=25,
+    )
+
+    lifecycle_sql = _sql(captured.statements[-1])
+    assert str(tenant_id) in lifecycle_sql
+    assert str(agent_id) in lifecycle_sql
+    assert "source_type = 'model_runtime'" in lifecycle_sql
+    assert "severity = 'critical'" in lifecycle_sql
+    assert "status = 'active'" in lifecycle_sql
+    assert "first_occurred_at" in lifecycle_sql
+    assert "LIMIT 25" in lifecycle_sql

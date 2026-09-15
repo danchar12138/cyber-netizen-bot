@@ -1,13 +1,17 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { Activity, BellRing, CircleDollarSign, Clock3, Search, Send, ShieldCheck, TriangleAlert } from 'lucide-react'
-import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Activity, BellRing, CheckCircle2, CircleDollarSign, Clock3, RefreshCw, Search, Send, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { useCallback, useState } from 'react'
 
 import {
+  acknowledgeObservabilityAlert,
+  clearObservabilityAlertDisposition,
   getAdminSession,
   getChannelAlertLifecycleMetrics,
   getCognitiveRunTrace,
   getObservabilityAlertLifecycles,
   getObservabilityDashboard,
+  suppressObservabilityAlert,
+  type ObservabilityAlertLifecycle,
 } from '../api'
 import { useSelectedAgentId } from '../agentSelection'
 import {
@@ -21,6 +25,7 @@ import {
   observabilityAlertSourceTypeLabels,
   observabilityUnitLabel,
 } from '../displayLabels'
+import { invalidateAcrossTabs } from '../tabSync'
 
 function formatUsd(microusd: number) {
   return new Intl.NumberFormat('zh-CN', {
@@ -39,12 +44,19 @@ function formatDuration(seconds: number | null | undefined) {
 }
 
 export function ObservabilityPage() {
+  const queryClient = useQueryClient()
   const [runId, setRunId] = useState('')
   const [alertStatus, setAlertStatus] = useState<'all' | 'active' | 'resolved'>('all')
+  const [alertSourceType, setAlertSourceType] = useState('')
+  const [alertSeverity, setAlertSeverity] = useState<'warning' | 'critical' | ''>('')
+  const [minimumDurationMinutes, setMinimumDurationMinutes] = useState('')
+  const [dispositionInputError, setDispositionInputError] = useState<string | null>(null)
+  const [dispositionFeedback, setDispositionFeedback] = useState<string | null>(null)
   const selectedAgentId = useSelectedAgentId()
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const canReadTrace = session.data?.permissions.includes('trace:read') ?? false
   const canReadChannels = session.data?.permissions.includes('channel:read') ?? false
+  const canManageAlerts = session.data?.permissions.includes('observability_alert:manage') ?? false
   const dashboard = useQuery({
     queryKey: ['observability-dashboard', selectedAgentId],
     queryFn: getObservabilityDashboard,
@@ -58,12 +70,58 @@ export function ObservabilityPage() {
     refetchInterval: 30_000,
   })
   const alertLifecycles = useQuery({
-    queryKey: ['observability-alert-lifecycles', selectedAgentId, alertStatus],
-    queryFn: () => getObservabilityAlertLifecycles(
-      alertStatus === 'all' ? undefined : alertStatus,
-    ),
+    queryKey: [
+      'observability-alert-lifecycles',
+      selectedAgentId,
+      alertStatus,
+      alertSourceType,
+      alertSeverity,
+      minimumDurationMinutes,
+    ],
+    queryFn: () => getObservabilityAlertLifecycles({
+      status: alertStatus === 'all' ? undefined : alertStatus,
+      source_type: alertSourceType || undefined,
+      severity: alertSeverity || undefined,
+      minimum_duration_minutes: minimumDurationMinutes
+        ? Number(minimumDurationMinutes)
+        : undefined,
+    }),
     enabled: canReadTrace,
     refetchInterval: 30_000,
+  })
+  const refreshAlertViews = useCallback(async () => {
+    await Promise.all([
+      invalidateAcrossTabs(queryClient, ['observability-alert-lifecycles']),
+      invalidateAcrossTabs(queryClient, ['observability-dashboard']),
+      invalidateAcrossTabs(queryClient, ['audit-records']),
+    ])
+  }, [queryClient])
+  const dispositionMutation = useMutation({
+    mutationFn: ({ action, lifecycleId, reason, expiresAt }: {
+      action: 'acknowledge' | 'suppress' | 'clear'
+      lifecycleId: string
+      reason?: string
+      expiresAt?: string
+    }) => {
+      if (action === 'acknowledge') {
+        return acknowledgeObservabilityAlert(lifecycleId, { confirmed: true, reason: reason! })
+      }
+      if (action === 'suppress') {
+        return suppressObservabilityAlert(lifecycleId, {
+          confirmed: true,
+          reason: reason!,
+          expires_at: expiresAt!,
+        })
+      }
+      return clearObservabilityAlertDisposition(lifecycleId, { confirmed: true })
+    },
+    onSuccess: async (result) => {
+      const statusLabel = result.status === 'acknowledged'
+        ? '已确认'
+        : result.status === 'suppressed' ? '已抑制' : '已解除处置'
+      setDispositionFeedback(`${displayLabel(observabilityAlertCodeLabels, result.code)}${statusLabel}`)
+      await refreshAlertViews()
+    },
   })
   const trace = useMutation({ mutationFn: getCognitiveRunTrace })
   const data = dashboard.data
@@ -72,6 +130,43 @@ export function ObservabilityPage() {
     1,
     ...(lifecycle?.trend.map((point) => point.opened + point.resolved + point.escalated) ?? []),
   )
+  const runDisposition = useCallback((item: ObservabilityAlertLifecycle, action: 'acknowledge' | 'suppress') => {
+    setDispositionInputError(null)
+    setDispositionFeedback(null)
+    const reason = window.prompt(
+      action === 'suppress' ? '请输入临时抑制原因' : '请输入告警确认备注',
+      item.disposition_reason ?? '',
+    )?.trim()
+    if (!reason) return
+
+    let expiresAt: string | undefined
+    if (action === 'suppress') {
+      const suggestedTime = new Date(Date.now() + 60 * 60_000).toISOString()
+      const input = window.prompt(
+        '请输入抑制到期时间（ISO 8601，必须包含时区）',
+        suggestedTime,
+      )?.trim()
+      if (!input) return
+      const parsed = new Date(input)
+      if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) {
+        setDispositionInputError('抑制到期时间必须是未来的有效时间')
+        return
+      }
+      expiresAt = parsed.toISOString()
+    }
+
+    const title = displayLabel(observabilityAlertCodeLabels, item.code)
+    if (!window.confirm(`确认${action === 'suppress' ? '临时抑制' : '标记已确认'}“${title}”？`)) return
+    dispositionMutation.mutate({ action, lifecycleId: item.id, reason, expiresAt })
+  }, [dispositionMutation])
+  const clearDisposition = useCallback((item: ObservabilityAlertLifecycle) => {
+    setDispositionInputError(null)
+    setDispositionFeedback(null)
+    const title = displayLabel(observabilityAlertCodeLabels, item.code)
+    if (window.confirm(`确认解除“${title}”的当前处置？`)) {
+      dispositionMutation.mutate({ action: 'clear', lifecycleId: item.id })
+    }
+  }, [dispositionMutation])
 
   return (
     <div className="page">
@@ -81,6 +176,8 @@ export function ObservabilityPage() {
       {dashboard.isError && <div className="notice error" role="alert">无法读取可观测聚合，请检查应用接口、数据库和当前权限。</div>}
       {lifecycleMetrics.isError && <div className="notice error" role="alert">无法读取告警生命周期指标，请检查渠道读取权限与迁移状态。</div>}
       {alertLifecycles.isError && <div className="notice error" role="alert">无法读取通用告警生命周期，请检查当前 Agent 与迁移状态。</div>}
+      {(dispositionInputError || dispositionMutation.error) && <div className="notice error" role="alert">{dispositionInputError ?? dispositionMutation.error?.message}</div>}
+      {dispositionFeedback && <div className="notice success" role="status"><CheckCircle2 size={17} /><div><strong>告警处置已更新</strong><span>{dispositionFeedback}</span></div></div>}
       <section className="metric-grid" aria-label="服务等级与成本指标">
         <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>应用接口错误率</p><strong>{data ? `${data.api.error_rate_percent.toFixed(2)}%` : '—'}</strong><span>{data?.api.requests ?? 0} 次请求 · {data?.api.server_errors ?? 0} 次服务端错误</span></article>
         <article className="metric-card"><div className="metric-icon"><Clock3 size={18} /></div><p>应用接口 P95 / P99</p><strong>{data ? `${data.api.latency.p95_ms} / ${data.api.latency.p99_ms} 毫秒` : '—'}</strong><span>P50 {data?.api.latency.p50_ms ?? '—'} 毫秒</span></article>
@@ -115,17 +212,17 @@ export function ObservabilityPage() {
       <section className="panel table-panel observability-lifecycle-table">
         <div className="admin-table-toolbar">
           <div><p className="eyebrow">当前 Agent</p><h2>通用告警生命周期</h2></div>
-          <label className="status-filter">状态
-            <select value={alertStatus} onChange={(event) => setAlertStatus(event.target.value as typeof alertStatus)}>
-              <option value="all">全部</option>
-              <option value="active">活动</option>
-              <option value="resolved">已恢复</option>
-            </select>
-          </label>
+          <div className="table-actions lifecycle-filters">
+            <label className="status-filter"><span>状态</span><select value={alertStatus} onChange={(event) => setAlertStatus(event.target.value as typeof alertStatus)}><option value="all">全部状态</option><option value="active">活动</option><option value="resolved">已恢复</option></select></label>
+            <label className="status-filter"><span>来源</span><select value={alertSourceType} onChange={(event) => setAlertSourceType(event.target.value)}><option value="">全部来源</option>{Object.entries(observabilityAlertSourceTypeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+            <label className="status-filter"><span>级别</span><select value={alertSeverity} onChange={(event) => setAlertSeverity(event.target.value as typeof alertSeverity)}><option value="">全部级别</option><option value="warning">警告</option><option value="critical">严重</option></select></label>
+            <label className="status-filter"><span>最短持续</span><select value={minimumDurationMinutes} onChange={(event) => setMinimumDurationMinutes(event.target.value)}><option value="">不限</option><option value="15">15 分钟</option><option value="60">1 小时</option><option value="360">6 小时</option><option value="1440">24 小时</option></select></label>
+            <small>{alertLifecycles.data?.length ?? 0} 条</small>
+          </div>
         </div>
         <div className="admin-table-scroll">
           <table className="admin-table">
-            <thead><tr><th>来源</th><th>状态</th><th>当前 / 阈值</th><th>升级</th><th>发生时间</th><th>恢复</th></tr></thead>
+            <thead><tr><th>来源</th><th>状态</th><th>当前 / 阈值</th><th>升级</th><th>发生时间</th><th>恢复</th><th>处置</th><th>操作</th></tr></thead>
             <tbody>{alertLifecycles.data?.map((item) => <tr key={item.id}>
               <td className="table-primary"><strong>{displayLabel(observabilityAlertCodeLabels, item.code)}</strong><small>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)}</small><code>{item.source_key}</code></td>
               <td><span className={`entity-status ${item.status}`}>{item.status === 'active' ? '活动' : '已恢复'}</span><small className={`severity-label ${item.severity}`}>{item.severity === 'critical' ? '严重' : '警告'}</small></td>
@@ -133,6 +230,14 @@ export function ObservabilityPage() {
               <td><strong>L{item.escalation_level}</strong><small>{item.last_escalated_at ? new Date(item.last_escalated_at).toLocaleString('zh-CN') : '尚未升级'}</small></td>
               <td><strong>{new Date(item.first_occurred_at).toLocaleString('zh-CN')}</strong><small>最近 {new Date(item.last_occurred_at).toLocaleString('zh-CN')}</small></td>
               <td><strong>{formatDuration(item.recovery_duration_seconds)}</strong><small>{item.resolved_at ? new Date(item.resolved_at).toLocaleString('zh-CN') : '等待恢复'}</small></td>
+              <td>{item.disposition_status
+                ? <div className="table-primary disposition-summary"><span className={`entity-status disposition-${item.disposition_status}`}>{item.disposition_status === 'suppressed' ? '已抑制' : '已确认'}</span><small>{item.disposition_reason}</small>{item.disposition_expires_at && <small>到期 {new Date(item.disposition_expires_at).toLocaleString('zh-CN')}</small>}</div>
+                : <span className="subtle">未处置</span>}</td>
+              <td><div className="table-actions disposition-actions">
+                {item.status === 'active' && item.disposition_status !== 'acknowledged' && <button disabled={!canManageAlerts || dispositionMutation.isPending} onClick={() => runDisposition(item, 'acknowledge')}><CheckCircle2 size={12} />确认</button>}
+                {item.status === 'active' && item.disposition_status !== 'suppressed' && <button disabled={!canManageAlerts || dispositionMutation.isPending} onClick={() => runDisposition(item, 'suppress')}><ShieldCheck size={12} />抑制</button>}
+                {item.disposition_status && <button disabled={!canManageAlerts || dispositionMutation.isPending} onClick={() => clearDisposition(item)}><RefreshCw size={12} />解除</button>}
+              </div></td>
             </tr>)}</tbody>
           </table>
           {!alertLifecycles.data?.length && <div className="admin-table-empty">当前筛选条件下没有通用告警生命周期。</div>}

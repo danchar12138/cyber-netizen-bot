@@ -159,6 +159,7 @@
           "channel_credential:manage",
           "channel_alert:manage",
           "channel_notification:manage",
+          "observability_alert:manage",
           "integration:read",
           "integration:manage",
           "inbox:replay",
@@ -898,7 +899,7 @@
         "type": "object"
       },
       "ApiSloResponse": {
-        "description": "API 请求量、5xx 错误率与延迟。",
+        "description": "应用接口请求量、服务端错误率与延迟。",
         "properties": {
           "error_rate_percent": {
             "maximum": 100.0,
@@ -1482,6 +1483,18 @@
       "BackgroundJobResponse": {
         "description": "不返回原始业务载荷的后台任务安全摘要。",
         "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
           "attempt_count": {
             "minimum": 0.0,
             "title": "Attempt Count",
@@ -1678,6 +1691,7 @@
         "required": [
           "id",
           "tenant_id",
+          "agent_id",
           "kind",
           "queue",
           "status",
@@ -10078,7 +10092,7 @@
         "type": "object"
       },
       "NotificationDeliveryMetricsResponse": {
-        "description": "告警通知任务的安全状态计数。",
+        "description": "告警通知任务窗口计数与尚未安全重放的死信数量。",
         "properties": {
           "dead_letters": {
             "minimum": 0.0,
@@ -10355,6 +10369,112 @@
         "title": "NotificationDeliveryTimelineResponse",
         "type": "object"
       },
+      "ObservabilityAlertDispositionClearCommand": {
+        "description": "解除当前通用告警处置的显式确认命令。",
+        "properties": {
+          "confirmed": {
+            "default": false,
+            "title": "Confirmed",
+            "type": "boolean"
+          }
+        },
+        "title": "ObservabilityAlertDispositionClearCommand",
+        "type": "object"
+      },
+      "ObservabilityAlertDispositionCommand": {
+        "description": "通用告警确认命令，调用方必须显式确认。",
+        "properties": {
+          "confirmed": {
+            "default": false,
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ObservabilityAlertDispositionCommand",
+        "type": "object"
+      },
+      "ObservabilityAlertDispositionResponse": {
+        "description": "通用告警处置结果，不包含通知目标、Secret 或业务正文。",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "lifecycle_id": {
+            "format": "uuid",
+            "title": "Lifecycle Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "source_key": {
+            "title": "Source Key",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "acknowledged",
+              "suppressed",
+              "cleared"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lifecycle_id",
+          "source_type",
+          "source_key",
+          "code",
+          "status",
+          "reason",
+          "expires_at",
+          "updated_at"
+        ],
+        "title": "ObservabilityAlertDispositionResponse",
+        "type": "object"
+      },
+      "ObservabilityAlertDispositionStatus": {
+        "description": "通用告警处置状态。",
+        "enum": [
+          "acknowledged",
+          "suppressed"
+        ],
+        "title": "ObservabilityAlertDispositionStatus",
+        "type": "string"
+      },
       "ObservabilityAlertLifecycleResponse": {
         "description": "通用可观测告警生命周期，不含通知目标或 Secret。",
         "properties": {
@@ -10370,6 +10490,40 @@
           "current_value": {
             "title": "Current Value",
             "type": "number"
+          },
+          "disposition_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disposition Expires At"
+          },
+          "disposition_reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disposition Reason"
+          },
+          "disposition_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObservabilityAlertDispositionStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "escalated_at": {
             "anyOf": [
@@ -10504,6 +10658,33 @@
         ],
         "title": "ObservabilityAlertLifecycleStatus",
         "type": "string"
+      },
+      "ObservabilityAlertSuppressionCommand": {
+        "description": "带明确到期时间的通用告警临时抑制命令。",
+        "properties": {
+          "confirmed": {
+            "default": false,
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "expires_at"
+        ],
+        "title": "ObservabilityAlertSuppressionCommand",
+        "type": "object"
       },
       "ObservabilityDashboardResponse": {
         "description": "管理后台可观测性完整聚合视图。",
@@ -29244,6 +29425,58 @@
           },
           {
             "in": "query",
+            "name": "source_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AlertSeverity"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Severity"
+            }
+          },
+          {
+            "in": "query",
+            "name": "minimum_duration_minutes",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 525600,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Minimum Duration Minutes"
+            }
+          },
+          {
+            "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
@@ -29367,9 +29600,411 @@
         ]
       }
     },
+    "/api/v1/observability/alert-lifecycles/{lifecycle_id}/acknowledge": {
+      "post": {
+        "description": "确认当前 Agent 的活动通用告警。",
+        "operationId": "post_api_v1_observability_alert_lifecycles_by_lifecycle_id_acknowledge",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lifecycle_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lifecycle Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObservabilityAlertDispositionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservabilityAlertDispositionResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "确认当前 Agent 的活动通用告警",
+        "tags": [
+          "可观测性"
+        ]
+      }
+    },
+    "/api/v1/observability/alert-lifecycles/{lifecycle_id}/clear-disposition": {
+      "post": {
+        "description": "解除当前 Agent 的通用告警处置。",
+        "operationId": "post_api_v1_observability_alert_lifecycles_by_lifecycle_id_clear_disposition",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lifecycle_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lifecycle Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObservabilityAlertDispositionClearCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservabilityAlertDispositionResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "解除当前 Agent 的通用告警处置",
+        "tags": [
+          "可观测性"
+        ]
+      }
+    },
+    "/api/v1/observability/alert-lifecycles/{lifecycle_id}/suppress": {
+      "post": {
+        "description": "临时抑制当前 Agent 的活动通用告警通知。",
+        "operationId": "post_api_v1_observability_alert_lifecycles_by_lifecycle_id_suppress",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lifecycle_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lifecycle Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObservabilityAlertSuppressionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservabilityAlertDispositionResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "临时抑制当前 Agent 的活动通用告警通知",
+        "tags": [
+          "可观测性"
+        ]
+      }
+    },
     "/api/v1/observability/dashboard": {
       "get": {
-        "description": "返回当前租户的聚合指标、冻结成本和确定性活动告警。",
+        "description": "返回当前 Agent 的隔离指标、冻结成本和确定性活动告警。",
         "operationId": "get_api_v1_observability_dashboard",
         "responses": {
           "200": {
@@ -29473,7 +30108,7 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "返回当前租户的聚合指标、冻结成本和确定性活动告警",
+        "summary": "返回当前 Agent 的隔离指标、冻结成本和确定性活动告警",
         "tags": [
           "可观测性"
         ]

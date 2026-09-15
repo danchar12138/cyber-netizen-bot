@@ -47,11 +47,14 @@ from cnb_contracts import (
     MessageFeedbackResponse,
     MessageListResponse,
     MessageSearchResponse,
+    ObservabilityAlertDispositionResponse,
+    ObservabilityAlertLifecycleResponse,
     ObservabilityDashboardResponse,
     SystemOverviewResponse,
     TaskStatusResponse,
 )
 from cnb_domain import (
+    ActiveAlert,
     AdminPrincipal,
     AdminRole,
     AlertSeverity,
@@ -118,6 +121,144 @@ async def test_observability_dashboard_records_only_safe_request_metadata() -> N
     assert payload.channel_delivery.failure_rate_percent == 0
     assert payload.notification_delivery.total == 0
     assert payload.notification_delivery.dead_letters == 0
+
+
+async def test_observability_alert_lifecycle_api_filters_and_manages_dispositions() -> None:
+    """通用告警 API 覆盖组合筛选、权限、处置与 Agent 隔离。"""
+    repository = MemoryObservabilityRepository()
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+        observability_repository=repository,
+    )
+    identity = cast(DevelopmentIdentity, app.state.development_identity)
+    now = datetime.now(UTC).replace(microsecond=0)
+    own_alert = ActiveAlert(
+        code="model_error_rate",
+        severity=AlertSeverity.CRITICAL,
+        title="模型失败率过高",
+        summary="仅用于 API 契约测试的安全摘要",
+        current_value=12.0,
+        threshold_value=5.0,
+        unit="%",
+        source_type="model_runtime",
+        source_key="provider-a:model-a",
+        first_occurred_at=now - timedelta(minutes=90),
+        last_occurred_at=now,
+    )
+    other_source_alert = ActiveAlert(
+        code="queue_backlog",
+        severity=AlertSeverity.WARNING,
+        title="队列积压",
+        summary="仅用于筛选排除的安全摘要",
+        current_value=20.0,
+        threshold_value=10.0,
+        unit="jobs",
+        source_type="task_queue",
+        source_key="default",
+        first_occurred_at=now - timedelta(minutes=10),
+        last_occurred_at=now,
+    )
+    own_reconciliation = await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=identity.tenant_id,
+        agent_id=identity.agent_id,
+        alerts=(own_alert, other_source_alert),
+        observed_at=now,
+    )
+    lifecycle_id = next(
+        item.id
+        for item in own_reconciliation.active_lifecycles
+        if item.source_key == own_alert.alert_key
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        filtered_response = await client.get(
+            "/api/v1/observability/alert-lifecycles",
+            params={
+                "status": "active",
+                "source_type": "model_runtime",
+                "severity": "critical",
+                "minimum_duration_minutes": 60,
+            },
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        viewer_response = await client.post(
+            f"/api/v1/observability/alert-lifecycles/{lifecycle_id}/acknowledge",
+            json={"reason": "值班人员已接手", "confirmed": True},
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        unconfirmed_response = await client.post(
+            f"/api/v1/observability/alert-lifecycles/{lifecycle_id}/acknowledge",
+            json={"reason": "未显式确认", "confirmed": False},
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+        acknowledged_response = await client.post(
+            f"/api/v1/observability/alert-lifecycles/{lifecycle_id}/acknowledge",
+            json={"reason": " 值班人员已接手 ", "confirmed": True},
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+        suppressed_response = await client.post(
+            f"/api/v1/observability/alert-lifecycles/{lifecycle_id}/suppress",
+            json={
+                "reason": "计划内维护窗口",
+                "expires_at": (now + timedelta(hours=2)).isoformat(),
+                "confirmed": True,
+            },
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+        disposed_list_response = await client.get(
+            "/api/v1/observability/alert-lifecycles",
+            params={"source_type": "model_runtime"},
+        )
+        cleared_response = await client.post(
+            f"/api/v1/observability/alert-lifecycles/{lifecycle_id}/clear-disposition",
+            json={"confirmed": True},
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+        missing_response = await client.post(
+            f"/api/v1/observability/alert-lifecycles/{uuid4()}/acknowledge",
+            json={"reason": "不存在的生命周期", "confirmed": True},
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+        other_agent_response = await client.post(
+            "/api/v1/administration/agents",
+            json={"name": "通用告警隔离伙伴"},
+        )
+        cross_agent_response = await client.post(
+            f"/api/v1/observability/alert-lifecycles/{lifecycle_id}/acknowledge",
+            json={"reason": "不得跨 Agent 处置", "confirmed": True},
+            headers={
+                "X-CNB-Development-Role": "operator",
+                "X-CNB-Agent-ID": other_agent_response.json()["id"],
+            },
+        )
+
+    filtered = tuple(
+        ObservabilityAlertLifecycleResponse.model_validate(item)
+        for item in filtered_response.json()
+    )
+    acknowledged = ObservabilityAlertDispositionResponse.model_validate(
+        acknowledged_response.json()
+    )
+    suppressed = ObservabilityAlertDispositionResponse.model_validate(suppressed_response.json())
+    disposed = tuple(
+        ObservabilityAlertLifecycleResponse.model_validate(item)
+        for item in disposed_list_response.json()
+    )
+    cleared = ObservabilityAlertDispositionResponse.model_validate(cleared_response.json())
+    assert filtered_response.status_code == 200
+    assert [item.id for item in filtered] == [lifecycle_id]
+    assert viewer_response.status_code == 403
+    assert unconfirmed_response.status_code == 422
+    assert acknowledged.status == "acknowledged"
+    assert acknowledged.reason == "值班人员已接手"
+    assert suppressed.status == "suppressed"
+    assert disposed[0].disposition_status == "suppressed"
+    assert disposed[0].disposition_reason == "计划内维护窗口"
+    assert cleared.status == "cleared"
+    assert missing_response.status_code == 404
+    assert cross_agent_response.status_code == 404
 
 
 async def test_data_lifecycle_api_enforces_permissions_and_returns_safe_download_headers() -> None:

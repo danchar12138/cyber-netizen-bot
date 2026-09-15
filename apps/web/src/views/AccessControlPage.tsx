@@ -4,26 +4,7 @@ import { useCallback } from 'react'
 
 import { type AdminRoleDefinition, getAdminRoles, getAdminSession } from '../api'
 import { AdminDataTable, type AdminTableColumn } from '../components/AdminDataTable'
-import { adminRoleLabels, authenticationModeLabels, displayLabel } from '../displayLabels'
-
-const permissionLabels: Record<string, string> = {
-  'dashboard:read': '查看总览',
-  'configuration:read': '查看配置',
-  'configuration:write': '发布配置',
-  'secret:manage': '管理密钥',
-  'conversation:read': '查看对话',
-  'conversation:use': '操作对话',
-  'access_control:read': '查看权限',
-  'agent:read': '查看智能体',
-  'agent:write': '管理智能体状态',
-  'integration:read': '查看外部映射与入站箱',
-  'integration:manage': '管理外部身份与会话映射',
-  'inbox:replay': '重放入站箱事件',
-  'user:read': '查看用户',
-  'user:write': '管理用户状态与访问策略',
-  'user:role_write': '覆盖用户可信角色',
-  'audit:read': '查看审计',
-}
+import { adminRoleLabels, authenticationModeLabels, displayLabel, permissionLabels } from '../displayLabels'
 
 const columns: Array<AdminTableColumn<AdminRoleDefinition>> = [
   {
@@ -35,7 +16,7 @@ const columns: Array<AdminTableColumn<AdminRoleDefinition>> = [
   {
     key: 'permissions',
     label: '已授权能力',
-    render: (row) => <div className="permission-tags">{row.permissions.map((item) => <span key={item}>{permissionLabels[item] ?? item}</span>)}</div>,
+    render: (row) => <div className="permission-tags">{row.permissions.map((item) => <span key={item}>{displayLabel(permissionLabels, item)}</span>)}</div>,
   },
 ]
 

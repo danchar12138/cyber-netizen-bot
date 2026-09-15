@@ -175,8 +175,10 @@ from cnb_application.observability_service import (
     ObservabilityAlertEscalationCandidate,
     ObservabilityAlertLifecycleEvaluation,
     ObservabilityAlertLifecycleReconciliation,
+    ObservabilityNotFoundError,
     ObservabilityRepository,
     ObservabilityService,
+    ObservabilityValidationError,
 )
 from cnb_application.pagination import (
     EntityCursor,
@@ -338,8 +340,10 @@ __all__ = [
     "ObservabilityAlertEscalationCandidate",
     "ObservabilityAlertLifecycleEvaluation",
     "ObservabilityAlertLifecycleReconciliation",
+    "ObservabilityNotFoundError",
     "ObservabilityRepository",
     "ObservabilityService",
+    "ObservabilityValidationError",
     "PermanentTaskError",
     "PermissionDeniedError",
     "PreparedAlertNotification",

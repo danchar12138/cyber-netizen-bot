@@ -24,6 +24,7 @@ import {
   observabilityAlertCodeLabels,
   observabilityAlertSourceTypeLabels,
   observabilityUnitLabel,
+  permissionLabels,
   relationshipStageLabels,
   secretIntegrityLabels,
 } from './displayLabels'
@@ -40,6 +41,7 @@ describe('管理后台中文显示文案', () => {
     expect(configScopeLabels.agent).toBe('智能体')
     expect(auditActionLabels['agent.created']).toBe('创建智能体')
     expect(auditResourceLabels.prompt).toBe('提示词版本')
+    expect(permissionLabels['observability_alert:manage']).toBe('处置通用告警')
   })
 
   it('覆盖拟人认知与长期记忆协议值', () => {

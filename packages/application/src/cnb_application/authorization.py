@@ -46,6 +46,7 @@ _ROLE_PERMISSIONS: dict[AdminRole, frozenset[AdminPermission]] = {
             AdminPermission.CHANNEL_SEND,
             AdminPermission.CHANNEL_ALERT_MANAGE,
             AdminPermission.CHANNEL_NOTIFICATION_MANAGE,
+            AdminPermission.OBSERVABILITY_ALERT_MANAGE,
             AdminPermission.INTEGRATION_READ,
             AdminPermission.INTEGRATION_MANAGE,
             AdminPermission.INBOX_REPLAY,
