@@ -26,9 +26,14 @@ from cnb_domain import (
     ObservabilityAlertLifecycle,
     ObservabilityAlertLifecycleStatus,
     ObservabilityAlertRecommendationAction,
+    ObservabilityAlertRecommendationActionMetrics,
+    ObservabilityAlertRecommendationFeedback,
+    ObservabilityAlertRecommendationFeedbackDecision,
     ObservabilityAlertRecommendationGuardrail,
     ObservabilityAlertRecommendationPriority,
+    ObservabilityAlertRecommendationQualityMetrics,
     ObservabilityAlertRecommendationReason,
+    ObservabilityAlertRecommendationSourceMetrics,
     ObservabilityAlertReplayDecision,
     ObservabilityAlertReplayMetrics,
     ObservabilityAlertReplayReason,
@@ -109,6 +114,7 @@ ObservabilityAlertHandoffReason = Literal[
 
 ALERT_OPERATIONS_SUMMARY_MAX_RECORDS = 10_000
 ALERT_RECOMMENDATION_SOURCE_SCAN_LIMIT = 500
+ALERT_RECOMMENDATION_QUALITY_MAX_RECORDS = 10_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +248,10 @@ class ObservabilityNotFoundError(LookupError):
     """当前租户与 Agent 作用域内不存在目标通用告警。"""
 
 
+class ObservabilityConflictError(RuntimeError):
+    """建议反馈与已有事实冲突。"""
+
+
 class ObservabilityRepository(ObservabilityHistoryRepository, Protocol):
     """请求指标写入及租户隔离聚合边界。"""
 
@@ -364,6 +374,38 @@ class ObservabilityRepository(ObservabilityHistoryRepository, Protocol):
     async def record_observability_alert_replay_review(
         self, review: ObservabilityAlertReplayReview
     ) -> ObservabilityAlertReplayReview: ...
+
+    async def get_observability_alert_recommendation_feedback(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_id: UUID,
+    ) -> ObservabilityAlertRecommendationFeedback | None: ...
+
+    async def save_observability_alert_recommendation_feedback(
+        self, feedback: ObservabilityAlertRecommendationFeedback
+    ) -> ObservabilityAlertRecommendationFeedback: ...
+
+    async def list_observability_alert_recommendation_feedback(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_ids: tuple[UUID, ...] | None = None,
+        window_started_at: datetime | None = None,
+        window_ended_at: datetime | None = None,
+        source_type: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[ObservabilityAlertRecommendationFeedback, ...]: ...
+
+    async def count_observability_alert_lifecycle_statuses(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_ids: tuple[UUID, ...],
+    ) -> dict[ObservabilityAlertLifecycleStatus, int]: ...
 
     async def list_observability_alert_replay_reviews(
         self,
@@ -890,6 +932,12 @@ class ObservabilityService:
             tenant_id=tenant_id, agent_id=agent_id
         )
         lifecycles = self._attach_dispositions(rows, dispositions, evaluated_at)
+        feedback = await self._repository.list_observability_alert_recommendation_feedback(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lifecycle_ids=tuple(item.id for item in lifecycles),
+        )
+        feedback_lifecycle_ids = frozenset(item.lifecycle_id for item in feedback)
         configuration = await self._configuration_service.resolve_effective(
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -921,7 +969,7 @@ class ObservabilityService:
                 minimum_repeated_occurrences=minimum_repeated_occurrences,
             )
             for lifecycle in lifecycles
-            if lifecycle.disposition_status is None
+            if lifecycle.disposition_status is None and lifecycle.id not in feedback_lifecycle_ids
         )
         matching = tuple(
             item for item in recommendations if action is None or item.action is action
@@ -941,6 +989,203 @@ class ObservabilityService:
                     str(item.lifecycle_id),
                 ),
             )[:limit]
+        )
+
+    async def submit_alert_recommendation_feedback(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_id: UUID,
+        decision: ObservabilityAlertRecommendationFeedbackDecision,
+        actor_id: UUID,
+        confirmed: bool,
+        now: datetime | None = None,
+    ) -> ObservabilityAlertRecommendationFeedback:
+        """校验当前建议与人工处置事实后追加反馈。"""
+        if not confirmed:
+            raise ObservabilityValidationError("告警建议反馈必须显式确认")
+        existing = await self._repository.get_observability_alert_recommendation_feedback(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lifecycle_id=lifecycle_id,
+        )
+        if existing is not None:
+            if existing.decision is decision:
+                return existing
+            raise ObservabilityConflictError("该告警生命周期已提交不同的建议反馈")
+        lifecycle = await self._repository.get_observability_alert_lifecycle(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lifecycle_id=lifecycle_id,
+        )
+        if lifecycle is None:
+            raise ObservabilityNotFoundError("通用告警生命周期不存在")
+        if lifecycle.status is not ObservabilityAlertLifecycleStatus.ACTIVE:
+            raise ObservabilityValidationError("只能对活动告警的当前建议提交反馈")
+        evaluated_at = (now or datetime.now(UTC)).astimezone(UTC)
+        summary = await self.alert_operations_summary(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            now=evaluated_at,
+        )
+        configuration = await self._configuration_service.resolve_effective(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+        )
+        recommendation = self._build_alert_recommendation(
+            lifecycle=lifecycle,
+            evaluated_at=evaluated_at,
+            baseline_anomalous=any(
+                signal.source_type == lifecycle.source_type and signal.anomalous
+                for signal in summary.baseline.signals
+            ),
+            long_running_minutes=self._integer(
+                configuration.values["alerts.recommendation.long_running_minutes"],
+                "alerts.recommendation.long_running_minutes",
+            ),
+            suppression_minutes=self._integer(
+                configuration.values["alerts.recommendation.suppression_minutes"],
+                "alerts.recommendation.suppression_minutes",
+            ),
+            minimum_repeated_occurrences=self._integer(
+                configuration.values["alerts.recommendation.minimum_repeated_occurrences"],
+                "alerts.recommendation.minimum_repeated_occurrences",
+            ),
+        )
+        if decision is ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED:
+            await self._validate_accepted_recommendation(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                lifecycle=lifecycle,
+                recommendation=recommendation,
+                evaluated_at=evaluated_at,
+            )
+        feedback = ObservabilityAlertRecommendationFeedback(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lifecycle_id=lifecycle.id,
+            source_type=lifecycle.source_type,
+            source_key=lifecycle.source_key,
+            code=lifecycle.code,
+            recommendation_action=recommendation.action,
+            priority=recommendation.priority,
+            reason_codes=recommendation.reason_codes,
+            decision=decision,
+            actor_id=actor_id,
+            feedback_at=evaluated_at,
+        )
+        try:
+            return await self._repository.save_observability_alert_recommendation_feedback(feedback)
+        except ValueError as error:
+            raise ObservabilityConflictError(str(error)) from error
+
+    async def alert_recommendation_quality_metrics(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_minutes: int = 10_080,
+        source_type: str | None = None,
+        now: datetime | None = None,
+    ) -> ObservabilityAlertRecommendationQualityMetrics:
+        """聚合有界建议反馈与同窗口重放复核事实。"""
+        if not 5 <= window_minutes <= 525_600:
+            raise ObservabilityValidationError("建议质量统计窗口必须位于 5 到 525600 分钟之间")
+        normalized_source = source_type.strip() if source_type is not None else None
+        if source_type is not None and not normalized_source:
+            raise ObservabilityValidationError("建议质量来源类型不能为空")
+        if normalized_source is not None and len(normalized_source) > 80:
+            raise ObservabilityValidationError("建议质量来源类型不能超过 80 个字符")
+        ended_at = (now or datetime.now(UTC)).astimezone(UTC)
+        started_at = ended_at - timedelta(minutes=window_minutes)
+        feedback = await self._repository.list_observability_alert_recommendation_feedback(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            window_started_at=started_at,
+            window_ended_at=ended_at,
+            source_type=normalized_source,
+            limit=ALERT_RECOMMENDATION_QUALITY_MAX_RECORDS + 1,
+        )
+        if len(feedback) > ALERT_RECOMMENDATION_QUALITY_MAX_RECORDS:
+            raise ObservabilityValidationError(
+                "建议质量统计超过 10000 条反馈安全上限，请缩短窗口或按来源筛选"
+            )
+        accepted = tuple(
+            item
+            for item in feedback
+            if item.decision is ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED
+        )
+        rejected = tuple(
+            item
+            for item in feedback
+            if item.decision is ObservabilityAlertRecommendationFeedbackDecision.REJECTED
+        )
+        statuses = await self._repository.count_observability_alert_lifecycle_statuses(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lifecycle_ids=tuple(item.lifecycle_id for item in accepted),
+        )
+        replay = await self._repository.get_observability_alert_replay_metrics(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            window_started_at=started_at,
+            window_ended_at=ended_at,
+            source_type=normalized_source,
+        )
+
+        def action_metrics(
+            action: ObservabilityAlertRecommendationAction,
+        ) -> ObservabilityAlertRecommendationActionMetrics:
+            values = tuple(item for item in feedback if item.recommendation_action is action)
+            return ObservabilityAlertRecommendationActionMetrics(
+                action=action,
+                total=len(values),
+                accepted=sum(
+                    item.decision is ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED
+                    for item in values
+                ),
+                rejected=sum(
+                    item.decision is ObservabilityAlertRecommendationFeedbackDecision.REJECTED
+                    for item in values
+                ),
+            )
+
+        def source_metrics(source: str) -> ObservabilityAlertRecommendationSourceMetrics:
+            values = tuple(item for item in feedback if item.source_type == source)
+            return ObservabilityAlertRecommendationSourceMetrics(
+                source_type=source,
+                total=len(values),
+                accepted=sum(
+                    item.decision is ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED
+                    for item in values
+                ),
+                rejected=sum(
+                    item.decision is ObservabilityAlertRecommendationFeedbackDecision.REJECTED
+                    for item in values
+                ),
+            )
+
+        total = len(feedback)
+        return ObservabilityAlertRecommendationQualityMetrics(
+            window_started_at=started_at,
+            window_ended_at=ended_at,
+            total=total,
+            accepted=len(accepted),
+            rejected=len(rejected),
+            acceptance_rate_percent=round(len(accepted) * 100 / total, 2) if total else 0.0,
+            accepted_resolved=statuses[ObservabilityAlertLifecycleStatus.RESOLVED],
+            accepted_active=statuses[ObservabilityAlertLifecycleStatus.ACTIVE],
+            replay_total=replay.total,
+            replay_allowed=replay.allowed,
+            replay_blocked=replay.blocked,
+            actions=tuple(
+                action_metrics(action) for action in ObservabilityAlertRecommendationAction
+            ),
+            sources=tuple(
+                source_metrics(source) for source in sorted({i.source_type for i in feedback})
+            ),
         )
 
     async def acknowledge_alert(
@@ -1668,6 +1913,36 @@ class ObservabilityService:
             baseline_anomalous=baseline_anomalous,
             suggested_suppression_minutes=suggested_minutes,
         )
+
+    async def _validate_accepted_recommendation(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle: ObservabilityAlertLifecycle,
+        recommendation: ObservabilityAlertRecommendation,
+        evaluated_at: datetime,
+    ) -> None:
+        if recommendation.action is ObservabilityAlertRecommendationAction.OBSERVE:
+            return
+        disposition = await self._repository.get_observability_alert_disposition(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            source_type=lifecycle.source_type,
+            source_key=lifecycle.source_key,
+        )
+        if disposition is None:
+            raise ObservabilityValidationError("采纳处置建议前必须先完成匹配的人工处置")
+        if recommendation.action is ObservabilityAlertRecommendationAction.ACKNOWLEDGE:
+            if disposition.status is not ObservabilityAlertDispositionStatus.ACKNOWLEDGED:
+                raise ObservabilityValidationError("采纳确认建议前必须先人工确认当前告警")
+            return
+        if (
+            disposition.status is not ObservabilityAlertDispositionStatus.SUPPRESSED
+            or disposition.expires_at is None
+            or disposition.expires_at <= evaluated_at
+        ):
+            raise ObservabilityValidationError("采纳抑制建议前必须先完成有效的人工临时抑制")
 
     async def mark_alert_lifecycles_escalated(
         self,

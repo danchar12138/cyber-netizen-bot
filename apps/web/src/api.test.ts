@@ -14,11 +14,13 @@ import {
   getObservabilityAlertLifecycleMetrics,
   getObservabilityAlertLifecyclePage,
   getObservabilityAlertOperationsSummary,
+  getObservabilityAlertRecommendationQuality,
   getObservabilityAlertRecommendations,
   getObservabilityAlertReplayMetrics,
   getObservabilityAlertReplayReviews,
   importConfigPackage,
   setApiAccessToken,
+  submitObservabilityAlertRecommendationFeedback,
   suppressObservabilityAlert,
 } from './api'
 import { setSelectedAgentId } from './agentSelection'
@@ -112,6 +114,69 @@ describe('通用告警客户端', () => {
       limit: '20',
     })
     expect(request.method).toBe('GET')
+  })
+
+  it('查询建议质量并仅提交服务端可验证的反馈结论', async () => {
+    const lifecycleId = '11111111-1111-4111-8111-111111111111'
+    const fetchMock = vi.fn().mockImplementation((request: Request) => {
+      const url = new URL(request.url)
+      const body = url.pathname.endsWith('/quality')
+        ? {
+            window_started_at: '2026-09-08T12:00:00Z',
+            window_ended_at: '2026-09-15T12:00:00Z',
+            total: 0,
+            accepted: 0,
+            rejected: 0,
+            acceptance_rate_percent: 0,
+            accepted_resolved: 0,
+            accepted_active: 0,
+            replay_total: 0,
+            replay_allowed: 0,
+            replay_blocked: 0,
+            actions: [],
+            sources: [],
+          }
+        : {
+            id: '22222222-2222-4222-8222-222222222222',
+            lifecycle_id: lifecycleId,
+            source_type: 'api',
+            source_key: 'global',
+            code: 'api_error_rate',
+            recommendation_action: 'acknowledge',
+            priority: 'urgent',
+            reason_codes: ['critical'],
+            decision: 'accepted',
+            actor_id: '33333333-3333-4333-8333-333333333333',
+            feedback_at: '2026-09-15T12:00:00Z',
+          }
+      return Promise.resolve(new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getObservabilityAlertRecommendationQuality({
+      window_minutes: 720,
+      source_type: 'api',
+    })
+    await submitObservabilityAlertRecommendationFeedback(lifecycleId, 'accepted')
+
+    const qualityRequest = fetchMock.mock.calls[0]?.[0] as Request
+    const qualityUrl = new URL(qualityRequest.url)
+    expect(qualityUrl.pathname).toBe('/api/v1/observability/alert-recommendations/quality')
+    expect(Object.fromEntries(qualityUrl.searchParams)).toEqual({
+      window_minutes: '720',
+      source_type: 'api',
+    })
+    expect(qualityRequest.method).toBe('GET')
+
+    const feedbackRequest = fetchMock.mock.calls[1]?.[0] as Request
+    expect(new URL(feedbackRequest.url).pathname).toBe(
+      `/api/v1/observability/alert-recommendations/${lifecycleId}/feedback`,
+    )
+    expect(feedbackRequest.method).toBe('POST')
+    expect(await feedbackRequest.json()).toEqual({ decision: 'accepted', confirmed: true })
   })
 
   it('完整传递生命周期组合筛选参数', async () => {

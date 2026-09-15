@@ -4606,6 +4606,10 @@ export type LifecyclePolicyResponse = {
      */
     observability_disposition_event_days: number;
     /**
+     * Observability Recommendation Feedback Days
+     */
+    observability_recommendation_feedback_days: number;
+    /**
      * Observability Replay Review Days
      */
     observability_replay_review_days: number;
@@ -6761,6 +6765,90 @@ export type ObservabilityAlertOperationsSummaryResponse = {
 export type ObservabilityAlertRecommendationAction = 'acknowledge' | 'suppress' | 'observe';
 
 /**
+ * ObservabilityAlertRecommendationActionMetricsResponse
+ *
+ * 按建议动作聚合的反馈计数。
+ */
+export type ObservabilityAlertRecommendationActionMetricsResponse = {
+    /**
+     * Accepted
+     */
+    accepted: number;
+    action: ObservabilityAlertRecommendationAction;
+    /**
+     * Rejected
+     */
+    rejected: number;
+    /**
+     * Total
+     */
+    total: number;
+};
+
+/**
+ * ObservabilityAlertRecommendationFeedbackCommand
+ *
+ * 仅提交人工结论，建议快照由服务端重算。
+ */
+export type ObservabilityAlertRecommendationFeedbackCommand = {
+    /**
+     * Confirmed
+     */
+    confirmed?: boolean;
+    decision: ObservabilityAlertRecommendationFeedbackDecision;
+};
+
+/**
+ * ObservabilityAlertRecommendationFeedbackDecision
+ *
+ * 管理员对服务端建议的最终反馈。
+ */
+export type ObservabilityAlertRecommendationFeedbackDecision = 'accepted' | 'rejected';
+
+/**
+ * ObservabilityAlertRecommendationFeedbackResponse
+ *
+ * 不含自由文本的建议反馈记录。
+ */
+export type ObservabilityAlertRecommendationFeedbackResponse = {
+    /**
+     * Actor Id
+     */
+    actor_id: string;
+    /**
+     * Code
+     */
+    code: string;
+    decision: ObservabilityAlertRecommendationFeedbackDecision;
+    /**
+     * Feedback At
+     */
+    feedback_at: string;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Lifecycle Id
+     */
+    lifecycle_id: string;
+    priority: ObservabilityAlertRecommendationPriority;
+    /**
+     * Reason Codes
+     */
+    reason_codes: Array<ObservabilityAlertRecommendationReason>;
+    recommendation_action: ObservabilityAlertRecommendationAction;
+    /**
+     * Source Key
+     */
+    source_key: string;
+    /**
+     * Source Type
+     */
+    source_type: string;
+};
+
+/**
  * ObservabilityAlertRecommendationGuardrail
  *
  * 建议执行前不可绕过的稳定护栏码。
@@ -6773,6 +6861,66 @@ export type ObservabilityAlertRecommendationGuardrail = 'manual_confirmation_req
  * 告警处置建议的确定性优先级。
  */
 export type ObservabilityAlertRecommendationPriority = 'urgent' | 'high' | 'normal';
+
+/**
+ * ObservabilityAlertRecommendationQualityMetricsResponse
+ *
+ * 建议反馈与同窗口复核事实的安全聚合。
+ */
+export type ObservabilityAlertRecommendationQualityMetricsResponse = {
+    /**
+     * Acceptance Rate Percent
+     */
+    acceptance_rate_percent: number;
+    /**
+     * Accepted
+     */
+    accepted: number;
+    /**
+     * Accepted Active
+     */
+    accepted_active: number;
+    /**
+     * Accepted Resolved
+     */
+    accepted_resolved: number;
+    /**
+     * Actions
+     */
+    actions: Array<ObservabilityAlertRecommendationActionMetricsResponse>;
+    /**
+     * Rejected
+     */
+    rejected: number;
+    /**
+     * Replay Allowed
+     */
+    replay_allowed: number;
+    /**
+     * Replay Blocked
+     */
+    replay_blocked: number;
+    /**
+     * Replay Total
+     */
+    replay_total: number;
+    /**
+     * Sources
+     */
+    sources: Array<ObservabilityAlertRecommendationSourceMetricsResponse>;
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Window Ended At
+     */
+    window_ended_at: string;
+    /**
+     * Window Started At
+     */
+    window_started_at: string;
+};
 
 /**
  * ObservabilityAlertRecommendationReason
@@ -6850,6 +6998,30 @@ export type ObservabilityAlertRecommendationResponse = {
      * Suggested Suppression Minutes
      */
     suggested_suppression_minutes?: number | null;
+};
+
+/**
+ * ObservabilityAlertRecommendationSourceMetricsResponse
+ *
+ * 按告警来源聚合的反馈计数。
+ */
+export type ObservabilityAlertRecommendationSourceMetricsResponse = {
+    /**
+     * Accepted
+     */
+    accepted: number;
+    /**
+     * Rejected
+     */
+    rejected: number;
+    /**
+     * Source Type
+     */
+    source_type: string;
+    /**
+     * Total
+     */
+    total: number;
 };
 
 /**
@@ -16932,6 +17104,134 @@ export type GetApiV1ObservabilityAlertRecommendationsResponses = {
 };
 
 export type GetApiV1ObservabilityAlertRecommendationsResponse = GetApiV1ObservabilityAlertRecommendationsResponses[keyof GetApiV1ObservabilityAlertRecommendationsResponses];
+
+export type GetApiV1ObservabilityAlertRecommendationsQualityData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Window Minutes
+         */
+        window_minutes?: number;
+        /**
+         * Source Type
+         */
+        source_type?: string | null;
+    };
+    url: '/api/v1/observability/alert-recommendations/quality';
+};
+
+export type GetApiV1ObservabilityAlertRecommendationsQualityErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ObservabilityAlertRecommendationsQualityError = GetApiV1ObservabilityAlertRecommendationsQualityErrors[keyof GetApiV1ObservabilityAlertRecommendationsQualityErrors];
+
+export type GetApiV1ObservabilityAlertRecommendationsQualityResponses = {
+    /**
+     * 请求成功
+     */
+    200: ObservabilityAlertRecommendationQualityMetricsResponse;
+};
+
+export type GetApiV1ObservabilityAlertRecommendationsQualityResponse = GetApiV1ObservabilityAlertRecommendationsQualityResponses[keyof GetApiV1ObservabilityAlertRecommendationsQualityResponses];
+
+export type PostApiV1ObservabilityAlertRecommendationsByLifecycleIdFeedbackData = {
+    body: ObservabilityAlertRecommendationFeedbackCommand;
+    path: {
+        /**
+         * Lifecycle Id
+         */
+        lifecycle_id: string;
+    };
+    query?: never;
+    url: '/api/v1/observability/alert-recommendations/{lifecycle_id}/feedback';
+};
+
+export type PostApiV1ObservabilityAlertRecommendationsByLifecycleIdFeedbackErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1ObservabilityAlertRecommendationsByLifecycleIdFeedbackError = PostApiV1ObservabilityAlertRecommendationsByLifecycleIdFeedbackErrors[keyof PostApiV1ObservabilityAlertRecommendationsByLifecycleIdFeedbackErrors];
+
+export type PostApiV1ObservabilityAlertRecommendationsByLifecycleIdFeedbackResponses = {
+    /**
+     * 请求成功
+     */
+    200: ObservabilityAlertRecommendationFeedbackResponse;
+};
+
+export type PostApiV1ObservabilityAlertRecommendationsByLifecycleIdFeedbackResponse = PostApiV1ObservabilityAlertRecommendationsByLifecycleIdFeedbackResponses[keyof PostApiV1ObservabilityAlertRecommendationsByLifecycleIdFeedbackResponses];
 
 export type GetApiV1ObservabilityAlertReplayReviewsData = {
     body?: never;

@@ -7569,6 +7569,10 @@
             "title": "Observability Disposition Event Days",
             "type": "integer"
           },
+          "observability_recommendation_feedback_days": {
+            "title": "Observability Recommendation Feedback Days",
+            "type": "integer"
+          },
           "observability_replay_review_days": {
             "title": "Observability Replay Review Days",
             "type": "integer"
@@ -7584,6 +7588,7 @@
           "deleted_attachment_days",
           "observability_disposition_event_days",
           "observability_replay_review_days",
+          "observability_recommendation_feedback_days",
           "orphan_grace_hours",
           "batch_size",
           "export_max_records",
@@ -11365,6 +11370,140 @@
         "title": "ObservabilityAlertRecommendationAction",
         "type": "string"
       },
+      "ObservabilityAlertRecommendationActionMetricsResponse": {
+        "description": "按建议动作聚合的反馈计数。",
+        "properties": {
+          "accepted": {
+            "minimum": 0.0,
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "action": {
+            "$ref": "#/components/schemas/ObservabilityAlertRecommendationAction"
+          },
+          "rejected": {
+            "minimum": 0.0,
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action",
+          "total",
+          "accepted",
+          "rejected"
+        ],
+        "title": "ObservabilityAlertRecommendationActionMetricsResponse",
+        "type": "object"
+      },
+      "ObservabilityAlertRecommendationFeedbackCommand": {
+        "description": "仅提交人工结论，建议快照由服务端重算。",
+        "properties": {
+          "confirmed": {
+            "default": false,
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/ObservabilityAlertRecommendationFeedbackDecision"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "ObservabilityAlertRecommendationFeedbackCommand",
+        "type": "object"
+      },
+      "ObservabilityAlertRecommendationFeedbackDecision": {
+        "description": "管理员对服务端建议的最终反馈。",
+        "enum": [
+          "accepted",
+          "rejected"
+        ],
+        "title": "ObservabilityAlertRecommendationFeedbackDecision",
+        "type": "string"
+      },
+      "ObservabilityAlertRecommendationFeedbackResponse": {
+        "description": "不含自由文本的建议反馈记录。",
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "code": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/ObservabilityAlertRecommendationFeedbackDecision"
+          },
+          "feedback_at": {
+            "format": "date-time",
+            "title": "Feedback At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lifecycle_id": {
+            "format": "uuid",
+            "title": "Lifecycle Id",
+            "type": "string"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/ObservabilityAlertRecommendationPriority"
+          },
+          "reason_codes": {
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityAlertRecommendationReason"
+            },
+            "maxItems": 6,
+            "minItems": 1,
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "recommendation_action": {
+            "$ref": "#/components/schemas/ObservabilityAlertRecommendationAction"
+          },
+          "source_key": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Source Key",
+            "type": "string"
+          },
+          "source_type": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "lifecycle_id",
+          "source_type",
+          "source_key",
+          "code",
+          "recommendation_action",
+          "priority",
+          "reason_codes",
+          "decision",
+          "actor_id",
+          "feedback_at"
+        ],
+        "title": "ObservabilityAlertRecommendationFeedbackResponse",
+        "type": "object"
+      },
       "ObservabilityAlertRecommendationGuardrail": {
         "description": "建议执行前不可绕过的稳定护栏码。",
         "enum": [
@@ -11384,6 +11523,98 @@
         ],
         "title": "ObservabilityAlertRecommendationPriority",
         "type": "string"
+      },
+      "ObservabilityAlertRecommendationQualityMetricsResponse": {
+        "description": "建议反馈与同窗口复核事实的安全聚合。",
+        "properties": {
+          "acceptance_rate_percent": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Acceptance Rate Percent",
+            "type": "number"
+          },
+          "accepted": {
+            "minimum": 0.0,
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "accepted_active": {
+            "minimum": 0.0,
+            "title": "Accepted Active",
+            "type": "integer"
+          },
+          "accepted_resolved": {
+            "minimum": 0.0,
+            "title": "Accepted Resolved",
+            "type": "integer"
+          },
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityAlertRecommendationActionMetricsResponse"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "rejected": {
+            "minimum": 0.0,
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "replay_allowed": {
+            "minimum": 0.0,
+            "title": "Replay Allowed",
+            "type": "integer"
+          },
+          "replay_blocked": {
+            "minimum": 0.0,
+            "title": "Replay Blocked",
+            "type": "integer"
+          },
+          "replay_total": {
+            "minimum": 0.0,
+            "title": "Replay Total",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityAlertRecommendationSourceMetricsResponse"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          },
+          "window_ended_at": {
+            "format": "date-time",
+            "title": "Window Ended At",
+            "type": "string"
+          },
+          "window_started_at": {
+            "format": "date-time",
+            "title": "Window Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_started_at",
+          "window_ended_at",
+          "total",
+          "accepted",
+          "rejected",
+          "acceptance_rate_percent",
+          "accepted_resolved",
+          "accepted_active",
+          "replay_total",
+          "replay_allowed",
+          "replay_blocked",
+          "actions",
+          "sources"
+        ],
+        "title": "ObservabilityAlertRecommendationQualityMetricsResponse",
+        "type": "object"
       },
       "ObservabilityAlertRecommendationReason": {
         "description": "不含自由文本与隐藏推理的稳定建议原因码。",
@@ -11518,6 +11749,40 @@
           "automation_allowed"
         ],
         "title": "ObservabilityAlertRecommendationResponse",
+        "type": "object"
+      },
+      "ObservabilityAlertRecommendationSourceMetricsResponse": {
+        "description": "按告警来源聚合的反馈计数。",
+        "properties": {
+          "accepted": {
+            "minimum": 0.0,
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "rejected": {
+            "minimum": 0.0,
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "source_type": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Source Type",
+            "type": "string"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source_type",
+          "total",
+          "accepted",
+          "rejected"
+        ],
+        "title": "ObservabilityAlertRecommendationSourceMetricsResponse",
         "type": "object"
       },
       "ObservabilityAlertReplayDecision": {
@@ -32324,6 +32589,284 @@
           }
         },
         "summary": "返回当前 Agent 不执行副作用的确定性告警处置建议",
+        "tags": [
+          "可观测性"
+        ]
+      }
+    },
+    "/api/v1/observability/alert-recommendations/quality": {
+      "get": {
+        "description": "返回当前 Agent 的建议反馈与复核质量概览。",
+        "operationId": "get_api_v1_observability_alert_recommendations_quality",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window_minutes",
+            "required": false,
+            "schema": {
+              "default": 10080,
+              "maximum": 525600,
+              "minimum": 5,
+              "title": "Window Minutes",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservabilityAlertRecommendationQualityMetricsResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "返回当前 Agent 的建议反馈与复核质量概览",
+        "tags": [
+          "可观测性"
+        ]
+      }
+    },
+    "/api/v1/observability/alert-recommendations/{lifecycle_id}/feedback": {
+      "post": {
+        "description": "记录服务端建议的经确认人工反馈，不执行处置。",
+        "operationId": "post_api_v1_observability_alert_recommendations_by_lifecycle_id_feedback",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lifecycle_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lifecycle Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObservabilityAlertRecommendationFeedbackCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservabilityAlertRecommendationFeedbackResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "记录服务端建议的经确认人工反馈，不执行处置",
         "tags": [
           "可观测性"
         ]

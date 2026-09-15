@@ -1314,6 +1314,17 @@ def build_default_registry() -> ConfigurationRegistry:
                 maximum=3650,
             ),
             ConfigDefinition(
+                key="data.retention.observability_recommendation_feedback_days",
+                section="data_lifecycle",
+                label="告警建议反馈保留天数",
+                description="告警建议人工反馈进入物理清理流程前保留的天数。",
+                value_kind=ConfigValueKind.INTEGER,
+                default=90,
+                scopes=system_and_tenant,
+                minimum=1,
+                maximum=3650,
+            ),
+            ConfigDefinition(
                 key="data.retention.orphan_grace_hours",
                 section="data_lifecycle",
                 label="MinIO 孤儿宽限小时",

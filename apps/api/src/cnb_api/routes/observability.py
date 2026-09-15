@@ -13,6 +13,7 @@ from cnb_api.dependencies import (
     require_permission,
 )
 from cnb_application import (
+    ObservabilityConflictError,
     ObservabilityNotFoundError,
     ObservabilityService,
     ObservabilityValidationError,
@@ -34,6 +35,9 @@ from cnb_contracts import (
     ObservabilityAlertLifecyclePageResponse,
     ObservabilityAlertLifecycleResponse,
     ObservabilityAlertOperationsSummaryResponse,
+    ObservabilityAlertRecommendationFeedbackCommand,
+    ObservabilityAlertRecommendationFeedbackResponse,
+    ObservabilityAlertRecommendationQualityMetricsResponse,
     ObservabilityAlertRecommendationResponse,
     ObservabilityAlertReplayMetricsResponse,
     ObservabilityAlertReplayReviewPageResponse,
@@ -220,6 +224,70 @@ async def alert_recommendations(
     return tuple(
         ObservabilityAlertRecommendationResponse.model_validate(item, from_attributes=True)
         for item in recommendations
+    )
+
+
+@router.get(
+    "/alert-recommendations/quality",
+    response_model=ObservabilityAlertRecommendationQualityMetricsResponse,
+    dependencies=[Depends(require_permission(AdminPermission.TRACE_READ))],
+)
+async def alert_recommendation_quality(
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ObservabilityService, Depends(get_observability_service)],
+    window_minutes: Annotated[int, Query(ge=5, le=525_600)] = 10_080,
+    source_type: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
+) -> ObservabilityAlertRecommendationQualityMetricsResponse:
+    """返回当前 Agent 的建议反馈与复核质量概览。"""
+    try:
+        metrics = await service.alert_recommendation_quality_metrics(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            window_minutes=window_minutes,
+            source_type=source_type,
+        )
+    except ObservabilityValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return ObservabilityAlertRecommendationQualityMetricsResponse.model_validate(
+        metrics, from_attributes=True
+    )
+
+
+@router.post(
+    "/alert-recommendations/{lifecycle_id}/feedback",
+    response_model=ObservabilityAlertRecommendationFeedbackResponse,
+    dependencies=[Depends(require_permission(AdminPermission.OBSERVABILITY_ALERT_MANAGE))],
+)
+async def submit_alert_recommendation_feedback(
+    lifecycle_id: UUID,
+    command: ObservabilityAlertRecommendationFeedbackCommand,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ObservabilityService, Depends(get_observability_service)],
+) -> ObservabilityAlertRecommendationFeedbackResponse:
+    """记录服务端建议的经确认人工反馈，不执行处置。"""
+    try:
+        feedback = await service.submit_alert_recommendation_feedback(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            lifecycle_id=lifecycle_id,
+            decision=command.decision,
+            actor_id=principal.user_id,
+            confirmed=command.confirmed,
+        )
+    except ObservabilityNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except ObservabilityConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except ObservabilityValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return ObservabilityAlertRecommendationFeedbackResponse.model_validate(
+        feedback, from_attributes=True
     )
 
 

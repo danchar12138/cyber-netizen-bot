@@ -226,7 +226,7 @@ async def test_postgresql_history_export_and_retention_keep_scope_and_bounds() -
 
     export_sql = [_sql(item) for item in captured.statements]
     assert snapshot.record_count == 0
-    assert len(export_sql) == 6
+    assert len(export_sql) == 8
     assert all(str(tenant_id) in statement for statement in export_sql)
     assert all(str(agent_id) in statement for statement in export_sql)
     assert all("BETWEEN" in statement for statement in export_sql)
@@ -236,13 +236,14 @@ async def test_postgresql_history_export_and_retention_keep_scope_and_bounds() -
         tenant_id=tenant_id,
         disposition_events_before=started_at,
         replay_reviews_before=started_at,
+        recommendation_feedback_before=started_at,
         limit=25,
     )
 
     retention_sql = [_sql(item) for item in captured.statements]
     assert result.disposition_events_purged == 0
     assert result.replay_reviews_purged == 0
-    assert len(retention_sql) == 2
+    assert len(retention_sql) == 3
     assert all(str(tenant_id) in statement for statement in retention_sql)
     assert all("<= " in statement and "LIMIT 25" in statement for statement in retention_sql)
     assert all("FOR UPDATE SKIP LOCKED" in statement for statement in retention_sql)

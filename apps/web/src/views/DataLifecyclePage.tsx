@@ -240,6 +240,7 @@ export function DataLifecyclePage() {
         <article className="metric-card"><span>已删除会话保留</span><strong>{overview.data?.policy.deleted_conversation_days ?? '—'} 天</strong><small>超过截止时间后才物理清理</small></article>
         <article className="metric-card"><span>告警处置历史保留</span><strong>{overview.data?.policy.observability_disposition_event_days ?? '—'} 天</strong><small>到期后进入受控批量清理</small></article>
         <article className="metric-card"><span>重放复核历史保留</span><strong>{overview.data?.policy.observability_replay_review_days ?? '—'} 天</strong><small>到期后进入受控批量清理</small></article>
+        <article className="metric-card"><span>建议反馈保留</span><strong>{overview.data?.policy.observability_recommendation_feedback_days ?? '—'} 天</strong><small>到期后进入受控批量清理</small></article>
         <article className="metric-card"><span>孤儿对象宽限</span><strong>{overview.data?.policy.orphan_grace_hours ?? '—'} 小时</strong><small>保护在途上传与新对象</small></article>
         <article className="metric-card"><span>单批上限</span><strong>{overview.data?.policy.batch_size ?? '—'} 项</strong><small>限制同步管理请求负载</small></article>
         <article className="metric-card"><span>导出大小上限</span><strong>{overview.data ? Math.round(overview.data.policy.export_max_bytes / 1024 / 1024) : '—'} MiB</strong><small>服务端不保存导出文件</small></article>

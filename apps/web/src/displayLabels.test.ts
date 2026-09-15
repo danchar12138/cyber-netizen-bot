@@ -50,8 +50,17 @@ describe('管理后台中文显示文案', () => {
     expect(permissionLabels['observability_alert:manage']).toBe('处置通用告警')
     expect(auditActionLabels['observability_alert.suppressed']).toBe('抑制通用告警')
     expect(auditActionLabels['observability_alert.replay_review_blocked']).toBe('阻止通用告警通知重放')
+    expect(auditActionLabels['observability_alert.recommendation_feedback_accepted']).toBe(
+      '采纳告警处置建议',
+    )
+    expect(auditActionLabels['observability_alert.recommendation_feedback_rejected']).toBe(
+      '驳回告警处置建议',
+    )
     expect(auditResourceLabels.observability_alert_disposition).toBe('通用告警处置')
     expect(auditResourceLabels.observability_alert_replay_review).toBe('通用告警通知重放复核')
+    expect(auditResourceLabels.observability_alert_recommendation_feedback).toBe(
+      '告警处置建议反馈',
+    )
   })
 
   it('覆盖拟人认知与长期记忆协议值', () => {
@@ -98,6 +107,10 @@ describe('管理后台中文显示文案', () => {
     expect(formatMetadataEntries({ compression_applied: true, summary_levels: 3 })).toBe(
       '已应用长对话压缩：是；摘要层级：3',
     )
+    expect(formatMetadataEntries({
+      observability_recommendation_feedback_purged: 2,
+      recommendation_feedback: 3,
+    })).toBe('已清理建议反馈：2；建议反馈：3')
   })
 
   it('将配置协议选项显示为自然中文并保留未知扩展值', () => {

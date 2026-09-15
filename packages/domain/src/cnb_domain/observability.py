@@ -190,6 +190,13 @@ class ObservabilityAlertRecommendationReason(StrEnum):
     INSUFFICIENT_SIGNAL = "insufficient_signal"
 
 
+class ObservabilityAlertRecommendationFeedbackDecision(StrEnum):
+    """管理员对服务端建议的最终反馈。"""
+
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
 class ObservabilityAlertReplayDecision(StrEnum):
     """通用告警通知重放复核结论。"""
 
@@ -300,6 +307,64 @@ class ObservabilityAlertReplayReview:
     actor_id: UUID
     suppression_expires_at: datetime | None
     reviewed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertRecommendationFeedback:
+    """追加式建议反馈，只保存服务端计算的安全元数据。"""
+
+    id: UUID
+    tenant_id: UUID
+    agent_id: UUID
+    lifecycle_id: UUID
+    source_type: str
+    source_key: str
+    code: str
+    recommendation_action: ObservabilityAlertRecommendationAction
+    priority: ObservabilityAlertRecommendationPriority
+    reason_codes: tuple[ObservabilityAlertRecommendationReason, ...]
+    decision: ObservabilityAlertRecommendationFeedbackDecision
+    actor_id: UUID
+    feedback_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertRecommendationActionMetrics:
+    """单一建议动作的反馈计数。"""
+
+    action: ObservabilityAlertRecommendationAction
+    total: int
+    accepted: int
+    rejected: int
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertRecommendationSourceMetrics:
+    """单一告警来源的建议反馈计数。"""
+
+    source_type: str
+    total: int
+    accepted: int
+    rejected: int
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertRecommendationQualityMetrics:
+    """有界窗口内的建议反馈与历史复核概览。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    total: int
+    accepted: int
+    rejected: int
+    acceptance_rate_percent: float
+    accepted_resolved: int
+    accepted_active: int
+    replay_total: int
+    replay_allowed: int
+    replay_blocked: int
+    actions: tuple[ObservabilityAlertRecommendationActionMetrics, ...]
+    sources: tuple[ObservabilityAlertRecommendationSourceMetrics, ...]
 
 
 @dataclass(frozen=True, slots=True)

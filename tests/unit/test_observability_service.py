@@ -9,6 +9,7 @@ from cnb_application import (
     ApiRequestObservation,
     ConfigurationService,
     EntityCursor,
+    ObservabilityConflictError,
     ObservabilityNotFoundError,
     ObservabilityService,
     ObservabilityValidationError,
@@ -29,6 +30,7 @@ from cnb_domain import (
     ObservabilityAlertLifecycle,
     ObservabilityAlertLifecycleStatus,
     ObservabilityAlertRecommendationAction,
+    ObservabilityAlertRecommendationFeedbackDecision,
     ObservabilityAlertRecommendationPriority,
     ObservabilityAlertReplayDecision,
     ObservabilityAlertReplayReason,
@@ -1113,6 +1115,142 @@ async def test_alert_recommendations_reject_an_unbounded_active_scan() -> None:
         )
 
     assert repository.requested_limit == 501
+
+
+async def test_alert_recommendation_feedback_is_guarded_idempotent_and_aggregated() -> None:
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
+    repository = MemoryObservabilityRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+    now = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    critical = ActiveAlert(
+        code="api_error_rate",
+        severity=AlertSeverity.CRITICAL,
+        title="API 错误率过高",
+        summary="不进入反馈",
+        current_value=10,
+        threshold_value=2,
+        unit="%",
+        source_type="api",
+        source_key="critical",
+        first_occurred_at=now - timedelta(minutes=30),
+        last_occurred_at=now,
+    )
+    repeated = ActiveAlert(
+        code="queue_backlog",
+        severity=AlertSeverity.WARNING,
+        title="队列积压",
+        summary="不进入反馈",
+        current_value=10,
+        threshold_value=2,
+        unit="jobs",
+        source_type="task_queue",
+        source_key="repeated",
+        first_occurred_at=now - timedelta(minutes=10),
+        last_occurred_at=now,
+    )
+    for offset in (2, 1, 0):
+        current = await repository.reconcile_observability_alert_lifecycles(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            alerts=(critical, repeated),
+            observed_at=now - timedelta(minutes=offset),
+        )
+    by_key = {item.source_key: item for item in current.active_lifecycles}
+
+    with pytest.raises(ObservabilityValidationError, match="显式确认"):
+        await service.submit_alert_recommendation_feedback(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lifecycle_id=by_key["critical"].id,
+            decision=ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED,
+            actor_id=actor_id,
+            confirmed=False,
+            now=now,
+        )
+    with pytest.raises(ObservabilityValidationError, match="先完成匹配的人工处置"):
+        await service.submit_alert_recommendation_feedback(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lifecycle_id=by_key["critical"].id,
+            decision=ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED,
+            actor_id=actor_id,
+            confirmed=True,
+            now=now,
+        )
+    await service.acknowledge_alert(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=by_key["critical"].id,
+        reason="人工调查",
+        actor_id=actor_id,
+        confirmed=True,
+        now=now,
+    )
+    accepted = await service.submit_alert_recommendation_feedback(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=by_key["critical"].id,
+        decision=ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED,
+        actor_id=actor_id,
+        confirmed=True,
+        now=now,
+    )
+    repeated_accepted = await service.submit_alert_recommendation_feedback(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=by_key["critical"].id,
+        decision=ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED,
+        actor_id=uuid4(),
+        confirmed=True,
+        now=now + timedelta(minutes=1),
+    )
+    rejected = await service.submit_alert_recommendation_feedback(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=by_key["repeated"].id,
+        decision=ObservabilityAlertRecommendationFeedbackDecision.REJECTED,
+        actor_id=actor_id,
+        confirmed=True,
+        now=now,
+    )
+    with pytest.raises(ObservabilityConflictError, match="不同的建议反馈"):
+        await service.submit_alert_recommendation_feedback(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lifecycle_id=by_key["repeated"].id,
+            decision=ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED,
+            actor_id=actor_id,
+            confirmed=True,
+            now=now,
+        )
+    quality = await service.alert_recommendation_quality_metrics(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        window_minutes=60,
+        now=now,
+    )
+    remaining = await service.alert_recommendations(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=now,
+    )
+
+    assert repeated_accepted == accepted
+    assert accepted.recommendation_action is ObservabilityAlertRecommendationAction.ACKNOWLEDGE
+    assert rejected.recommendation_action is ObservabilityAlertRecommendationAction.SUPPRESS
+    assert (quality.total, quality.accepted, quality.rejected) == (2, 1, 1)
+    assert quality.acceptance_rate_percent == 50
+    assert (quality.accepted_active, quality.accepted_resolved) == (1, 0)
+    assert [(item.action, item.total) for item in quality.actions] == [
+        (ObservabilityAlertRecommendationAction.ACKNOWLEDGE, 1),
+        (ObservabilityAlertRecommendationAction.SUPPRESS, 1),
+        (ObservabilityAlertRecommendationAction.OBSERVE, 0),
+    ]
+    assert [item.source_type for item in quality.sources] == ["api", "task_queue"]
+    assert remaining == ()
 
 
 async def test_alert_operations_summary_rejects_unbounded_history() -> None:

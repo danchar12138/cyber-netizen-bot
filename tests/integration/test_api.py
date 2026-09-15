@@ -54,6 +54,8 @@ from cnb_contracts import (
     ObservabilityAlertLifecyclePageResponse,
     ObservabilityAlertLifecycleResponse,
     ObservabilityAlertOperationsSummaryResponse,
+    ObservabilityAlertRecommendationFeedbackResponse,
+    ObservabilityAlertRecommendationQualityMetricsResponse,
     ObservabilityAlertRecommendationResponse,
     ObservabilityAlertReplayMetricsResponse,
     ObservabilityAlertReplayReviewPageResponse,
@@ -323,6 +325,36 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
             json={"reason": " 值班人员已接手 ", "confirmed": True},
             headers={"X-CNB-Development-Role": "operator"},
         )
+        viewer_feedback_response = await client.post(
+            f"/api/v1/observability/alert-recommendations/{lifecycle_id}/feedback",
+            json={"decision": "accepted", "confirmed": True},
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        unconfirmed_feedback_response = await client.post(
+            f"/api/v1/observability/alert-recommendations/{lifecycle_id}/feedback",
+            json={"decision": "accepted", "confirmed": False},
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+        accepted_feedback_response = await client.post(
+            f"/api/v1/observability/alert-recommendations/{lifecycle_id}/feedback",
+            json={"decision": "accepted", "confirmed": True},
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+        repeated_feedback_response = await client.post(
+            f"/api/v1/observability/alert-recommendations/{lifecycle_id}/feedback",
+            json={"decision": "accepted", "confirmed": True},
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+        conflicting_feedback_response = await client.post(
+            f"/api/v1/observability/alert-recommendations/{lifecycle_id}/feedback",
+            json={"decision": "rejected", "confirmed": True},
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+        quality_response = await client.get(
+            "/api/v1/observability/alert-recommendations/quality",
+            params={"source_type": "model_runtime"},
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
         suppressed_response = await client.post(
             f"/api/v1/observability/alert-lifecycles/{lifecycle_id}/suppress",
             json={
@@ -387,6 +419,14 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
                 "X-CNB-Agent-ID": other_agent_response.json()["id"],
             },
         )
+        cross_agent_feedback_response = await client.post(
+            f"/api/v1/observability/alert-recommendations/{lifecycle_id}/feedback",
+            json={"decision": "rejected", "confirmed": True},
+            headers={
+                "X-CNB-Development-Role": "operator",
+                "X-CNB-Agent-ID": other_agent_response.json()["id"],
+            },
+        )
 
     filtered = tuple(
         ObservabilityAlertLifecycleResponse.model_validate(item)
@@ -412,6 +452,12 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
     )
     acknowledged = ObservabilityAlertDispositionResponse.model_validate(
         acknowledged_response.json()
+    )
+    accepted_feedback = ObservabilityAlertRecommendationFeedbackResponse.model_validate(
+        accepted_feedback_response.json()
+    )
+    quality = ObservabilityAlertRecommendationQualityMetricsResponse.model_validate(
+        quality_response.json()
     )
     suppressed = ObservabilityAlertDispositionResponse.model_validate(suppressed_response.json())
     disposed = tuple(
@@ -466,6 +512,16 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
     assert unconfirmed_response.status_code == 422
     assert acknowledged.status == "acknowledged"
     assert acknowledged.reason == "值班人员已接手"
+    assert viewer_feedback_response.status_code == 403
+    assert unconfirmed_feedback_response.status_code == 422
+    assert accepted_feedback.decision == "accepted"
+    assert accepted_feedback.recommendation_action == "acknowledge"
+    assert repeated_feedback_response.status_code == 200
+    assert repeated_feedback_response.json()["id"] == str(accepted_feedback.id)
+    assert conflicting_feedback_response.status_code == 409
+    assert quality_response.status_code == 200
+    assert (quality.total, quality.accepted, quality.rejected) == (1, 1, 0)
+    assert (quality.replay_total, quality.replay_blocked) == (1, 1)
     assert suppressed.status == "suppressed"
     assert disposed[0].disposition_status == "suppressed"
     assert disposed[0].disposition_reason == "计划内维护窗口"
@@ -481,6 +537,7 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
     ]
     assert missing_response.status_code == 404
     assert cross_agent_response.status_code == 404
+    assert cross_agent_feedback_response.status_code == 404
 
 
 async def test_data_lifecycle_api_enforces_permissions_and_returns_safe_download_headers() -> None:
@@ -566,11 +623,12 @@ async def test_data_lifecycle_api_enforces_permissions_and_returns_safe_download
     assert alert_history_export.headers["content-disposition"].endswith('.json"')
     assert len(alert_history_export.headers["x-content-sha256"]) == 64
     assert alert_history_export.headers["x-export-run-id"]
-    assert alert_history["schema_version"] == "cnb-observability-alert-history-v1"
+    assert alert_history["schema_version"] == "cnb-observability-alert-history-v2"
     assert alert_history["agent_id"] == str(identity.agent_id)
     assert alert_history["data"] == {
         "alert_lifecycles": [],
         "disposition_events": [],
+        "recommendation_feedback": [],
         "replay_reviews": [],
     }
     assert viewer_export.status_code == 403

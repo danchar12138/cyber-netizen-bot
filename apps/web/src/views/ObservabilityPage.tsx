@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Activity, BellRing, CheckCircle2, ChevronDown, CircleDollarSign, ClipboardList, Clock3, Gauge, History, RefreshCw, Search, Send, ShieldAlert, ShieldCheck, TriangleAlert, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   acknowledgeObservabilityAlert,
@@ -12,12 +12,15 @@ import {
   getObservabilityAlertLifecycleMetrics,
   getObservabilityAlertLifecyclePage,
   getObservabilityAlertOperationsSummary,
+  getObservabilityAlertRecommendationQuality,
   getObservabilityAlertRecommendations,
   getObservabilityAlertReplayMetrics,
   getObservabilityAlertReplayReviews,
   getObservabilityDashboard,
+  submitObservabilityAlertRecommendationFeedback,
   suppressObservabilityAlert,
   type ObservabilityAlertLifecycle,
+  type ObservabilityAlertRecommendation,
 } from '../api'
 import { useSelectedAgentId } from '../agentSelection'
 import {
@@ -67,8 +70,10 @@ export function ObservabilityPage() {
   const [replayDecision, setReplayDecision] = useState<'allowed' | 'blocked' | ''>('')
   const [dispositionInputError, setDispositionInputError] = useState<string | null>(null)
   const [dispositionFeedback, setDispositionFeedback] = useState<string | null>(null)
+  const [recommendationFeedback, setRecommendationFeedback] = useState<string | null>(null)
   const [selectedLifecycleIds, setSelectedLifecycleIds] = useState<Set<string>>(new Set())
   const [historyLifecycle, setHistoryLifecycle] = useState<ObservabilityAlertLifecycle | null>(null)
+  const recommendationDispositionCompleted = useRef(new Set<string>())
   const selectedAgentId = useSelectedAgentId()
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const canReadTrace = session.data?.permissions.includes('trace:read') ?? false
@@ -110,6 +115,19 @@ export function ObservabilityPage() {
     queryFn: () => getObservabilityAlertRecommendations({
       source_type: alertSourceType || undefined,
       severity: alertSeverity || undefined,
+    }),
+    enabled: canReadTrace,
+    refetchInterval: 30_000,
+  })
+  const recommendationQuality = useQuery({
+    queryKey: [
+      'observability-alert-recommendation-quality',
+      selectedAgentId,
+      alertSourceType,
+    ],
+    queryFn: () => getObservabilityAlertRecommendationQuality({
+      window_minutes: 10_080,
+      source_type: alertSourceType || undefined,
     }),
     enabled: canReadTrace,
     refetchInterval: 30_000,
@@ -172,6 +190,7 @@ export function ObservabilityPage() {
       invalidateAcrossTabs(queryClient, ['observability-alert-disposition-events']),
       invalidateAcrossTabs(queryClient, ['observability-alert-operations-summary']),
       invalidateAcrossTabs(queryClient, ['observability-alert-recommendations']),
+      invalidateAcrossTabs(queryClient, ['observability-alert-recommendation-quality']),
       invalidateAcrossTabs(queryClient, ['observability-alert-replay-metrics']),
       invalidateAcrossTabs(queryClient, ['observability-alert-replay-reviews']),
       invalidateAcrossTabs(queryClient, ['audit-records']),
@@ -226,6 +245,59 @@ export function ObservabilityPage() {
       await refreshAlertViews()
     },
   })
+  const recommendationFeedbackMutation = useMutation({
+    mutationFn: async ({
+      recommendation,
+      decision,
+    }: {
+      recommendation: ObservabilityAlertRecommendation
+      decision: 'accepted' | 'rejected'
+    }) => {
+      if (
+        decision === 'rejected'
+        && recommendationDispositionCompleted.current.has(recommendation.lifecycle_id)
+      ) {
+        throw new Error('该建议已完成人工处置，只能重试记录采纳反馈')
+      }
+      if (decision === 'accepted' && recommendation.action !== 'observe') {
+        if (!recommendationDispositionCompleted.current.has(recommendation.lifecycle_id)) {
+          const reason = `人工采纳处置建议：${recommendation.reason_codes.map((reasonCode) => displayLabel(observabilityRecommendationReasonLabels, reasonCode)).join('、')}`
+          if (recommendation.action === 'acknowledge') {
+            await acknowledgeObservabilityAlert(recommendation.lifecycle_id, {
+              confirmed: true,
+              reason,
+            })
+          } else {
+            await suppressObservabilityAlert(recommendation.lifecycle_id, {
+              confirmed: true,
+              reason,
+              expires_at: new Date(
+                Date.now() + (recommendation.suggested_suppression_minutes ?? 60) * 60_000,
+              ).toISOString(),
+            })
+          }
+          recommendationDispositionCompleted.current.add(recommendation.lifecycle_id)
+        }
+      }
+      return submitObservabilityAlertRecommendationFeedback(
+        recommendation.lifecycle_id,
+        decision,
+      )
+    },
+    onSuccess: async (result) => {
+      recommendationDispositionCompleted.current.delete(result.lifecycle_id)
+      const actionLabel = displayLabel(
+        observabilityRecommendationActionLabels,
+        result.recommendation_action,
+      )
+      setRecommendationFeedback(
+        result.decision === 'accepted'
+          ? `已采纳“${actionLabel}”建议${result.recommendation_action === 'observe' ? '，未触发告警处置' : '，人工处置已完成'}`
+          : `已驳回“${actionLabel}”建议，未触发告警处置`,
+      )
+      await refreshAlertViews()
+    },
+  })
   const trace = useMutation({ mutationFn: getCognitiveRunTrace })
   const data = dashboard.data
   const lifecycle = lifecycleMetrics.data
@@ -234,6 +306,7 @@ export function ObservabilityPage() {
     () => alertRecommendations.data ?? [],
     [alertRecommendations.data],
   )
+  const quality = recommendationQuality.data
   const anomalousSignals = operations?.baseline.signals.filter((item) => item.anomalous) ?? []
   const lifecycleRows = alertLifecycles.data?.pages.flatMap((page) => page.items) ?? []
   const replay = replayMetrics.data
@@ -271,27 +344,27 @@ export function ObservabilityPage() {
     if (!window.confirm(`确认${action === 'suppress' ? '临时抑制' : '标记已确认'}“${title}”？`)) return
     dispositionMutation.mutate({ action, lifecycleId: item.id, reason, expiresAt })
   }, [dispositionMutation])
-  const executeRecommendation = useCallback((lifecycleId: string, action: 'acknowledge' | 'suppress', suppressionMinutes?: number | null) => {
+  const submitRecommendationFeedback = useCallback((
+    recommendation: ObservabilityAlertRecommendation,
+    decision: 'accepted' | 'rejected',
+  ) => {
     setDispositionInputError(null)
     setDispositionFeedback(null)
-    const recommendation = recommendations.find((item) => item.lifecycle_id === lifecycleId)
-    if (!recommendation || !recommendation.requires_confirmation || recommendation.automation_allowed) {
+    setRecommendationFeedback(null)
+    if (!recommendation.requires_confirmation || recommendation.automation_allowed) {
       setDispositionInputError('该建议缺少有效人工确认护栏，已拒绝执行')
       return
     }
     const title = displayLabel(observabilityAlertCodeLabels, recommendation.code)
-    const actionLabel = displayLabel(observabilityRecommendationActionLabels, action)
-    if (!window.confirm(`建议不会自动执行。确认对“${title}”执行“${actionLabel}”？`)) return
-    const reason = `人工采纳处置建议：${recommendation.reason_codes.map((reasonCode) => displayLabel(observabilityRecommendationReasonLabels, reasonCode)).join('、')}`
-    dispositionMutation.mutate({
-      action,
-      lifecycleId,
-      reason,
-      expiresAt: action === 'suppress'
-        ? new Date(Date.now() + (suppressionMinutes ?? 60) * 60_000).toISOString()
-        : undefined,
-    })
-  }, [dispositionMutation, recommendations])
+    const actionLabel = displayLabel(observabilityRecommendationActionLabels, recommendation.action)
+    const prompt = decision === 'rejected'
+      ? `确认驳回“${title}”的“${actionLabel}”建议？此操作不会触发告警处置。`
+      : recommendation.action === 'observe'
+        ? `确认采纳“${title}”的继续观察建议？此操作不会触发告警处置。`
+        : `建议不会自动执行。确认对“${title}”执行“${actionLabel}”并记录采纳反馈？`
+    if (!window.confirm(prompt)) return
+    recommendationFeedbackMutation.mutate({ recommendation, decision })
+  }, [recommendationFeedbackMutation])
   const clearDisposition = useCallback((item: ObservabilityAlertLifecycle) => {
     setDispositionInputError(null)
     setDispositionFeedback(null)
@@ -365,10 +438,12 @@ export function ObservabilityPage() {
       {lifecycleMetrics.isError && <div className="notice error" role="alert">无法读取通用告警生命周期指标，请检查当前 Agent 与迁移状态。</div>}
       {alertOperations.isError && <div className="notice error" role="alert">无法读取告警异常基线与值班交接摘要。</div>}
       {alertRecommendations.isError && <div className="notice error" role="alert">无法读取告警处置建议，系统不会自动执行任何动作。</div>}
+      {recommendationQuality.isError && <div className="notice error" role="alert">无法读取告警建议质量统计，请缩短窗口或检查当前权限。</div>}
       {alertLifecycles.isError && <div className="notice error" role="alert">无法读取通用告警生命周期，请检查当前 Agent 与迁移状态。</div>}
       {(replayMetrics.isError || replayReviews.isError) && <div className="notice error" role="alert">无法读取通知重放复核记录，请检查当前 Agent 与迁移状态。</div>}
-      {(dispositionInputError || dispositionMutation.error || batchDispositionMutation.error) && <div className="notice error" role="alert">{dispositionInputError ?? dispositionMutation.error?.message ?? batchDispositionMutation.error?.message}</div>}
+      {(dispositionInputError || dispositionMutation.error || batchDispositionMutation.error || recommendationFeedbackMutation.error) && <div className="notice error" role="alert">{dispositionInputError ?? dispositionMutation.error?.message ?? batchDispositionMutation.error?.message ?? recommendationFeedbackMutation.error?.message}</div>}
       {dispositionFeedback && <div className="notice success" role="status"><CheckCircle2 size={17} /><div><strong>告警处置已更新</strong><span>{dispositionFeedback}</span></div></div>}
+      {recommendationFeedback && <div className="notice success" role="status"><CheckCircle2 size={17} /><div><strong>建议反馈已记录</strong><span>{recommendationFeedback}</span></div></div>}
       <section className="metric-grid" aria-label="服务等级与成本指标">
         <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>应用接口错误率</p><strong>{data ? `${data.api.error_rate_percent.toFixed(2)}%` : '—'}</strong><span>{data?.api.requests ?? 0} 次请求 · {data?.api.server_errors ?? 0} 次服务端错误</span></article>
         <article className="metric-card"><div className="metric-icon"><Clock3 size={18} /></div><p>应用接口 P95 / P99</p><strong>{data ? `${data.api.latency.p95_ms} / ${data.api.latency.p99_ms} 毫秒` : '—'}</strong><span>P50 {data?.api.latency.p50_ms ?? '—'} 毫秒</span></article>
@@ -408,10 +483,24 @@ export function ObservabilityPage() {
         <div className="alert-recommendation-list">{recommendations.map((item) => <article key={item.lifecycle_id} className={`recommendation-${item.priority}`}>
           <div className="recommendation-heading"><span className={`entity-status priority-${item.priority}`}>{displayLabel(observabilityRecommendationPriorityLabels, item.priority)}</span><div><strong>{displayLabel(observabilityAlertCodeLabels, item.code)}</strong><small>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)} · 持续 {formatDuration(item.active_minutes * 60)} · 出现 {item.occurrences} 次 · 置信度 {(item.confidence * 100).toFixed(0)}%</small></div></div>
           <div className="recommendation-reasons"><strong>{displayLabel(observabilityRecommendationActionLabels, item.action)}</strong><span>{item.reason_codes.map((reason) => displayLabel(observabilityRecommendationReasonLabels, reason)).join(' · ')}</span><small>{item.guardrail_codes.map((guardrail) => displayLabel(observabilityRecommendationGuardrailLabels, guardrail)).join(' · ')}</small></div>
-          <div className="recommendation-actions">{item.action === 'observe' || !canManageAlerts
-            ? <span className="subtle">{item.action === 'observe' ? '无需处置' : '当前角色只读'}</span>
-            : <button className="secondary-button" disabled={dispositionMutation.isPending} onClick={() => executeRecommendation(item.lifecycle_id, item.action === 'suppress' ? 'suppress' : 'acknowledge', item.suggested_suppression_minutes)}><CheckCircle2 size={14} />{item.action === 'suppress' ? `确认抑制 ${item.suggested_suppression_minutes} 分钟` : '确认并接手调查'}</button>}</div>
+          <div className="recommendation-actions">{!canManageAlerts
+            ? <span className="subtle">当前角色只读</span>
+            : <><button className="secondary-button" disabled={recommendationFeedbackMutation.isPending} onClick={() => submitRecommendationFeedback(item, 'accepted')}><CheckCircle2 size={14} />{item.action === 'suppress' ? `确认抑制 ${item.suggested_suppression_minutes} 分钟` : item.action === 'observe' ? '采纳继续观察' : '确认并接手调查'}</button><button disabled={recommendationFeedbackMutation.isPending} onClick={() => submitRecommendationFeedback(item, 'rejected')}><X size={14} />驳回建议</button></>}</div>
         </article>)}</div>
+      </section>
+
+      <section className="recommendation-quality-section" aria-label="告警建议质量概览">
+        <div className="panel-heading channel-operation-heading"><div><p className="eyebrow">人工反馈 · 最近 7 天</p><h2>建议质量概览</h2></div><span className="subtle">事实统计，不自动调参</span></div>
+        <div className="metric-grid recommendation-quality-metrics">
+          <article className="metric-card"><div className="metric-icon"><ClipboardList size={18} /></div><p>反馈样本</p><strong>{quality?.total ?? '—'}</strong><span>采纳 {quality?.accepted ?? 0} · 驳回 {quality?.rejected ?? 0}</span></article>
+          <article className="metric-card"><div className="metric-icon"><Gauge size={18} /></div><p>采纳率</p><strong>{quality ? `${quality.acceptance_rate_percent.toFixed(2)}%` : '—'}</strong><span>仅描述当前筛选窗口</span></article>
+          <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>采纳后状态</p><strong>{quality?.accepted_resolved ?? '—'} 已恢复</strong><span>{quality?.accepted_active ?? 0} 项仍活动</span></article>
+          <article className="metric-card"><div className="metric-icon"><History size={18} /></div><p>同窗重放复核</p><strong>{quality?.replay_total ?? '—'}</strong><span>允许 {quality?.replay_allowed ?? 0} · 阻止 {quality?.replay_blocked ?? 0}</span></article>
+        </div>
+        <div className="replay-review-summary-grid recommendation-quality-breakdown">
+          <section className="panel"><div className="panel-heading"><div><p className="eyebrow">建议动作</p><h2>反馈分布</h2></div></div>{!quality?.actions.some((item) => item.total) && <div className="empty-state">当前窗口暂无建议反馈。</div>}{quality?.actions.some((item) => item.total) && <div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>动作</th><th>总数</th><th>采纳</th><th>驳回</th></tr></thead><tbody>{quality.actions.filter((item) => item.total).map((item) => <tr key={item.action}><td>{displayLabel(observabilityRecommendationActionLabels, item.action)}</td><td>{item.total}</td><td>{item.accepted}</td><td>{item.rejected}</td></tr>)}</tbody></table></div>}</section>
+          <section className="panel"><div className="panel-heading"><div><p className="eyebrow">告警来源</p><h2>来源分布</h2></div></div>{!quality?.sources.length && <div className="empty-state">当前窗口暂无来源数据。</div>}{!!quality?.sources.length && <div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>来源</th><th>总数</th><th>采纳</th><th>驳回</th></tr></thead><tbody>{quality.sources.map((item) => <tr key={item.source_type}><td>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)}</td><td>{item.total}</td><td>{item.accepted}</td><td>{item.rejected}</td></tr>)}</tbody></table></div>}</section>
+        </div>
       </section>
 
       <section className="channel-lifecycle-observability" aria-label="通用告警生命周期指标">

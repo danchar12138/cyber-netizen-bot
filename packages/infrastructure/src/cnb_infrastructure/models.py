@@ -424,6 +424,67 @@ class ObservabilityAlertReplayReviewModel(Base):
     )
 
 
+class ObservabilityAlertRecommendationFeedbackModel(Base):
+    """告警建议的追加式人工反馈，不保存自由文本。"""
+
+    __tablename__ = "observability_alert_recommendation_feedback"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    lifecycle_id: Mapped[UUID] = mapped_column(
+        ForeignKey("observability_alert_lifecycles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    code: Mapped[str] = mapped_column(String(120), nullable=False)
+    recommendation_action: Mapped[str] = mapped_column(String(24), nullable=False)
+    priority: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason_codes: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    actor_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    feedback_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "recommendation_action IN ('acknowledge', 'suppress', 'observe')",
+            name="ck_observability_alert_recommendation_feedback_action",
+        ),
+        CheckConstraint(
+            "priority IN ('urgent', 'high', 'normal')",
+            name="ck_observability_alert_recommendation_feedback_priority",
+        ),
+        CheckConstraint(
+            "decision IN ('accepted', 'rejected')",
+            name="ck_observability_alert_recommendation_feedback_decision",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "agent_id",
+            "lifecycle_id",
+            name="uq_observability_alert_recommendation_feedback_lifecycle",
+        ),
+        Index(
+            "ix_observability_alert_recommendation_feedback_tenant_agent_time",
+            "tenant_id",
+            "agent_id",
+            "feedback_at",
+        ),
+        Index(
+            "ix_observability_alert_recommendation_feedback_tenant_time",
+            "tenant_id",
+            "feedback_at",
+        ),
+    )
+
+
 class Tenant(Base):
     """承载全部业务数据隔离边界的租户。"""
 

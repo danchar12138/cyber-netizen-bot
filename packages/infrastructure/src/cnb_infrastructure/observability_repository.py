@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased
@@ -34,6 +35,11 @@ from cnb_domain import (
     ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycle,
     ObservabilityAlertLifecycleStatus,
+    ObservabilityAlertRecommendationAction,
+    ObservabilityAlertRecommendationFeedback,
+    ObservabilityAlertRecommendationFeedbackDecision,
+    ObservabilityAlertRecommendationPriority,
+    ObservabilityAlertRecommendationReason,
     ObservabilityAlertReplayDecision,
     ObservabilityAlertReplayMetrics,
     ObservabilityAlertReplayReason,
@@ -55,6 +61,7 @@ from cnb_infrastructure.models import (
     ObservabilityAlertDispositionEventModel,
     ObservabilityAlertDispositionModel,
     ObservabilityAlertLifecycleModel,
+    ObservabilityAlertRecommendationFeedbackModel,
     ObservabilityAlertReplayReviewModel,
 )
 
@@ -68,6 +75,9 @@ class MemoryObservabilityRepository:
         self._dispositions: dict[tuple[UUID, UUID, str, str], ObservabilityAlertDisposition] = {}
         self._disposition_events: list[ObservabilityAlertDispositionEvent] = []
         self._replay_reviews: list[ObservabilityAlertReplayReview] = []
+        self._recommendation_feedback: dict[
+            tuple[UUID, UUID, UUID], ObservabilityAlertRecommendationFeedback
+        ] = {}
         self._lock = asyncio.Lock()
 
     async def record_api_request(self, observation: ApiRequestObservation) -> None:
@@ -507,6 +517,77 @@ class MemoryObservabilityRepository:
             self._replay_reviews.append(review)
             return review
 
+    async def get_observability_alert_recommendation_feedback(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_id: UUID,
+    ) -> ObservabilityAlertRecommendationFeedback | None:
+        async with self._lock:
+            return self._recommendation_feedback.get((tenant_id, agent_id, lifecycle_id))
+
+    async def save_observability_alert_recommendation_feedback(
+        self, feedback: ObservabilityAlertRecommendationFeedback
+    ) -> ObservabilityAlertRecommendationFeedback:
+        key = (feedback.tenant_id, feedback.agent_id, feedback.lifecycle_id)
+        async with self._lock:
+            existing = self._recommendation_feedback.get(key)
+            if existing is not None:
+                if existing.decision is feedback.decision:
+                    return existing
+                raise ValueError("该告警生命周期已提交不同的建议反馈")
+            self._recommendation_feedback[key] = feedback
+            return feedback
+
+    async def list_observability_alert_recommendation_feedback(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_ids: tuple[UUID, ...] | None = None,
+        window_started_at: datetime | None = None,
+        window_ended_at: datetime | None = None,
+        source_type: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[ObservabilityAlertRecommendationFeedback, ...]:
+        lifecycle_filter = None if lifecycle_ids is None else frozenset(lifecycle_ids)
+        async with self._lock:
+            values = sorted(
+                (
+                    item
+                    for item in self._recommendation_feedback.values()
+                    if item.tenant_id == tenant_id
+                    and item.agent_id == agent_id
+                    and (lifecycle_filter is None or item.lifecycle_id in lifecycle_filter)
+                    and (window_started_at is None or item.feedback_at >= window_started_at)
+                    and (window_ended_at is None or item.feedback_at <= window_ended_at)
+                    and (source_type is None or item.source_type == source_type)
+                ),
+                key=lambda item: (item.feedback_at, str(item.id)),
+                reverse=True,
+            )
+            return tuple(values if limit is None else values[:limit])
+
+    async def count_observability_alert_lifecycle_statuses(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_ids: tuple[UUID, ...],
+    ) -> dict[ObservabilityAlertLifecycleStatus, int]:
+        requested = frozenset(lifecycle_ids)
+        async with self._lock:
+            counts = {status: 0 for status in ObservabilityAlertLifecycleStatus}
+            for item in self._lifecycles.values():
+                if (
+                    item.tenant_id == tenant_id
+                    and item.agent_id == agent_id
+                    and item.id in requested
+                ):
+                    counts[item.status] += 1
+            return counts
+
     async def list_observability_alert_replay_reviews(
         self,
         *,
@@ -641,13 +722,30 @@ class MemoryObservabilityRepository:
                     key=lambda item: (item.reviewed_at, str(item.id)),
                 )
             )
+            recommendation_feedback = tuple(
+                sorted(
+                    (
+                        item
+                        for item in self._recommendation_feedback.values()
+                        if item.tenant_id == tenant_id
+                        and item.agent_id == agent_id
+                        and window_started_at <= item.feedback_at <= window_ended_at
+                    ),
+                    key=lambda item: (item.feedback_at, str(item.id)),
+                )
+            )
             truncated = (
-                len(lifecycles) + len(disposition_events) + len(replay_reviews) > max_records
+                len(lifecycles)
+                + len(disposition_events)
+                + len(replay_reviews)
+                + len(recommendation_feedback)
+                > max_records
             )
             return ObservabilityAlertHistorySnapshot(
                 lifecycles=() if truncated else lifecycles,
                 disposition_events=() if truncated else disposition_events,
                 replay_reviews=() if truncated else replay_reviews,
+                recommendation_feedback=() if truncated else recommendation_feedback,
                 truncated=truncated,
             )
 
@@ -657,6 +755,7 @@ class MemoryObservabilityRepository:
         tenant_id: UUID,
         disposition_events_before: datetime,
         replay_reviews_before: datetime,
+        recommendation_feedback_before: datetime,
         limit: int,
     ) -> ObservabilityHistoryRetentionResult:
         async with self._lock:
@@ -683,15 +782,33 @@ class MemoryObservabilityRepository:
                     key=lambda item: (item.reviewed_at, str(item.id)),
                 )[:limit]
             }
+            feedback_ids = {
+                item.id
+                for item in sorted(
+                    (
+                        item
+                        for item in self._recommendation_feedback.values()
+                        if item.tenant_id == tenant_id
+                        and item.feedback_at <= recommendation_feedback_before
+                    ),
+                    key=lambda item: (item.feedback_at, str(item.id)),
+                )[:limit]
+            }
             self._disposition_events = [
                 item for item in self._disposition_events if item.id not in event_ids
             ]
             self._replay_reviews = [
                 item for item in self._replay_reviews if item.id not in review_ids
             ]
+            self._recommendation_feedback = {
+                key: item
+                for key, item in self._recommendation_feedback.items()
+                if item.id not in feedback_ids
+            }
             return ObservabilityHistoryRetentionResult(
                 disposition_events_purged=len(event_ids),
                 replay_reviews_purged=len(review_ids),
+                recommendation_feedback_purged=len(feedback_ids),
             )
 
     def _find_active_lifecycle(
@@ -1608,6 +1725,150 @@ class SqlAlchemyObservabilityRepository:
             )
         return review
 
+    async def get_observability_alert_recommendation_feedback(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_id: UUID,
+    ) -> ObservabilityAlertRecommendationFeedback | None:
+        statement = select(ObservabilityAlertRecommendationFeedbackModel).where(
+            ObservabilityAlertRecommendationFeedbackModel.tenant_id == tenant_id,
+            ObservabilityAlertRecommendationFeedbackModel.agent_id == agent_id,
+            ObservabilityAlertRecommendationFeedbackModel.lifecycle_id == lifecycle_id,
+        )
+        async with self._session_factory() as session:
+            row = await session.scalar(statement)
+        return None if row is None else self._observability_recommendation_feedback(row)
+
+    async def save_observability_alert_recommendation_feedback(
+        self, feedback: ObservabilityAlertRecommendationFeedback
+    ) -> ObservabilityAlertRecommendationFeedback:
+        values = {
+            "id": feedback.id,
+            "tenant_id": feedback.tenant_id,
+            "agent_id": feedback.agent_id,
+            "lifecycle_id": feedback.lifecycle_id,
+            "source_type": feedback.source_type,
+            "source_key": feedback.source_key,
+            "code": feedback.code,
+            "recommendation_action": feedback.recommendation_action.value,
+            "priority": feedback.priority.value,
+            "reason_codes": [item.value for item in feedback.reason_codes],
+            "decision": feedback.decision.value,
+            "actor_id": feedback.actor_id,
+            "feedback_at": feedback.feedback_at,
+        }
+        async with self._session_factory.begin() as session:
+            inserted_id = await session.scalar(
+                pg_insert(ObservabilityAlertRecommendationFeedbackModel)
+                .values(**values)
+                .on_conflict_do_nothing(
+                    constraint="uq_observability_alert_recommendation_feedback_lifecycle"
+                )
+                .returning(ObservabilityAlertRecommendationFeedbackModel.id)
+            )
+            row = await session.scalar(
+                select(ObservabilityAlertRecommendationFeedbackModel).where(
+                    ObservabilityAlertRecommendationFeedbackModel.tenant_id == feedback.tenant_id,
+                    ObservabilityAlertRecommendationFeedbackModel.agent_id == feedback.agent_id,
+                    ObservabilityAlertRecommendationFeedbackModel.lifecycle_id
+                    == feedback.lifecycle_id,
+                )
+            )
+            if row is None:
+                raise RuntimeError("建议反馈写入后未找到记录")
+            stored = self._observability_recommendation_feedback(row)
+            if inserted_id is None:
+                if stored.decision is feedback.decision:
+                    return stored
+                raise ValueError("该告警生命周期已提交不同的建议反馈")
+            session.add(
+                AuditLog(
+                    tenant_id=feedback.tenant_id,
+                    actor_id=feedback.actor_id,
+                    action=f"observability_alert.recommendation_feedback_{feedback.decision.value}",
+                    resource_type="observability_alert_recommendation_feedback",
+                    resource_id=str(feedback.lifecycle_id),
+                    detail={
+                        "agent_id": str(feedback.agent_id),
+                        "code": feedback.code,
+                        "recommendation_action": feedback.recommendation_action.value,
+                        "priority": feedback.priority.value,
+                        "reason_codes": [item.value for item in feedback.reason_codes],
+                        "decision": feedback.decision.value,
+                    },
+                )
+            )
+            return stored
+
+    async def list_observability_alert_recommendation_feedback(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_ids: tuple[UUID, ...] | None = None,
+        window_started_at: datetime | None = None,
+        window_ended_at: datetime | None = None,
+        source_type: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[ObservabilityAlertRecommendationFeedback, ...]:
+        statement = select(ObservabilityAlertRecommendationFeedbackModel).where(
+            ObservabilityAlertRecommendationFeedbackModel.tenant_id == tenant_id,
+            ObservabilityAlertRecommendationFeedbackModel.agent_id == agent_id,
+        )
+        if lifecycle_ids is not None:
+            if not lifecycle_ids:
+                return ()
+            statement = statement.where(
+                ObservabilityAlertRecommendationFeedbackModel.lifecycle_id.in_(lifecycle_ids)
+            )
+        if window_started_at is not None:
+            statement = statement.where(
+                ObservabilityAlertRecommendationFeedbackModel.feedback_at >= window_started_at
+            )
+        if window_ended_at is not None:
+            statement = statement.where(
+                ObservabilityAlertRecommendationFeedbackModel.feedback_at <= window_ended_at
+            )
+        if source_type is not None:
+            statement = statement.where(
+                ObservabilityAlertRecommendationFeedbackModel.source_type == source_type
+            )
+        statement = statement.order_by(
+            ObservabilityAlertRecommendationFeedbackModel.feedback_at.desc(),
+            ObservabilityAlertRecommendationFeedbackModel.id.desc(),
+        )
+        if limit is not None:
+            statement = statement.limit(limit)
+        async with self._session_factory() as session:
+            rows = (await session.scalars(statement)).all()
+        return tuple(self._observability_recommendation_feedback(row) for row in rows)
+
+    async def count_observability_alert_lifecycle_statuses(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_ids: tuple[UUID, ...],
+    ) -> dict[ObservabilityAlertLifecycleStatus, int]:
+        if not lifecycle_ids:
+            return {status: 0 for status in ObservabilityAlertLifecycleStatus}
+        statement = (
+            select(ObservabilityAlertLifecycleModel.status, func.count())
+            .where(
+                ObservabilityAlertLifecycleModel.tenant_id == tenant_id,
+                ObservabilityAlertLifecycleModel.agent_id == agent_id,
+                ObservabilityAlertLifecycleModel.id.in_(lifecycle_ids),
+            )
+            .group_by(ObservabilityAlertLifecycleModel.status)
+        )
+        async with self._session_factory() as session:
+            rows = (await session.execute(statement)).all()
+        counts = {status: 0 for status in ObservabilityAlertLifecycleStatus}
+        counts.update({ObservabilityAlertLifecycleStatus(row[0]): int(row[1]) for row in rows})
+        return counts
+
     async def list_observability_alert_replay_reviews(
         self,
         *,
@@ -1770,6 +2031,13 @@ class SqlAlchemyObservabilityRepository:
                 window_started_at, window_ended_at
             ),
         )
+        feedback_filters = (
+            ObservabilityAlertRecommendationFeedbackModel.tenant_id == tenant_id,
+            ObservabilityAlertRecommendationFeedbackModel.agent_id == agent_id,
+            ObservabilityAlertRecommendationFeedbackModel.feedback_at.between(
+                window_started_at, window_ended_at
+            ),
+        )
         async with self._session_factory() as session:
             counts = (
                 await session.scalar(
@@ -1790,9 +2058,15 @@ class SqlAlchemyObservabilityRepository:
                     )
                 )
                 or 0,
+                await session.scalar(
+                    select(func.count(ObservabilityAlertRecommendationFeedbackModel.id)).where(
+                        *feedback_filters
+                    )
+                )
+                or 0,
             )
             if sum(counts) > max_records:
-                return ObservabilityAlertHistorySnapshot((), (), (), truncated=True)
+                return ObservabilityAlertHistorySnapshot((), (), (), (), truncated=True)
             lifecycles = (
                 await session.scalars(
                     select(ObservabilityAlertLifecycleModel)
@@ -1826,12 +2100,26 @@ class SqlAlchemyObservabilityRepository:
                     .limit(max_records + 1)
                 )
             ).all()
+            feedback = (
+                await session.scalars(
+                    select(ObservabilityAlertRecommendationFeedbackModel)
+                    .where(*feedback_filters)
+                    .order_by(
+                        ObservabilityAlertRecommendationFeedbackModel.feedback_at,
+                        ObservabilityAlertRecommendationFeedbackModel.id,
+                    )
+                    .limit(max_records + 1)
+                )
+            ).all()
         return ObservabilityAlertHistorySnapshot(
             lifecycles=tuple(self._observability_lifecycle(item) for item in lifecycles),
             disposition_events=tuple(
                 self._observability_disposition_event(item) for item in events
             ),
             replay_reviews=tuple(self._observability_replay_review(item) for item in reviews),
+            recommendation_feedback=tuple(
+                self._observability_recommendation_feedback(item) for item in feedback
+            ),
         )
 
     async def purge_observability_alert_history(
@@ -1840,6 +2128,7 @@ class SqlAlchemyObservabilityRepository:
         tenant_id: UUID,
         disposition_events_before: datetime,
         replay_reviews_before: datetime,
+        recommendation_feedback_before: datetime,
         limit: int,
     ) -> ObservabilityHistoryRetentionResult:
         async with self._session_factory.begin() as session:
@@ -1879,6 +2168,24 @@ class SqlAlchemyObservabilityRepository:
                     )
                 ).all()
             )
+            feedback_ids = list(
+                (
+                    await session.scalars(
+                        select(ObservabilityAlertRecommendationFeedbackModel.id)
+                        .where(
+                            ObservabilityAlertRecommendationFeedbackModel.tenant_id == tenant_id,
+                            ObservabilityAlertRecommendationFeedbackModel.feedback_at
+                            <= recommendation_feedback_before,
+                        )
+                        .order_by(
+                            ObservabilityAlertRecommendationFeedbackModel.feedback_at,
+                            ObservabilityAlertRecommendationFeedbackModel.id,
+                        )
+                        .limit(limit)
+                        .with_for_update(skip_locked=True)
+                    )
+                ).all()
+            )
             if event_ids:
                 await session.execute(
                     delete(ObservabilityAlertDispositionEventModel).where(
@@ -1891,9 +2198,16 @@ class SqlAlchemyObservabilityRepository:
                         ObservabilityAlertReplayReviewModel.id.in_(review_ids)
                     )
                 )
+            if feedback_ids:
+                await session.execute(
+                    delete(ObservabilityAlertRecommendationFeedbackModel).where(
+                        ObservabilityAlertRecommendationFeedbackModel.id.in_(feedback_ids)
+                    )
+                )
             return ObservabilityHistoryRetentionResult(
                 disposition_events_purged=len(event_ids),
                 replay_reviews_purged=len(review_ids),
+                recommendation_feedback_purged=len(feedback_ids),
             )
 
     async def mark_observability_alert_lifecycles_escalated(
@@ -2006,6 +2320,28 @@ class SqlAlchemyObservabilityRepository:
             actor_id=row.actor_id,
             expires_at=row.expires_at,
             occurred_at=row.occurred_at,
+        )
+
+    @staticmethod
+    def _observability_recommendation_feedback(
+        row: ObservabilityAlertRecommendationFeedbackModel,
+    ) -> ObservabilityAlertRecommendationFeedback:
+        return ObservabilityAlertRecommendationFeedback(
+            id=row.id,
+            tenant_id=row.tenant_id,
+            agent_id=row.agent_id,
+            lifecycle_id=row.lifecycle_id,
+            source_type=row.source_type,
+            source_key=row.source_key,
+            code=row.code,
+            recommendation_action=ObservabilityAlertRecommendationAction(row.recommendation_action),
+            priority=ObservabilityAlertRecommendationPriority(row.priority),
+            reason_codes=tuple(
+                ObservabilityAlertRecommendationReason(item) for item in row.reason_codes
+            ),
+            decision=ObservabilityAlertRecommendationFeedbackDecision(row.decision),
+            actor_id=row.actor_id,
+            feedback_at=row.feedback_at,
         )
 
     @staticmethod

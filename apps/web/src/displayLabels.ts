@@ -529,6 +529,8 @@ export const auditActionLabels: Readonly<Record<string, string>> = {
   'observability_alert.disposition_cleared': '解除通用告警处置',
   'observability_alert.replay_review_allowed': '允许通用告警通知重放',
   'observability_alert.replay_review_blocked': '阻止通用告警通知重放',
+  'observability_alert.recommendation_feedback_accepted': '采纳告警处置建议',
+  'observability_alert.recommendation_feedback_rejected': '驳回告警处置建议',
   'scheduled_action.created': '创建定时行为',
   'scheduled_action.canceled': '取消定时行为',
   'episode.created': '创建情景记录',
@@ -567,6 +569,7 @@ export const auditResourceLabels: Readonly<Record<string, string>> = {
   memory_index_job: '向量索引任务',
   observability_alert_disposition: '通用告警处置',
   observability_alert_replay_review: '通用告警通知重放复核',
+  observability_alert_recommendation_feedback: '告警处置建议反馈',
 }
 
 export const metadataKeyLabels: Readonly<Record<string, string>> = {
@@ -584,11 +587,14 @@ export const metadataKeyLabels: Readonly<Record<string, string>> = {
   suppression_expires_at: '抑制到期时间',
   observability_disposition_events_purged: '已清理告警处置事件',
   observability_replay_reviews_purged: '已清理重放复核事件',
+  observability_recommendation_feedback_purged: '已清理建议反馈',
   observability_disposition_event_cutoff: '告警处置事件截止时间',
   observability_replay_review_cutoff: '重放复核事件截止时间',
+  observability_recommendation_feedback_cutoff: '建议反馈截止时间',
   alert_lifecycles: '告警生命周期',
   disposition_events: '处置事件',
   replay_reviews: '重放复核事件',
+  recommendation_feedback: '建议反馈',
   window_started_at: '窗口开始时间',
   window_ended_at: '窗口结束时间',
   channel_id: '渠道实例 ID',

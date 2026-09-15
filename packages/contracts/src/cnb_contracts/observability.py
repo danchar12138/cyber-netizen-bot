@@ -12,6 +12,7 @@ from cnb_domain import (
     ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycleStatus,
     ObservabilityAlertRecommendationAction,
+    ObservabilityAlertRecommendationFeedbackDecision,
     ObservabilityAlertRecommendationGuardrail,
     ObservabilityAlertRecommendationPriority,
     ObservabilityAlertRecommendationReason,
@@ -280,6 +281,67 @@ class ObservabilityAlertRecommendationResponse(BaseModel):
     suggested_suppression_minutes: int | None = Field(default=None, ge=5, le=10_080)
     requires_confirmation: bool
     automation_allowed: bool
+
+
+class ObservabilityAlertRecommendationFeedbackCommand(BaseModel):
+    """仅提交人工结论，建议快照由服务端重算。"""
+
+    decision: ObservabilityAlertRecommendationFeedbackDecision
+    confirmed: bool = False
+
+
+class ObservabilityAlertRecommendationFeedbackResponse(BaseModel):
+    """不含自由文本的建议反馈记录。"""
+
+    id: UUID
+    lifecycle_id: UUID
+    source_type: str = Field(min_length=1, max_length=80)
+    source_key: str = Field(min_length=1, max_length=255)
+    code: str = Field(min_length=1, max_length=120)
+    recommendation_action: ObservabilityAlertRecommendationAction
+    priority: ObservabilityAlertRecommendationPriority
+    reason_codes: tuple[ObservabilityAlertRecommendationReason, ...] = Field(
+        min_length=1, max_length=6
+    )
+    decision: ObservabilityAlertRecommendationFeedbackDecision
+    actor_id: UUID
+    feedback_at: datetime
+
+
+class ObservabilityAlertRecommendationActionMetricsResponse(BaseModel):
+    """按建议动作聚合的反馈计数。"""
+
+    action: ObservabilityAlertRecommendationAction
+    total: int = Field(ge=0)
+    accepted: int = Field(ge=0)
+    rejected: int = Field(ge=0)
+
+
+class ObservabilityAlertRecommendationSourceMetricsResponse(BaseModel):
+    """按告警来源聚合的反馈计数。"""
+
+    source_type: str = Field(min_length=1, max_length=80)
+    total: int = Field(ge=0)
+    accepted: int = Field(ge=0)
+    rejected: int = Field(ge=0)
+
+
+class ObservabilityAlertRecommendationQualityMetricsResponse(BaseModel):
+    """建议反馈与同窗口复核事实的安全聚合。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    total: int = Field(ge=0)
+    accepted: int = Field(ge=0)
+    rejected: int = Field(ge=0)
+    acceptance_rate_percent: float = Field(ge=0, le=100)
+    accepted_resolved: int = Field(ge=0)
+    accepted_active: int = Field(ge=0)
+    replay_total: int = Field(ge=0)
+    replay_allowed: int = Field(ge=0)
+    replay_blocked: int = Field(ge=0)
+    actions: tuple[ObservabilityAlertRecommendationActionMetricsResponse, ...]
+    sources: tuple[ObservabilityAlertRecommendationSourceMetricsResponse, ...]
 
 
 class ObservabilityAlertDispositionCommand(BaseModel):

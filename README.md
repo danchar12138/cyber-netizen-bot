@@ -2,9 +2,9 @@
 
 以自研拟人智能体（Agent）认知运行时为核心的“赛博网友”项目。Web 首发形态是统一管理后台，其中包含内部全功能对话工作台；后续即时通讯平台通过统一渠道适配器接入。
 
-当前已完成原始计划 P0 至 P7 的代码与基础设施范围，并持续增强到通用告警生命周期、处置审计、重放复核、安全历史导出、稳健异常基线、值班交接摘要，以及带人工确认护栏的确定性告警处置建议。身份安全、数据生命周期、性能成本、拟人评测、生产镜像、发布供应链，以及 Telegram 安全收发与运营闭环均已落地；生产式 Docker Compose、全链迁移、服务闭环和隔离备份恢复已由 Linux CI 实跑通过。
+当前已完成原始计划 P0 至 P7 的代码与基础设施范围，并持续增强到通用告警生命周期、处置审计、重放复核、安全历史导出、稳健异常基线、值班交接摘要，以及带人工确认护栏、反馈记录和质量统计的确定性告警处置建议。身份安全、数据生命周期、性能成本、拟人评测、生产镜像、发布供应链，以及 Telegram 安全收发与运营闭环均已落地；生产式 Docker Compose、全链迁移、服务闭环和隔离备份恢复已由 Linux CI 实跑通过。
 
-最新开发计划见 [`docs/plans/2026-09-15-v41.md`](docs/plans/2026-09-15-v41.md)。原始范围见 [`docs/plans/2026-09-09-v2.md`](docs/plans/2026-09-09-v2.md)，MinIO 唯一对象存储修订与 P0 至 P7 完成清单见 [`docs/plans/2026-09-09-v3.md`](docs/plans/2026-09-09-v3.md)。GitHub `main` 分支保护仍受私有仓库套餐能力限制，仓库内功能与质量门禁不受影响。
+最新开发计划见 [`docs/plans/2026-09-15-v42.md`](docs/plans/2026-09-15-v42.md)。原始范围见 [`docs/plans/2026-09-09-v2.md`](docs/plans/2026-09-09-v2.md)，MinIO 唯一对象存储修订与 P0 至 P7 完成清单见 [`docs/plans/2026-09-09-v3.md`](docs/plans/2026-09-09-v3.md)。GitHub `main` 分支保护仍受私有仓库套餐能力限制，仓库内功能与质量门禁不受影响。
 
 管理后台、OpenAPI 文档、运行配置说明和安全错误采用中文优先语境；字段名、operation ID、数据库枚举及必要的协议或品牌缩写保持稳定。产品界面统一使用“智能体、提示词、模型服务、渠道适配器、入站箱、任务进程”等名称。
 
@@ -69,7 +69,7 @@
 - 生产式 Compose 自动验收：全链 Alembic 迁移、三服务深度健康检查、PostgreSQL/MinIO 合成备份与隔离恢复、完整性比对和恢复后 API 冒烟。
 - Python/Node 依赖审计、Hadolint、Trivy 镜像门禁、SPDX SBOM、GitHub provenance/SBOM attestation、Cosign OIDC 无密钥签名和多架构 GHCR 发布。
 - Markdown/GFM 消息、自动保存草稿、图片/文件选择、键盘跳转和 axe 无障碍回归。
-- Alembic 配置、对话、附件、多模态消息块、加密密钥、审计、认知运行、长期记忆、可靠异步任务、渠道控制平面、OIDC、数据生命周期、可观测成本、拟人评测、多模型对比、多智能体管理、渠道归属、智能体生命周期、外部入站路由、用户访问策略与告警运营历史迁移，当前唯一 head 为 `20260915_0033`。
+- Alembic 配置、对话、附件、多模态消息块、加密密钥、审计、认知运行、长期记忆、可靠异步任务、渠道控制平面、OIDC、数据生命周期、可观测成本、拟人评测、多模型对比、多智能体管理、渠道归属、智能体生命周期、外部入站路由、用户访问策略与告警运营历史迁移，当前唯一 head 为 `20260915_0034`。
 - Python/Web 测试、静态检查和 GitHub Actions。
 
 ## 环境要求
@@ -164,7 +164,7 @@ uv run python -c "import base64,secrets; print(base64.b64encode(secrets.token_by
 
 ## 可观测性、成本与性能
 
-管理后台“可观测性”页面展示 API 错误率和 P50/P95/P99、Agent Run 成功率与延迟、队列积压、按 Provider/模型聚合的 Token 与冻结估算成本，以及按已发布配置确定性计算的活动告警。SLO、告警阈值、成本预算和聚合窗口均在配置中心管理；模型单价属于版本化模型档案。
+管理后台“可观测性”页面展示 API 错误率和 P50/P95/P99、Agent Run 成功率与延迟、队列积压、按 Provider/模型聚合的 Token 与冻结估算成本，以及按已发布配置确定性计算的活动告警。告警处置建议只允许管理员人工采纳或驳回；质量概览按窗口聚合采纳率、采纳后状态、动作/来源分布与同窗重放事实，不执行自动处置或自动调参。SLO、告警阈值、成本预算、建议阈值和聚合窗口均在配置中心管理；模型单价属于版本化模型档案。
 
 OpenTelemetry 的启用状态、服务名、OTLP endpoint/Header 和 Trace 采样率属于数据库可用前的启动配置。管理 API 只返回安全状态，不返回 Exporter Header；Trace 和指标禁止采集正文、完整 Prompt、隐藏推理、密钥、令牌和对象键。配置与故障处置见 [`docs/runbooks/observability-alerts.md`](docs/runbooks/observability-alerts.md)，压测方法见 [`docs/runbooks/performance-load-test.md`](docs/runbooks/performance-load-test.md)。
 

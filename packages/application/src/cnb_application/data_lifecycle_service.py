@@ -21,6 +21,7 @@ from cnb_domain import (
     LifecycleRunStatus,
     ObservabilityAlertDispositionEvent,
     ObservabilityAlertLifecycle,
+    ObservabilityAlertRecommendationFeedback,
     ObservabilityAlertReplayReview,
 )
 
@@ -76,11 +77,17 @@ class ObservabilityAlertHistorySnapshot:
     lifecycles: tuple[ObservabilityAlertLifecycle, ...]
     disposition_events: tuple[ObservabilityAlertDispositionEvent, ...]
     replay_reviews: tuple[ObservabilityAlertReplayReview, ...]
+    recommendation_feedback: tuple[ObservabilityAlertRecommendationFeedback, ...] = ()
     truncated: bool = False
 
     @property
     def record_count(self) -> int:
-        return len(self.lifecycles) + len(self.disposition_events) + len(self.replay_reviews)
+        return (
+            len(self.lifecycles)
+            + len(self.disposition_events)
+            + len(self.replay_reviews)
+            + len(self.recommendation_feedback)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +96,7 @@ class ObservabilityHistoryRetentionResult:
 
     disposition_events_purged: int
     replay_reviews_purged: int
+    recommendation_feedback_purged: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +108,7 @@ class DataLifecyclePolicy:
     deleted_attachment_days: int
     observability_disposition_event_days: int
     observability_replay_review_days: int
+    observability_recommendation_feedback_days: int
     orphan_grace_hours: int
     batch_size: int
     export_max_records: int
@@ -220,6 +229,7 @@ class ObservabilityHistoryRepository(Protocol):
         tenant_id: UUID,
         disposition_events_before: datetime,
         replay_reviews_before: datetime,
+        recommendation_feedback_before: datetime,
         limit: int,
     ) -> ObservabilityHistoryRetentionResult: ...
 
@@ -281,6 +291,9 @@ class DataLifecycleService:
             ),
             observability_replay_review_days=self._integer(
                 values, "data.retention.observability_replay_review_days"
+            ),
+            observability_recommendation_feedback_days=self._integer(
+                values, "data.retention.observability_recommendation_feedback_days"
             ),
             orphan_grace_hours=self._integer(values, "data.retention.orphan_grace_hours"),
             batch_size=self._integer(values, "data.retention.batch_size"),
@@ -378,7 +391,7 @@ class DataLifecycleService:
             package = cast(
                 dict[str, JsonValue],
                 {
-                    "schema_version": "cnb-observability-alert-history-v1",
+                    "schema_version": "cnb-observability-alert-history-v2",
                     "export_id": str(run.id),
                     "generated_at": window_ended_at.isoformat(),
                     "tenant_id": str(self._identity.tenant_id),
@@ -410,9 +423,10 @@ class DataLifecycleService:
                     "alert_lifecycles": len(snapshot.lifecycles),
                     "disposition_events": len(snapshot.disposition_events),
                     "replay_reviews": len(snapshot.replay_reviews),
+                    "recommendation_feedback": len(snapshot.recommendation_feedback),
                 },
                 evidence={
-                    "schema_version": "cnb-observability-alert-history-v1",
+                    "schema_version": "cnb-observability-alert-history-v2",
                     "sha256": digest,
                     "window_started_at": window_started_at.isoformat(),
                     "window_ended_at": window_ended_at.isoformat(),
@@ -553,11 +567,15 @@ class DataLifecycleService:
             replay_review_cutoff = cleanup_started_at - timedelta(
                 days=policy.observability_replay_review_days
             )
+            recommendation_feedback_cutoff = cleanup_started_at - timedelta(
+                days=policy.observability_recommendation_feedback_days
+            )
             observability_history = (
                 await self._observability_repository.purge_observability_alert_history(
                     tenant_id=self._identity.tenant_id,
                     disposition_events_before=disposition_event_cutoff,
                     replay_reviews_before=replay_review_cutoff,
+                    recommendation_feedback_before=recommendation_feedback_cutoff,
                     limit=policy.batch_size,
                 )
             )
@@ -575,6 +593,9 @@ class DataLifecycleService:
                 ),
                 "observability_replay_reviews_purged": (
                     observability_history.replay_reviews_purged
+                ),
+                "observability_recommendation_feedback_purged": (
+                    observability_history.recommendation_feedback_purged
                 ),
             }
             return await self._repository.finish_run(
@@ -594,6 +615,9 @@ class DataLifecycleService:
                         disposition_event_cutoff.isoformat()
                     ),
                     "observability_replay_review_cutoff": replay_review_cutoff.isoformat(),
+                    "observability_recommendation_feedback_cutoff": (
+                        recommendation_feedback_cutoff.isoformat()
+                    ),
                 },
                 error_code=(
                     "object_cleanup_failed"
@@ -789,6 +813,22 @@ class DataLifecycleService:
                         "reviewed_at": item.reviewed_at.isoformat(),
                     }
                     for item in snapshot.replay_reviews
+                ],
+                "recommendation_feedback": [
+                    {
+                        "id": str(item.id),
+                        "lifecycle_id": str(item.lifecycle_id),
+                        "source_type": item.source_type,
+                        "source_key": item.source_key,
+                        "code": item.code,
+                        "recommendation_action": item.recommendation_action.value,
+                        "priority": item.priority.value,
+                        "reason_codes": [reason.value for reason in item.reason_codes],
+                        "decision": item.decision.value,
+                        "actor_id": str(item.actor_id),
+                        "feedback_at": item.feedback_at.isoformat(),
+                    }
+                    for item in snapshot.recommendation_feedback
                 ],
             },
         )

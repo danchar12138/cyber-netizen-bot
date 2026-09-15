@@ -22,6 +22,7 @@ class LifecyclePolicyResponse(BaseModel):
     deleted_attachment_days: int
     observability_disposition_event_days: int
     observability_replay_review_days: int
+    observability_recommendation_feedback_days: int
     orphan_grace_hours: int
     batch_size: int
     export_max_records: int

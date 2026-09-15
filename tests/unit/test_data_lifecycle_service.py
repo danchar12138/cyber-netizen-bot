@@ -26,6 +26,11 @@ from cnb_domain import (
     LifecycleRunStatus,
     ObservabilityAlertDisposition,
     ObservabilityAlertDispositionStatus,
+    ObservabilityAlertRecommendationAction,
+    ObservabilityAlertRecommendationFeedback,
+    ObservabilityAlertRecommendationFeedbackDecision,
+    ObservabilityAlertRecommendationPriority,
+    ObservabilityAlertRecommendationReason,
     ObservabilityAlertReplayDecision,
     ObservabilityAlertReplayReason,
     ObservabilityAlertReplayReview,
@@ -141,6 +146,23 @@ async def _seed_alert_history(
             reviewed_at=occurred_at,
         )
     )
+    await repository.save_observability_alert_recommendation_feedback(
+        ObservabilityAlertRecommendationFeedback(
+            id=uuid4(),
+            tenant_id=identity.tenant_id,
+            agent_id=identity.agent_id,
+            lifecycle_id=lifecycle.id,
+            source_type="api",
+            source_key=source_key,
+            code="api_error_rate",
+            recommendation_action=ObservabilityAlertRecommendationAction.ACKNOWLEDGE,
+            priority=ObservabilityAlertRecommendationPriority.HIGH,
+            reason_codes=(ObservabilityAlertRecommendationReason.LONG_RUNNING,),
+            decision=ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED,
+            actor_id=identity.user_id,
+            feedback_at=occurred_at,
+        )
+    )
 
 
 async def test_lifecycle_policy_exposes_agent_retention_setting() -> None:
@@ -151,6 +173,7 @@ async def test_lifecycle_policy_exposes_agent_retention_setting() -> None:
     assert policy.deleted_agent_days == 30
     assert policy.observability_disposition_event_days == 90
     assert policy.observability_replay_review_days == 90
+    assert policy.observability_recommendation_feedback_days == 90
 
 
 async def test_user_export_is_bounded_and_excludes_internal_fields_and_object_keys() -> None:
@@ -223,12 +246,13 @@ async def test_observability_history_export_is_scoped_bounded_and_excludes_free_
     payload = cast(dict[str, JsonValue], json.loads(artifact.content))
     data = cast(dict[str, JsonValue], payload["data"])
 
-    assert payload["schema_version"] == "cnb-observability-alert-history-v1"
+    assert payload["schema_version"] == "cnb-observability-alert-history-v2"
     assert payload["agent_id"] == str(_identity().agent_id)
-    assert artifact.run.counters["records"] == 3
+    assert artifact.run.counters["records"] == 4
     assert len(cast(list[JsonValue], data["alert_lifecycles"])) == 1
     assert len(cast(list[JsonValue], data["disposition_events"])) == 1
     assert len(cast(list[JsonValue], data["replay_reviews"])) == 1
+    assert len(cast(list[JsonValue], data["recommendation_feedback"])) == 1
     assert "不应进入安全导出的自由文本备注" not in artifact.content.decode()
     assert _all_keys(payload).isdisjoint(
         {"payload", "target", "secret", "token", "prompt", "hidden_reasoning", "reason"}
@@ -249,7 +273,7 @@ class _TruncatedObservabilityRepository(MemoryObservabilityRepository):
         max_records: int,
     ) -> ObservabilityAlertHistorySnapshot:
         del tenant_id, agent_id, window_started_at, window_ended_at, max_records
-        return ObservabilityAlertHistorySnapshot((), (), (), truncated=True)
+        return ObservabilityAlertHistorySnapshot((), (), (), (), truncated=True)
 
 
 async def test_observability_history_export_rejects_record_overflow_with_fixed_error() -> None:
@@ -317,6 +341,7 @@ async def test_retention_cleanup_deletes_objects_before_purging_conversation() -
     assert repeated.counters["candidates"] == 0
     assert run.counters["observability_disposition_events_purged"] == 0
     assert run.counters["observability_replay_reviews_purged"] == 0
+    assert run.counters["observability_recommendation_feedback_purged"] == 0
 
 
 async def test_retention_cleanup_purges_only_expired_observability_history() -> None:
@@ -354,6 +379,10 @@ async def test_retention_cleanup_purges_only_expired_observability_history() -> 
         agent_id=identity.agent_id,
         limit=100,
     )
+    feedback = await observability.list_observability_alert_recommendation_feedback(
+        tenant_id=identity.tenant_id,
+        agent_id=identity.agent_id,
+    )
     foreign_reviews = await observability.list_observability_alert_replay_reviews(
         tenant_id=foreign_tenant_id,
         agent_id=foreign_agent_id,
@@ -362,8 +391,10 @@ async def test_retention_cleanup_purges_only_expired_observability_history() -> 
 
     assert run.counters["observability_disposition_events_purged"] == 1
     assert run.counters["observability_replay_reviews_purged"] == 1
+    assert run.counters["observability_recommendation_feedback_purged"] == 1
     assert [item.source_key for item in events] == ["fresh-alert"]
     assert [item.source_key for item in reviews] == ["fresh-alert"]
+    assert [item.source_key for item in feedback] == ["fresh-alert"]
     assert [item.source_key for item in foreign_reviews] == ["foreign-alert"]
 
 

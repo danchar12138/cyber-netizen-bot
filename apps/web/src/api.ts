@@ -47,6 +47,9 @@ import type {
   ObservabilityAlertLifecyclePageResponse,
   ObservabilityAlertOperationsSummaryResponse,
   ObservabilityAlertRecommendationAction,
+  ObservabilityAlertRecommendationFeedbackDecision,
+  ObservabilityAlertRecommendationFeedbackResponse,
+  ObservabilityAlertRecommendationQualityMetricsResponse,
   ObservabilityAlertRecommendationResponse,
   ObservabilityAlertReplayDecision,
   ObservabilityAlertReplayMetricsResponse,
@@ -393,6 +396,7 @@ export interface LifecyclePolicy {
   deleted_attachment_days: number
   observability_disposition_event_days: number
   observability_replay_review_days: number
+  observability_recommendation_feedback_days: number
   orphan_grace_hours: number
   batch_size: number
   export_max_records: number
@@ -1722,6 +1726,8 @@ export type ObservabilityAlertLifecycleMetrics = ObservabilityAlertLifecycleMetr
 export type ObservabilityAlertLifecyclePage = ObservabilityAlertLifecyclePageResponse
 export type ObservabilityAlertOperationsSummary = ObservabilityAlertOperationsSummaryResponse
 export type ObservabilityAlertRecommendation = ObservabilityAlertRecommendationResponse
+export type ObservabilityAlertRecommendationFeedback = ObservabilityAlertRecommendationFeedbackResponse
+export type ObservabilityAlertRecommendationQuality = ObservabilityAlertRecommendationQualityMetricsResponse
 export type ObservabilityAlertReplayReview = ObservabilityAlertReplayReviewResponse
 export type ObservabilityAlertReplayReviewPage = ObservabilityAlertReplayReviewPageResponse
 export type ObservabilityAlertReplayMetrics = ObservabilityAlertReplayMetricsResponse
@@ -1772,6 +1778,24 @@ export const getObservabilityAlertRecommendations = (filters: {
   limit?: number
 } = {}) => apiSdk.getApiV1ObservabilityAlertRecommendations({
   query: { ...filters, limit: filters.limit ?? 50 },
+})
+
+export const getObservabilityAlertRecommendationQuality = (filters: {
+  window_minutes?: number
+  source_type?: string
+} = {}) => apiSdk.getApiV1ObservabilityAlertRecommendationsQuality({
+  query: {
+    window_minutes: filters.window_minutes ?? 10_080,
+    source_type: filters.source_type,
+  },
+})
+
+export const submitObservabilityAlertRecommendationFeedback = (
+  lifecycleId: string,
+  decision: ObservabilityAlertRecommendationFeedbackDecision,
+) => apiSdk.postApiV1ObservabilityAlertRecommendationsByLifecycleIdFeedback({
+  path: { lifecycle_id: lifecycleId },
+  body: { decision, confirmed: true },
 })
 
 export const getObservabilityAlertDispositionEvents = (filters: {
