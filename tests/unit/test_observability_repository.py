@@ -133,3 +133,40 @@ async def test_postgresql_lifecycle_filters_keep_tenant_and_agent_scope() -> Non
     assert "status = 'active'" in lifecycle_sql
     assert "first_occurred_at" in lifecycle_sql
     assert "LIMIT 25" in lifecycle_sql
+
+
+async def test_postgresql_lifecycle_metrics_query_keeps_scope_and_filters() -> None:
+    """通用趋势查询必须独立使用通用生命周期表并下推全部作用域。"""
+    agent_id = uuid4()
+    tenant_id = uuid4()
+    ended_at = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    captured = _CapturingSession()
+    session = cast(AsyncSession, captured)
+
+    class _SessionContext:
+        async def __aenter__(self) -> AsyncSession:
+            return session
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+    repository = SqlAlchemyObservabilityRepository(cast(Any, lambda: _SessionContext()))
+    await repository.list_observability_alert_lifecycles_in_window(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        window_started_at=ended_at - timedelta(hours=24),
+        window_ended_at=ended_at,
+        source_type="model_runtime",
+        severity=AlertSeverity.CRITICAL,
+    )
+
+    lifecycle_sql = _sql(captured.statements[-1])
+    assert "observability_alert_lifecycles" in lifecycle_sql
+    assert "channel_alert_lifecycles" not in lifecycle_sql
+    assert str(tenant_id) in lifecycle_sql
+    assert str(agent_id) in lifecycle_sql
+    assert "source_type = 'model_runtime'" in lifecycle_sql
+    assert "severity = 'critical'" in lifecycle_sql
+    assert "first_occurred_at BETWEEN" in lifecycle_sql
+    assert "resolved_at BETWEEN" in lifecycle_sql
+    assert "escalated_at BETWEEN" in lifecycle_sql

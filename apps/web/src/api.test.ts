@@ -8,6 +8,7 @@ import {
   formatConfigValue,
   formatConfigVersionStatus,
   getObservabilityAlertLifecycles,
+  getObservabilityAlertLifecycleMetrics,
   importConfigPackage,
   setApiAccessToken,
   suppressObservabilityAlert,
@@ -109,6 +110,39 @@ describe('通用告警客户端', () => {
       expires_at: '2026-09-14T06:00:00Z',
     })
     expect(await requests[2]!.json()).toEqual({ confirmed: true })
+  })
+
+  it('使用通用告警专用路径传递趋势筛选', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      window_started_at: '2026-09-14T12:00:00Z',
+      window_ended_at: '2026-09-15T12:00:00Z',
+      active: 0,
+      opened: 0,
+      resolved: 0,
+      escalated: 0,
+      mean_recovery_seconds: 0,
+      p95_recovery_seconds: 0,
+      sources: [],
+      trend: [],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getObservabilityAlertLifecycleMetrics({
+      window_minutes: 720,
+      bucket_minutes: 30,
+      source_type: 'api',
+      severity: 'warning',
+    })
+
+    const request = fetchMock.mock.calls[0]?.[0] as Request
+    const url = new URL(request.url)
+    expect(url.pathname).toBe('/api/v1/observability/alert-lifecycles/metrics')
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      window_minutes: '720',
+      bucket_minutes: '30',
+      source_type: 'api',
+      severity: 'warning',
+    })
   })
 })
 

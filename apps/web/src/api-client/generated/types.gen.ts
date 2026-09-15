@@ -6232,6 +6232,54 @@ export type ObservabilityAlertDispositionResponse = {
 export type ObservabilityAlertDispositionStatus = 'acknowledged' | 'suppressed';
 
 /**
+ * ObservabilityAlertLifecycleMetricsResponse
+ *
+ * 当前 Agent 的通用告警生命周期聚合与趋势。
+ */
+export type ObservabilityAlertLifecycleMetricsResponse = {
+    /**
+     * Active
+     */
+    active: number;
+    /**
+     * Escalated
+     */
+    escalated: number;
+    /**
+     * Mean Recovery Seconds
+     */
+    mean_recovery_seconds: number;
+    /**
+     * Opened
+     */
+    opened: number;
+    /**
+     * P95 Recovery Seconds
+     */
+    p95_recovery_seconds: number;
+    /**
+     * Resolved
+     */
+    resolved: number;
+    /**
+     * Sources
+     */
+    sources: Array<ObservabilityAlertSourceLifecycleMetricsResponse>;
+    /**
+     * Trend
+     */
+    trend: Array<ObservabilityAlertLifecycleTrendPointResponse>;
+    /**
+     * Window Ended At
+     */
+    window_ended_at: string;
+    /**
+     * Window Started At
+     */
+    window_started_at: string;
+};
+
+/**
  * ObservabilityAlertLifecycleResponse
  *
  * 通用可观测告警生命周期，不含通知目标或 Secret。
@@ -6324,6 +6372,66 @@ export type ObservabilityAlertLifecycleResponse = {
  * 通用可观测告警生命周期状态。
  */
 export type ObservabilityAlertLifecycleStatus = 'active' | 'resolved';
+
+/**
+ * ObservabilityAlertLifecycleTrendPointResponse
+ *
+ * 一个固定时间桶内的通用告警生命周期变化。
+ */
+export type ObservabilityAlertLifecycleTrendPointResponse = {
+    /**
+     * Bucket Started At
+     */
+    bucket_started_at: string;
+    /**
+     * Escalated
+     */
+    escalated: number;
+    /**
+     * Opened
+     */
+    opened: number;
+    /**
+     * Resolved
+     */
+    resolved: number;
+};
+
+/**
+ * ObservabilityAlertSourceLifecycleMetricsResponse
+ *
+ * 单一通用告警来源的安全聚合。
+ */
+export type ObservabilityAlertSourceLifecycleMetricsResponse = {
+    /**
+     * Active
+     */
+    active: number;
+    /**
+     * Escalated
+     */
+    escalated: number;
+    /**
+     * Mean Recovery Seconds
+     */
+    mean_recovery_seconds: number;
+    /**
+     * Opened
+     */
+    opened: number;
+    /**
+     * P95 Recovery Seconds
+     */
+    p95_recovery_seconds: number;
+    /**
+     * Resolved
+     */
+    resolved: number;
+    /**
+     * Source Type
+     */
+    source_type: string;
+};
 
 /**
  * ObservabilityAlertSuppressionCommand
@@ -15545,6 +15653,80 @@ export type GetApiV1ObservabilityAlertLifecyclesResponses = {
 };
 
 export type GetApiV1ObservabilityAlertLifecyclesResponse = GetApiV1ObservabilityAlertLifecyclesResponses[keyof GetApiV1ObservabilityAlertLifecyclesResponses];
+
+export type GetApiV1ObservabilityAlertLifecyclesMetricsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Window Minutes
+         */
+        window_minutes?: number;
+        /**
+         * Bucket Minutes
+         */
+        bucket_minutes?: number;
+        /**
+         * Source Type
+         */
+        source_type?: string | null;
+        /**
+         * Severity
+         */
+        severity?: AlertSeverity | null;
+    };
+    url: '/api/v1/observability/alert-lifecycles/metrics';
+};
+
+export type GetApiV1ObservabilityAlertLifecyclesMetricsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ObservabilityAlertLifecyclesMetricsError = GetApiV1ObservabilityAlertLifecyclesMetricsErrors[keyof GetApiV1ObservabilityAlertLifecyclesMetricsErrors];
+
+export type GetApiV1ObservabilityAlertLifecyclesMetricsResponses = {
+    /**
+     * 请求成功
+     */
+    200: ObservabilityAlertLifecycleMetricsResponse;
+};
+
+export type GetApiV1ObservabilityAlertLifecyclesMetricsResponse = GetApiV1ObservabilityAlertLifecyclesMetricsResponses[keyof GetApiV1ObservabilityAlertLifecyclesMetricsResponses];
 
 export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdAcknowledgeData = {
     body: ObservabilityAlertDispositionCommand;

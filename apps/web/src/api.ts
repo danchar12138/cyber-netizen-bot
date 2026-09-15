@@ -40,6 +40,7 @@ import type {
   ObservabilityAlertDispositionCommand,
   ObservabilityAlertDispositionResponse,
   ObservabilityAlertLifecycleResponse,
+  ObservabilityAlertLifecycleMetricsResponse,
   ObservabilityAlertLifecycleStatus,
   ObservabilityAlertSuppressionCommand,
   TelegramWebhookStatusResponse,
@@ -1679,6 +1680,7 @@ export const getObservabilityDashboard = () =>
 
 export type ObservabilityAlertLifecycle = ObservabilityAlertLifecycleResponse
 export type ObservabilityAlertDisposition = ObservabilityAlertDispositionResponse
+export type ObservabilityAlertLifecycleMetrics = ObservabilityAlertLifecycleMetricsResponse
 
 export interface ObservabilityAlertLifecycleFilters {
   status?: ObservabilityAlertLifecycleStatus
@@ -1693,6 +1695,20 @@ export const getObservabilityAlertLifecycles = (
   apiSdk.getApiV1ObservabilityAlertLifecycles({
     query: { ...filters, limit: 100 },
   })
+
+export const getObservabilityAlertLifecycleMetrics = (filters: {
+  window_minutes?: number
+  bucket_minutes?: number
+  source_type?: string
+  severity?: AlertSeverity
+} = {}) => apiSdk.getApiV1ObservabilityAlertLifecyclesMetrics({
+  query: {
+    window_minutes: filters.window_minutes ?? 1_440,
+    bucket_minutes: filters.bucket_minutes ?? 60,
+    source_type: filters.source_type,
+    severity: filters.severity,
+  },
+})
 
 export const acknowledgeObservabilityAlert = (
   lifecycleId: string,

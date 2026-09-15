@@ -124,6 +124,42 @@ class ObservabilityAlertLifecycleResponse(BaseModel):
     disposition_expires_at: datetime | None = None
 
 
+class ObservabilityAlertLifecycleTrendPointResponse(BaseModel):
+    """一个固定时间桶内的通用告警生命周期变化。"""
+
+    bucket_started_at: datetime
+    opened: int = Field(ge=0)
+    resolved: int = Field(ge=0)
+    escalated: int = Field(ge=0)
+
+
+class ObservabilityAlertSourceLifecycleMetricsResponse(BaseModel):
+    """单一通用告警来源的安全聚合。"""
+
+    source_type: str = Field(min_length=1, max_length=80)
+    active: int = Field(ge=0)
+    opened: int = Field(ge=0)
+    resolved: int = Field(ge=0)
+    escalated: int = Field(ge=0)
+    mean_recovery_seconds: float = Field(ge=0)
+    p95_recovery_seconds: int = Field(ge=0)
+
+
+class ObservabilityAlertLifecycleMetricsResponse(BaseModel):
+    """当前 Agent 的通用告警生命周期聚合与趋势。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    active: int = Field(ge=0)
+    opened: int = Field(ge=0)
+    resolved: int = Field(ge=0)
+    escalated: int = Field(ge=0)
+    mean_recovery_seconds: float = Field(ge=0)
+    p95_recovery_seconds: int = Field(ge=0)
+    sources: tuple[ObservabilityAlertSourceLifecycleMetricsResponse, ...]
+    trend: tuple[ObservabilityAlertLifecycleTrendPointResponse, ...]
+
+
 class ObservabilityAlertDispositionCommand(BaseModel):
     """通用告警确认命令，调用方必须显式确认。"""
 

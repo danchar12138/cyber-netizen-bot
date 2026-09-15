@@ -6,8 +6,8 @@ import {
   acknowledgeObservabilityAlert,
   clearObservabilityAlertDisposition,
   getAdminSession,
-  getChannelAlertLifecycleMetrics,
   getCognitiveRunTrace,
+  getObservabilityAlertLifecycleMetrics,
   getObservabilityAlertLifecycles,
   getObservabilityDashboard,
   suppressObservabilityAlert,
@@ -55,7 +55,6 @@ export function ObservabilityPage() {
   const selectedAgentId = useSelectedAgentId()
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const canReadTrace = session.data?.permissions.includes('trace:read') ?? false
-  const canReadChannels = session.data?.permissions.includes('channel:read') ?? false
   const canManageAlerts = session.data?.permissions.includes('observability_alert:manage') ?? false
   const dashboard = useQuery({
     queryKey: ['observability-dashboard', selectedAgentId],
@@ -64,9 +63,14 @@ export function ObservabilityPage() {
     refetchInterval: 30_000,
   })
   const lifecycleMetrics = useQuery({
-    queryKey: ['channel-alert-lifecycle-metrics', selectedAgentId, 1_440, 60],
-    queryFn: () => getChannelAlertLifecycleMetrics(1_440, 60),
-    enabled: canReadChannels,
+    queryKey: ['observability-alert-lifecycle-metrics', selectedAgentId, 1_440, 60, alertSourceType, alertSeverity],
+    queryFn: () => getObservabilityAlertLifecycleMetrics({
+      window_minutes: 1_440,
+      bucket_minutes: 60,
+      source_type: alertSourceType || undefined,
+      severity: alertSeverity || undefined,
+    }),
+    enabled: canReadTrace,
     refetchInterval: 30_000,
   })
   const alertLifecycles = useQuery({
@@ -174,7 +178,7 @@ export function ObservabilityPage() {
       <div className="notice info"><ShieldCheck size={17} /><div><strong>安全可观测边界</strong><span>指标与链路追踪不保存消息正文、完整提示词、隐藏推理、密钥、访问令牌或对象键。</span></div></div>
 
       {dashboard.isError && <div className="notice error" role="alert">无法读取可观测聚合，请检查应用接口、数据库和当前权限。</div>}
-      {lifecycleMetrics.isError && <div className="notice error" role="alert">无法读取告警生命周期指标，请检查渠道读取权限与迁移状态。</div>}
+      {lifecycleMetrics.isError && <div className="notice error" role="alert">无法读取通用告警生命周期指标，请检查当前 Agent 与迁移状态。</div>}
       {alertLifecycles.isError && <div className="notice error" role="alert">无法读取通用告警生命周期，请检查当前 Agent 与迁移状态。</div>}
       {(dispositionInputError || dispositionMutation.error) && <div className="notice error" role="alert">{dispositionInputError ?? dispositionMutation.error?.message}</div>}
       {dispositionFeedback && <div className="notice success" role="status"><CheckCircle2 size={17} /><div><strong>告警处置已更新</strong><span>{dispositionFeedback}</span></div></div>}
@@ -187,8 +191,8 @@ export function ObservabilityPage() {
         <article className="metric-card"><div className="metric-icon"><BellRing size={18} /></div><p>通知投递任务</p><strong>{data?.notification_delivery.total ?? '—'}</strong><span>成功 {data?.notification_delivery.succeeded ?? 0} · 重试 {data?.notification_delivery.retrying ?? 0} · 待处理死信 {data?.notification_delivery.dead_letters ?? 0}</span></article>
       </section>
 
-      <section className="channel-lifecycle-observability" aria-label="告警生命周期指标">
-        <div className="panel-heading channel-operation-heading"><div><p className="eyebrow">最近 24 小时 · 每小时固定桶</p><h2>告警生命周期趋势</h2></div><span className="subtle">当前 Agent</span></div>
+      <section className="channel-lifecycle-observability" aria-label="通用告警生命周期指标">
+        <div className="panel-heading channel-operation-heading"><div><p className="eyebrow">通用来源 · 最近 24 小时 · 每小时固定桶</p><h2>告警生命周期趋势</h2></div><span className="subtle">当前 Agent</span></div>
         <div className="metric-grid lifecycle-observability-metrics">
           <article className="metric-card"><div className="metric-icon"><TriangleAlert size={18} /></div><p>活动事件</p><strong>{lifecycle?.active ?? '—'}</strong><span>当前仍未恢复</span></article>
           <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>新开启</p><strong>{lifecycle?.opened ?? '—'}</strong><span>窗口内首次发生</span></article>
@@ -206,6 +210,11 @@ export function ObservabilityPage() {
               <time dateTime={point.bucket_started_at}>{new Date(point.bucket_started_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time>
             </div>)}
           </div> : null}
+        </div>
+        <div className="panel observability-source-metrics">
+          <div className="panel-heading"><div><p className="eyebrow">按来源独立聚合</p><h2>来源健康对比</h2></div><span className="subtle">{lifecycle?.sources.length ?? 0} 个来源</span></div>
+          {!lifecycle?.sources.length && <div className="empty-state">当前筛选条件下暂无来源数据。</div>}
+          {!!lifecycle?.sources.length && <div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>来源</th><th>活动</th><th>开启</th><th>恢复</th><th>升级</th><th>平均恢复</th><th>P95 恢复</th></tr></thead><tbody>{lifecycle.sources.map((item) => <tr key={item.source_type}><td className="table-primary"><strong>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)}</strong><code>{item.source_type}</code></td><td>{item.active}</td><td>{item.opened}</td><td>{item.resolved}</td><td>{item.escalated}</td><td>{formatDuration(Math.round(item.mean_recovery_seconds))}</td><td>{formatDuration(item.p95_recovery_seconds)}</td></tr>)}</tbody></table></div>}
         </div>
       </section>
 

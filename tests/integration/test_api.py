@@ -48,6 +48,7 @@ from cnb_contracts import (
     MessageListResponse,
     MessageSearchResponse,
     ObservabilityAlertDispositionResponse,
+    ObservabilityAlertLifecycleMetricsResponse,
     ObservabilityAlertLifecycleResponse,
     ObservabilityDashboardResponse,
     SystemOverviewResponse,
@@ -183,6 +184,16 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
             },
             headers={"X-CNB-Development-Role": "viewer"},
         )
+        metrics_response = await client.get(
+            "/api/v1/observability/alert-lifecycles/metrics",
+            params={
+                "window_minutes": 1_440,
+                "bucket_minutes": 60,
+                "source_type": "model_runtime",
+                "severity": "critical",
+            },
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
         viewer_response = await client.post(
             f"/api/v1/observability/alert-lifecycles/{lifecycle_id}/acknowledge",
             json={"reason": "值班人员已接手", "confirmed": True},
@@ -238,6 +249,7 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
         ObservabilityAlertLifecycleResponse.model_validate(item)
         for item in filtered_response.json()
     )
+    metrics = ObservabilityAlertLifecycleMetricsResponse.model_validate(metrics_response.json())
     acknowledged = ObservabilityAlertDispositionResponse.model_validate(
         acknowledged_response.json()
     )
@@ -249,6 +261,10 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
     cleared = ObservabilityAlertDispositionResponse.model_validate(cleared_response.json())
     assert filtered_response.status_code == 200
     assert [item.id for item in filtered] == [lifecycle_id]
+    assert metrics_response.status_code == 200
+    assert (metrics.active, metrics.opened, metrics.resolved, metrics.escalated) == (1, 1, 0, 0)
+    assert [item.source_type for item in metrics.sources] == ["model_runtime"]
+    assert len(metrics.trend) == 24
     assert viewer_response.status_code == 403
     assert unconfirmed_response.status_code == 422
     assert acknowledged.status == "acknowledged"

@@ -7,7 +7,7 @@ from math import ceil
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased
@@ -222,6 +222,40 @@ class MemoryObservabilityRepository:
                 )
             ]
             return tuple(sorted(values, key=lambda item: item.updated_at, reverse=True)[:limit])
+
+    async def list_observability_alert_lifecycles_in_window(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+        source_type: str | None = None,
+        severity: AlertSeverity | None = None,
+    ) -> tuple[ObservabilityAlertLifecycle, ...]:
+        async with self._lock:
+            values = [
+                item
+                for item in self._lifecycles.values()
+                if item.tenant_id == tenant_id
+                and item.agent_id == agent_id
+                and (source_type is None or item.source_type == source_type)
+                and (severity is None or item.severity is severity)
+                and (
+                    item.status is ObservabilityAlertLifecycleStatus.ACTIVE
+                    or window_started_at <= item.first_occurred_at <= window_ended_at
+                    or (
+                        item.resolved_at is not None
+                        and window_started_at <= item.resolved_at <= window_ended_at
+                    )
+                    or (
+                        item.escalated_at is not None
+                        and window_started_at <= item.escalated_at <= window_ended_at
+                    )
+                )
+            ]
+            values.sort(key=lambda item: (item.first_occurred_at, str(item.id)), reverse=True)
+            return tuple(values)
 
     async def get_observability_alert_lifecycle(
         self,
@@ -547,6 +581,48 @@ class SqlAlchemyObservabilityRepository:
                 - ObservabilityAlertLifecycleModel.first_occurred_at
                 >= timedelta(minutes=minimum_duration_minutes)
             )
+        async with self._session_factory() as session:
+            rows = (await session.scalars(statement)).all()
+        return tuple(self._observability_lifecycle(row) for row in rows)
+
+    async def list_observability_alert_lifecycles_in_window(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+        source_type: str | None = None,
+        severity: AlertSeverity | None = None,
+    ) -> tuple[ObservabilityAlertLifecycle, ...]:
+        statement = (
+            select(ObservabilityAlertLifecycleModel)
+            .where(
+                ObservabilityAlertLifecycleModel.tenant_id == tenant_id,
+                ObservabilityAlertLifecycleModel.agent_id == agent_id,
+                or_(
+                    ObservabilityAlertLifecycleModel.status
+                    == ObservabilityAlertLifecycleStatus.ACTIVE.value,
+                    ObservabilityAlertLifecycleModel.first_occurred_at.between(
+                        window_started_at, window_ended_at
+                    ),
+                    ObservabilityAlertLifecycleModel.resolved_at.between(
+                        window_started_at, window_ended_at
+                    ),
+                    ObservabilityAlertLifecycleModel.escalated_at.between(
+                        window_started_at, window_ended_at
+                    ),
+                ),
+            )
+            .order_by(
+                ObservabilityAlertLifecycleModel.first_occurred_at.desc(),
+                ObservabilityAlertLifecycleModel.id.desc(),
+            )
+        )
+        if source_type is not None:
+            statement = statement.where(ObservabilityAlertLifecycleModel.source_type == source_type)
+        if severity is not None:
+            statement = statement.where(ObservabilityAlertLifecycleModel.severity == severity.value)
         async with self._session_factory() as session:
             rows = (await session.scalars(statement)).all()
         return tuple(self._observability_lifecycle(row) for row in rows)

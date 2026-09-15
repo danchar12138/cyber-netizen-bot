@@ -10475,6 +10475,79 @@
         "title": "ObservabilityAlertDispositionStatus",
         "type": "string"
       },
+      "ObservabilityAlertLifecycleMetricsResponse": {
+        "description": "当前 Agent 的通用告警生命周期聚合与趋势。",
+        "properties": {
+          "active": {
+            "minimum": 0.0,
+            "title": "Active",
+            "type": "integer"
+          },
+          "escalated": {
+            "minimum": 0.0,
+            "title": "Escalated",
+            "type": "integer"
+          },
+          "mean_recovery_seconds": {
+            "minimum": 0.0,
+            "title": "Mean Recovery Seconds",
+            "type": "number"
+          },
+          "opened": {
+            "minimum": 0.0,
+            "title": "Opened",
+            "type": "integer"
+          },
+          "p95_recovery_seconds": {
+            "minimum": 0.0,
+            "title": "P95 Recovery Seconds",
+            "type": "integer"
+          },
+          "resolved": {
+            "minimum": 0.0,
+            "title": "Resolved",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityAlertSourceLifecycleMetricsResponse"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "trend": {
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityAlertLifecycleTrendPointResponse"
+            },
+            "title": "Trend",
+            "type": "array"
+          },
+          "window_ended_at": {
+            "format": "date-time",
+            "title": "Window Ended At",
+            "type": "string"
+          },
+          "window_started_at": {
+            "format": "date-time",
+            "title": "Window Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_started_at",
+          "window_ended_at",
+          "active",
+          "opened",
+          "resolved",
+          "escalated",
+          "mean_recovery_seconds",
+          "p95_recovery_seconds",
+          "sources",
+          "trend"
+        ],
+        "title": "ObservabilityAlertLifecycleMetricsResponse",
+        "type": "object"
+      },
       "ObservabilityAlertLifecycleResponse": {
         "description": "通用可观测告警生命周期，不含通知目标或 Secret。",
         "properties": {
@@ -10658,6 +10731,91 @@
         ],
         "title": "ObservabilityAlertLifecycleStatus",
         "type": "string"
+      },
+      "ObservabilityAlertLifecycleTrendPointResponse": {
+        "description": "一个固定时间桶内的通用告警生命周期变化。",
+        "properties": {
+          "bucket_started_at": {
+            "format": "date-time",
+            "title": "Bucket Started At",
+            "type": "string"
+          },
+          "escalated": {
+            "minimum": 0.0,
+            "title": "Escalated",
+            "type": "integer"
+          },
+          "opened": {
+            "minimum": 0.0,
+            "title": "Opened",
+            "type": "integer"
+          },
+          "resolved": {
+            "minimum": 0.0,
+            "title": "Resolved",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bucket_started_at",
+          "opened",
+          "resolved",
+          "escalated"
+        ],
+        "title": "ObservabilityAlertLifecycleTrendPointResponse",
+        "type": "object"
+      },
+      "ObservabilityAlertSourceLifecycleMetricsResponse": {
+        "description": "单一通用告警来源的安全聚合。",
+        "properties": {
+          "active": {
+            "minimum": 0.0,
+            "title": "Active",
+            "type": "integer"
+          },
+          "escalated": {
+            "minimum": 0.0,
+            "title": "Escalated",
+            "type": "integer"
+          },
+          "mean_recovery_seconds": {
+            "minimum": 0.0,
+            "title": "Mean Recovery Seconds",
+            "type": "number"
+          },
+          "opened": {
+            "minimum": 0.0,
+            "title": "Opened",
+            "type": "integer"
+          },
+          "p95_recovery_seconds": {
+            "minimum": 0.0,
+            "title": "P95 Recovery Seconds",
+            "type": "integer"
+          },
+          "resolved": {
+            "minimum": 0.0,
+            "title": "Resolved",
+            "type": "integer"
+          },
+          "source_type": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_type",
+          "active",
+          "opened",
+          "resolved",
+          "escalated",
+          "mean_recovery_seconds",
+          "p95_recovery_seconds"
+        ],
+        "title": "ObservabilityAlertSourceLifecycleMetricsResponse",
+        "type": "object"
       },
       "ObservabilityAlertSuppressionCommand": {
         "description": "带明确到期时间的通用告警临时抑制命令。",
@@ -29595,6 +29753,178 @@
           }
         },
         "summary": "执行可观测性操作",
+        "tags": [
+          "可观测性"
+        ]
+      }
+    },
+    "/api/v1/observability/alert-lifecycles/metrics": {
+      "get": {
+        "description": "查询当前 Agent 的通用来源生命周期聚合与固定时间桶趋势。",
+        "operationId": "get_api_v1_observability_alert_lifecycles_metrics",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window_minutes",
+            "required": false,
+            "schema": {
+              "default": 1440,
+              "maximum": 10080,
+              "minimum": 5,
+              "title": "Window Minutes",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bucket_minutes",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "maximum": 1440,
+              "minimum": 5,
+              "title": "Bucket Minutes",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AlertSeverity"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Severity"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservabilityAlertLifecycleMetricsResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "查询当前 Agent 的通用来源生命周期聚合与固定时间桶趋势",
         "tags": [
           "可观测性"
         ]

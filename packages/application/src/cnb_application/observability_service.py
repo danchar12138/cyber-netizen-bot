@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
 from cnb_application.configuration_service import ConfigurationService
@@ -40,6 +40,45 @@ class ObservabilityAlertLifecycleReconciliation:
     active_lifecycles: tuple[ObservabilityAlertLifecycle, ...]
     activated_lifecycles: tuple[ObservabilityAlertLifecycle, ...]
     recovered_lifecycles: tuple[ObservabilityAlertLifecycle, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertLifecycleTrendPoint:
+    """一个固定时间桶内的通用告警生命周期变化计数。"""
+
+    bucket_started_at: datetime
+    opened: int
+    resolved: int
+    escalated: int
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertSourceLifecycleMetrics:
+    """单一通用告警来源的安全生命周期聚合。"""
+
+    source_type: str
+    active: int
+    opened: int
+    resolved: int
+    escalated: int
+    mean_recovery_seconds: float
+    p95_recovery_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertLifecycleMetrics:
+    """当前 Agent 的通用告警生命周期聚合与趋势。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    active: int
+    opened: int
+    resolved: int
+    escalated: int
+    mean_recovery_seconds: float
+    p95_recovery_seconds: int
+    sources: tuple[ObservabilityAlertSourceLifecycleMetrics, ...]
+    trend: tuple[ObservabilityAlertLifecycleTrendPoint, ...]
 
 
 class ObservabilityValidationError(ValueError):
@@ -84,6 +123,17 @@ class ObservabilityRepository(Protocol):
         minimum_duration_minutes: int | None = None,
         evaluated_at: datetime | None = None,
         limit: int = 100,
+    ) -> tuple[ObservabilityAlertLifecycle, ...]: ...
+
+    async def list_observability_alert_lifecycles_in_window(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+        source_type: str | None = None,
+        severity: AlertSeverity | None = None,
     ) -> tuple[ObservabilityAlertLifecycle, ...]: ...
 
     async def get_observability_alert_lifecycle(
@@ -330,6 +380,128 @@ class ObservabilityService:
             tenant_id=tenant_id, agent_id=agent_id
         )
         return self._attach_dispositions(rows, dispositions, evaluated_at)
+
+    async def alert_lifecycle_metrics(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_minutes: int,
+        bucket_minutes: int,
+        source_type: str | None = None,
+        severity: AlertSeverity | None = None,
+        now: datetime | None = None,
+    ) -> ObservabilityAlertLifecycleMetrics:
+        """独立统计通用生命周期表，避免复用渠道指标口径。"""
+        if not 5 <= window_minutes <= 10_080:
+            raise ObservabilityValidationError("通用告警统计窗口必须位于 5 到 10080 分钟之间")
+        if not 5 <= bucket_minutes <= 1_440 or bucket_minutes > window_minutes:
+            raise ObservabilityValidationError("通用告警趋势时间桶必须位于 5 分钟到统计窗口之间")
+        normalized_source = source_type.strip() if source_type is not None else None
+        if source_type is not None and not normalized_source:
+            raise ObservabilityValidationError("通用告警来源类型不能为空")
+        if normalized_source is not None and len(normalized_source) > 80:
+            raise ObservabilityValidationError("通用告警来源类型不能超过 80 个字符")
+        ended_at = (now or datetime.now(UTC)).astimezone(UTC)
+        started_at = ended_at - timedelta(minutes=window_minutes)
+        rows = await self._repository.list_observability_alert_lifecycles_in_window(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            window_started_at=started_at,
+            window_ended_at=ended_at,
+            source_type=normalized_source,
+            severity=severity,
+        )
+        bucket_seconds = bucket_minutes * 60
+        bucket_count = (window_minutes + bucket_minutes - 1) // bucket_minutes
+        buckets = [
+            ObservabilityAlertLifecycleTrendPoint(
+                bucket_started_at=started_at + timedelta(minutes=index * bucket_minutes),
+                opened=0,
+                resolved=0,
+                escalated=0,
+            )
+            for index in range(bucket_count)
+        ]
+
+        def add_event(
+            event_at: datetime | None,
+            field: Literal["opened", "resolved", "escalated"],
+        ) -> None:
+            if event_at is None or not started_at <= event_at <= ended_at:
+                return
+            index = min(
+                bucket_count - 1,
+                int((event_at - started_at).total_seconds()) // bucket_seconds,
+            )
+            point = buckets[index]
+            buckets[index] = replace(point, **{field: getattr(point, field) + 1})
+
+        for row in rows:
+            add_event(row.first_occurred_at, "opened")
+            add_event(row.resolved_at, "resolved")
+            add_event(row.escalated_at, "escalated")
+
+        def recovery_values(items: tuple[ObservabilityAlertLifecycle, ...]) -> list[int]:
+            return sorted(
+                row.recovery_duration_seconds
+                for row in items
+                if row.resolved_at is not None
+                and started_at <= row.resolved_at <= ended_at
+                and row.recovery_duration_seconds is not None
+            )
+
+        def summary(
+            source: str | None,
+            items: tuple[ObservabilityAlertLifecycle, ...],
+        ) -> ObservabilityAlertSourceLifecycleMetrics:
+            recovery = recovery_values(items)
+            p95_index = max(0, (95 * len(recovery) + 99) // 100 - 1) if recovery else 0
+            return ObservabilityAlertSourceLifecycleMetrics(
+                source_type=source or "全部来源",
+                active=sum(
+                    item.status is ObservabilityAlertLifecycleStatus.ACTIVE for item in items
+                ),
+                opened=sum(started_at <= item.first_occurred_at <= ended_at for item in items),
+                resolved=sum(
+                    item.resolved_at is not None and started_at <= item.resolved_at <= ended_at
+                    for item in items
+                ),
+                escalated=sum(
+                    item.escalated_at is not None and started_at <= item.escalated_at <= ended_at
+                    for item in items
+                ),
+                mean_recovery_seconds=sum(recovery) / len(recovery) if recovery else 0.0,
+                p95_recovery_seconds=recovery[p95_index] if recovery else 0,
+            )
+
+        all_rows = tuple(rows)
+        recovery = recovery_values(all_rows)
+        p95_index = max(0, (95 * len(recovery) + 99) // 100 - 1) if recovery else 0
+        grouped: dict[str, list[ObservabilityAlertLifecycle]] = {}
+        for row in all_rows:
+            grouped.setdefault(row.source_type, []).append(row)
+        by_source = tuple(summary(source, tuple(grouped[source])) for source in sorted(grouped))
+        return ObservabilityAlertLifecycleMetrics(
+            window_started_at=started_at,
+            window_ended_at=ended_at,
+            active=sum(
+                item.status is ObservabilityAlertLifecycleStatus.ACTIVE for item in all_rows
+            ),
+            opened=sum(started_at <= item.first_occurred_at <= ended_at for item in all_rows),
+            resolved=sum(
+                item.resolved_at is not None and started_at <= item.resolved_at <= ended_at
+                for item in all_rows
+            ),
+            escalated=sum(
+                item.escalated_at is not None and started_at <= item.escalated_at <= ended_at
+                for item in all_rows
+            ),
+            mean_recovery_seconds=sum(recovery) / len(recovery) if recovery else 0.0,
+            p95_recovery_seconds=recovery[p95_index] if recovery else 0,
+            sources=by_source,
+            trend=tuple(buckets),
+        )
 
     async def acknowledge_alert(
         self,

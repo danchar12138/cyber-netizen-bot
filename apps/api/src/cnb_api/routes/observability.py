@@ -26,6 +26,7 @@ from cnb_contracts import (
     ObservabilityAlertDispositionClearCommand,
     ObservabilityAlertDispositionCommand,
     ObservabilityAlertDispositionResponse,
+    ObservabilityAlertLifecycleMetricsResponse,
     ObservabilityAlertLifecycleResponse,
     ObservabilityAlertSuppressionCommand,
     ObservabilityDashboardResponse,
@@ -113,6 +114,37 @@ async def alert_lifecycles(
         ObservabilityAlertLifecycleResponse.model_validate(item, from_attributes=True)
         for item in rows
     )
+
+
+@router.get(
+    "/alert-lifecycles/metrics",
+    response_model=ObservabilityAlertLifecycleMetricsResponse,
+    dependencies=[Depends(require_permission(AdminPermission.TRACE_READ))],
+)
+async def alert_lifecycle_metrics(
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ObservabilityService, Depends(get_observability_service)],
+    window_minutes: Annotated[int, Query(ge=5, le=10_080)] = 1_440,
+    bucket_minutes: Annotated[int, Query(ge=5, le=1_440)] = 60,
+    source_type: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
+    severity: AlertSeverity | None = None,
+) -> ObservabilityAlertLifecycleMetricsResponse:
+    """查询当前 Agent 的通用来源生命周期聚合与固定时间桶趋势。"""
+    try:
+        metrics = await service.alert_lifecycle_metrics(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            window_minutes=window_minutes,
+            bucket_minutes=bucket_minutes,
+            source_type=source_type,
+            severity=severity,
+        )
+    except ObservabilityValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return ObservabilityAlertLifecycleMetricsResponse.model_validate(metrics, from_attributes=True)
 
 
 def _disposition_response(

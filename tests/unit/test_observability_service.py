@@ -526,3 +526,124 @@ async def test_suppressed_observability_alert_is_excluded_from_escalation_candid
     assert "api_error_rate" not in {item.lifecycle.code for item in evaluation.due_escalations}
     enriched = next(item for item in evaluation.active_lifecycles if item.id == target.id)
     assert enriched.disposition_status is ObservabilityAlertDispositionStatus.SUPPRESSED
+
+
+async def test_observability_lifecycle_metrics_use_independent_source_and_trend_scope() -> None:
+    """通用指标按来源聚合事件，不读取渠道生命周期口径。"""
+    tenant_id, agent_id = uuid4(), uuid4()
+    repository = MemoryObservabilityRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+    ended_at = datetime(2026, 9, 15, 12, tzinfo=UTC)
+
+    def alert(
+        code: str,
+        source_type: str,
+        severity: AlertSeverity,
+        first_occurred_at: datetime,
+    ) -> ActiveAlert:
+        return ActiveAlert(
+            code=code,
+            severity=severity,
+            title="安全测试告警",
+            summary="不含正文的安全摘要",
+            current_value=2,
+            threshold_value=1,
+            unit="count",
+            source_type=source_type,
+            source_key=code,
+            first_occurred_at=first_occurred_at,
+        )
+
+    api_alert = alert(
+        "api_error_rate", "api", AlertSeverity.CRITICAL, ended_at - timedelta(hours=4, minutes=30)
+    )
+    model_alert = alert(
+        "model_failure_rate",
+        "model_runtime",
+        AlertSeverity.CRITICAL,
+        ended_at - timedelta(hours=3, minutes=30),
+    )
+    queue_alert = alert(
+        "queue_backlog", "task_queue", AlertSeverity.WARNING, ended_at - timedelta(minutes=45)
+    )
+    await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(api_alert,),
+        observed_at=ended_at - timedelta(hours=4, minutes=30),
+    )
+    active = await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(api_alert, model_alert),
+        observed_at=ended_at - timedelta(hours=3, minutes=30),
+    )
+    model_lifecycle = next(
+        item for item in active.active_lifecycles if item.source_type == "model_runtime"
+    )
+    await repository.mark_observability_alert_lifecycles_escalated(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_ids=(model_lifecycle.id,),
+        escalation_level=1,
+        escalated_at=ended_at - timedelta(hours=2, minutes=50),
+    )
+    await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(api_alert,),
+        observed_at=ended_at - timedelta(hours=2),
+    )
+    await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(api_alert, queue_alert),
+        observed_at=ended_at - timedelta(minutes=45),
+    )
+
+    metrics = await service.alert_lifecycle_metrics(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        window_minutes=240,
+        bucket_minutes=60,
+        now=ended_at,
+    )
+    model_metrics = await service.alert_lifecycle_metrics(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        window_minutes=240,
+        bucket_minutes=60,
+        source_type=" model_runtime ",
+        severity=AlertSeverity.CRITICAL,
+        now=ended_at,
+    )
+
+    assert (metrics.active, metrics.opened, metrics.resolved, metrics.escalated) == (2, 2, 1, 1)
+    assert metrics.mean_recovery_seconds == 5_400
+    assert metrics.p95_recovery_seconds == 5_400
+    assert [item.source_type for item in metrics.sources] == ["api", "model_runtime", "task_queue"]
+    assert [(item.opened, item.resolved, item.escalated) for item in metrics.sources] == [
+        (0, 0, 0),
+        (1, 1, 1),
+        (1, 0, 0),
+    ]
+    assert [(item.opened, item.resolved, item.escalated) for item in metrics.trend] == [
+        (1, 0, 0),
+        (0, 0, 1),
+        (0, 1, 0),
+        (1, 0, 0),
+    ]
+    assert len(model_metrics.sources) == 1
+    assert model_metrics.sources[0].source_type == "model_runtime"
+    assert (model_metrics.active, model_metrics.opened, model_metrics.resolved) == (0, 1, 1)
+
+    with pytest.raises(ObservabilityValidationError, match="时间桶"):
+        await service.alert_lifecycle_metrics(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            window_minutes=60,
+            bucket_minutes=120,
+        )
