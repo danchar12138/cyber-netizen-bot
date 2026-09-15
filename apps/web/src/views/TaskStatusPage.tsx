@@ -163,6 +163,7 @@ export function TaskStatusPage() {
   const actionSearch = useCallback((row: ScheduledAction) => `${row.id} ${row.reason} ${row.status} ${row.decision_reasons.join(' ')}`, [])
   const data = dashboard.data
   const operationError = cancelJob.error ?? replayJob.error ?? cancelAction.error ?? createAction.error
+  const replaySuppressionConflict = replayJob.error?.message.includes('仍处于抑制期') ?? false
 
   return (
     <div className="page">
@@ -176,7 +177,8 @@ export function TaskStatusPage() {
       </section>
 
       {(dashboard.isError || jobs.isError || scheduled.isError || channels.isError) && <div className="notice error">任务数据读取失败，请检查 API、迁移与数据库连接。</div>}
-      {operationError && <div className="notice error">{operationError.message}</div>}
+      {replaySuppressionConflict && <div className="notice error" role="alert"><ShieldAlert size={17} /><div><strong>通知重放已阻止</strong><span>当前告警仍处于抑制期，请先在可观测性页面解除抑制或等待到期。</span></div></div>}
+      {operationError && !replaySuppressionConflict && <div className="notice error">{operationError.message}</div>}
       <section className="metric-grid" aria-label="任务指标">
         <article className="metric-card"><div className="metric-icon"><ListTodo size={18} /></div><p>待处理 / 重试</p><strong>{data ? `${data.pending} / ${data.retrying}` : '—'}</strong><span>由 Outbox 恢复投递</span></article>
         <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>执行中</p><strong>{data?.running ?? '—'}</strong><span>受数据库租约保护</span></article>

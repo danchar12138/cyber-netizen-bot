@@ -10369,6 +10369,87 @@
         "title": "NotificationDeliveryTimelineResponse",
         "type": "object"
       },
+      "ObservabilityAlertBatchDispositionCommand": {
+        "description": "最多 100 项的原子批量处置命令。",
+        "properties": {
+          "action": {
+            "enum": [
+              "acknowledge",
+              "suppress",
+              "clear"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "confirmed": {
+            "default": false,
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "lifecycle_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Lifecycle Ids",
+            "type": "array"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lifecycle_ids",
+          "action",
+          "reason"
+        ],
+        "title": "ObservabilityAlertBatchDispositionCommand",
+        "type": "object"
+      },
+      "ObservabilityAlertBatchDispositionResponse": {
+        "description": "批量处置的逐项结果。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityAlertDispositionResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ObservabilityAlertBatchDispositionResponse",
+        "type": "object"
+      },
+      "ObservabilityAlertDispositionAction": {
+        "description": "通用告警处置历史动作。",
+        "enum": [
+          "acknowledged",
+          "suppressed",
+          "cleared"
+        ],
+        "title": "ObservabilityAlertDispositionAction",
+        "type": "string"
+      },
       "ObservabilityAlertDispositionClearCommand": {
         "description": "解除当前通用告警处置的显式确认命令。",
         "properties": {
@@ -10400,6 +10481,78 @@
           "reason"
         ],
         "title": "ObservabilityAlertDispositionCommand",
+        "type": "object"
+      },
+      "ObservabilityAlertDispositionEventResponse": {
+        "description": "不含正文、通知目标或 Secret 的处置历史事件。",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ObservabilityAlertDispositionAction"
+          },
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lifecycle_id": {
+            "format": "uuid",
+            "title": "Lifecycle Id",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "source_key": {
+            "title": "Source Key",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "lifecycle_id",
+          "source_type",
+          "source_key",
+          "code",
+          "action",
+          "reason",
+          "actor_id",
+          "expires_at",
+          "occurred_at"
+        ],
+        "title": "ObservabilityAlertDispositionEventResponse",
         "type": "object"
       },
       "ObservabilityAlertDispositionResponse": {
@@ -29561,6 +29714,239 @@
         ]
       }
     },
+    "/api/v1/observability/alert-disposition-events": {
+      "get": {
+        "description": "查询当前 Agent 的通用告警处置历史时间线。",
+        "operationId": "get_api_v1_observability_alert_disposition_events",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "lifecycle_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Lifecycle Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Key"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ObservabilityAlertDispositionAction"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Action"
+            }
+          },
+          {
+            "in": "query",
+            "name": "occurred_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Occurred After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "occurred_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Occurred Before"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ObservabilityAlertDispositionEventResponse"
+                  },
+                  "title": "Response Get Api V1 Observability Alert Disposition Events",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "查询当前 Agent 的通用告警处置历史时间线",
+        "tags": [
+          "可观测性"
+        ]
+      }
+    },
     "/api/v1/observability/alert-lifecycles": {
       "get": {
         "operationId": "get_api_v1_observability_alert_lifecycles",
@@ -29753,6 +30139,128 @@
           }
         },
         "summary": "执行可观测性操作",
+        "tags": [
+          "可观测性"
+        ]
+      }
+    },
+    "/api/v1/observability/alert-lifecycles/batch-disposition": {
+      "post": {
+        "description": "原子确认、临时抑制或解除多个通用告警。",
+        "operationId": "post_api_v1_observability_alert_lifecycles_batch_disposition",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObservabilityAlertBatchDispositionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservabilityAlertBatchDispositionResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "原子确认、临时抑制或解除多个通用告警",
         "tags": [
           "可观测性"
         ]

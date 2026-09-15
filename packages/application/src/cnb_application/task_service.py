@@ -60,6 +60,12 @@ class TaskDispatcher(Protocol):
     async def dispatch(self, *, job_id: UUID, queue: str) -> None: ...
 
 
+class TaskReplayGuard(Protocol):
+    """在创建新任务前执行的框架无关重放安全复核。"""
+
+    async def check(self, *, job: BackgroundJob, now: datetime) -> None: ...
+
+
 class BackgroundJobHandler(Protocol):
     """一个任务种类的无框架执行器。"""
 
@@ -274,8 +280,13 @@ _SENSITIVE_KEY_PARTS = ("password", "secret", "token", "api_key", "credential")
 class BackgroundTaskService:
     """以 PostgreSQL 真相表吸收 Redis 丢失和至少一次重复投递。"""
 
-    def __init__(self, repository: TaskRepository) -> None:
+    def __init__(
+        self,
+        repository: TaskRepository,
+        replay_guard: TaskReplayGuard | None = None,
+    ) -> None:
         self._repository = repository
+        self._replay_guard = replay_guard
 
     async def enqueue(
         self,
@@ -522,6 +533,8 @@ class BackgroundTaskService:
         if source.status not in _TERMINAL_REPLAYABLE:
             raise TaskConflictError("只有失败、死信或已取消任务可以安全重放")
         now = datetime.now(UTC)
+        if self._replay_guard is not None:
+            await self._replay_guard.check(job=source, now=now)
         replay_id = uuid4()
         replayed = BackgroundJob(
             id=replay_id,

@@ -2,12 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   acknowledgeObservabilityAlert,
+  batchDisposeObservabilityAlerts,
   clearObservabilityAlertDisposition,
   type ConfigPackageDocument,
   exportConfigPackage,
   formatConfigValue,
   formatConfigVersionStatus,
   getObservabilityAlertLifecycles,
+  getObservabilityAlertDispositionEvents,
   getObservabilityAlertLifecycleMetrics,
   importConfigPackage,
   setApiAccessToken,
@@ -142,6 +144,49 @@ describe('通用告警客户端', () => {
       bucket_minutes: '30',
       source_type: 'api',
       severity: 'warning',
+    })
+  })
+
+  it('通过生成客户端查询历史并执行批量处置', async () => {
+    const lifecycleId = '11111111-1111-4111-8111-111111111111'
+    const fetchMock = vi.fn().mockImplementation((request: Request) => {
+      const url = new URL(request.url)
+      const body = url.pathname.endsWith('batch-disposition') ? { items: [] } : []
+      return Promise.resolve(new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getObservabilityAlertDispositionEvents({
+      lifecycle_id: lifecycleId,
+      action: 'suppressed',
+    })
+    await batchDisposeObservabilityAlerts({
+      lifecycle_ids: [lifecycleId],
+      action: 'clear',
+      reason: '维护窗口已结束',
+      confirmed: true,
+    })
+
+    const historyRequest = fetchMock.mock.calls[0]?.[0] as Request
+    const historyUrl = new URL(historyRequest.url)
+    expect(historyUrl.pathname).toBe('/api/v1/observability/alert-disposition-events')
+    expect(Object.fromEntries(historyUrl.searchParams)).toEqual({
+      lifecycle_id: lifecycleId,
+      action: 'suppressed',
+      limit: '100',
+    })
+    const batchRequest = fetchMock.mock.calls[1]?.[0] as Request
+    expect(new URL(batchRequest.url).pathname).toBe(
+      '/api/v1/observability/alert-lifecycles/batch-disposition',
+    )
+    expect(await batchRequest.json()).toEqual({
+      lifecycle_ids: [lifecycleId],
+      action: 'clear',
+      reason: '维护窗口已结束',
+      confirmed: true,
     })
   })
 })

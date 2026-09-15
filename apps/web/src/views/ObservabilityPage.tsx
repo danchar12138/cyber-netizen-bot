@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, BellRing, CheckCircle2, CircleDollarSign, Clock3, RefreshCw, Search, Send, ShieldCheck, TriangleAlert } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { Activity, BellRing, CheckCircle2, CircleDollarSign, Clock3, History, RefreshCw, Search, Send, ShieldCheck, TriangleAlert, X } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
 
 import {
   acknowledgeObservabilityAlert,
+  batchDisposeObservabilityAlerts,
   clearObservabilityAlertDisposition,
   getAdminSession,
   getCognitiveRunTrace,
+  getObservabilityAlertDispositionEvents,
   getObservabilityAlertLifecycleMetrics,
   getObservabilityAlertLifecycles,
   getObservabilityDashboard,
@@ -52,10 +54,16 @@ export function ObservabilityPage() {
   const [minimumDurationMinutes, setMinimumDurationMinutes] = useState('')
   const [dispositionInputError, setDispositionInputError] = useState<string | null>(null)
   const [dispositionFeedback, setDispositionFeedback] = useState<string | null>(null)
+  const [selectedLifecycleIds, setSelectedLifecycleIds] = useState<Set<string>>(new Set())
+  const [historyLifecycle, setHistoryLifecycle] = useState<ObservabilityAlertLifecycle | null>(null)
   const selectedAgentId = useSelectedAgentId()
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const canReadTrace = session.data?.permissions.includes('trace:read') ?? false
   const canManageAlerts = session.data?.permissions.includes('observability_alert:manage') ?? false
+  useEffect(() => {
+    setSelectedLifecycleIds(new Set())
+    setHistoryLifecycle(null)
+  }, [selectedAgentId])
   const dashboard = useQuery({
     queryKey: ['observability-dashboard', selectedAgentId],
     queryFn: getObservabilityDashboard,
@@ -93,10 +101,16 @@ export function ObservabilityPage() {
     enabled: canReadTrace,
     refetchInterval: 30_000,
   })
+  const dispositionHistory = useQuery({
+    queryKey: ['observability-alert-disposition-events', selectedAgentId, historyLifecycle?.id],
+    queryFn: () => getObservabilityAlertDispositionEvents({ lifecycle_id: historyLifecycle!.id }),
+    enabled: canReadTrace && historyLifecycle !== null,
+  })
   const refreshAlertViews = useCallback(async () => {
     await Promise.all([
       invalidateAcrossTabs(queryClient, ['observability-alert-lifecycles']),
       invalidateAcrossTabs(queryClient, ['observability-dashboard']),
+      invalidateAcrossTabs(queryClient, ['observability-alert-disposition-events']),
       invalidateAcrossTabs(queryClient, ['audit-records']),
     ])
   }, [queryClient])
@@ -124,6 +138,28 @@ export function ObservabilityPage() {
         ? '已确认'
         : result.status === 'suppressed' ? '已抑制' : '已解除处置'
       setDispositionFeedback(`${displayLabel(observabilityAlertCodeLabels, result.code)}${statusLabel}`)
+      await refreshAlertViews()
+    },
+  })
+  const batchDispositionMutation = useMutation({
+    mutationFn: ({
+      action,
+      reason,
+      expiresAt,
+    }: {
+      action: 'acknowledge' | 'suppress' | 'clear'
+      reason: string
+      expiresAt?: string
+    }) => batchDisposeObservabilityAlerts({
+      lifecycle_ids: Array.from(selectedLifecycleIds),
+      action,
+      reason,
+      expires_at: expiresAt,
+      confirmed: true,
+    }),
+    onSuccess: async (result) => {
+      setDispositionFeedback(`已完成 ${result.items.length} 条通用告警批量处置`)
+      setSelectedLifecycleIds(new Set())
       await refreshAlertViews()
     },
   })
@@ -171,6 +207,61 @@ export function ObservabilityPage() {
       dispositionMutation.mutate({ action: 'clear', lifecycleId: item.id })
     }
   }, [dispositionMutation])
+  const runBatchDisposition = useCallback((action: 'acknowledge' | 'suppress' | 'clear') => {
+    setDispositionInputError(null)
+    setDispositionFeedback(null)
+    if (!selectedLifecycleIds.size) return
+    const reason = window.prompt(
+      action === 'acknowledge'
+        ? '请输入批量确认备注'
+        : action === 'suppress' ? '请输入批量抑制原因' : '请输入批量解除原因',
+    )?.trim()
+    if (!reason) return
+    let expiresAt: string | undefined
+    if (action === 'suppress') {
+      const input = window.prompt(
+        '请输入抑制到期时间（ISO 8601，必须包含时区）',
+        new Date(Date.now() + 60 * 60_000).toISOString(),
+      )?.trim()
+      if (!input) return
+      const parsed = new Date(input)
+      if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) {
+        setDispositionInputError('抑制到期时间必须是未来的有效时间')
+        return
+      }
+      expiresAt = parsed.toISOString()
+    }
+    if (!window.confirm(`确认批量处置 ${selectedLifecycleIds.size} 条通用告警？`)) return
+    batchDispositionMutation.mutate({ action, reason, expiresAt })
+  }, [batchDispositionMutation, selectedLifecycleIds])
+  const visibleLifecycleIds = alertLifecycles.data?.map((item) => item.id) ?? []
+  const selectedLifecycles = alertLifecycles.data?.filter(
+    (item) => selectedLifecycleIds.has(item.id),
+  ) ?? []
+  const canBatchSetDisposition = selectedLifecycles.length === selectedLifecycleIds.size
+    && selectedLifecycles.every((item) => item.status === 'active')
+  const canBatchClearDisposition = selectedLifecycles.length === selectedLifecycleIds.size
+    && selectedLifecycles.every((item) => item.disposition_status !== null)
+  const allVisibleSelected = visibleLifecycleIds.length > 0
+    && visibleLifecycleIds.every((id) => selectedLifecycleIds.has(id))
+  const toggleAllVisible = () => {
+    setSelectedLifecycleIds((current) => {
+      const next = new Set(current)
+      for (const id of visibleLifecycleIds) {
+        if (allVisibleSelected) next.delete(id)
+        else next.add(id)
+      }
+      return next
+    })
+  }
+  const toggleLifecycle = (id: string) => {
+    setSelectedLifecycleIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   return (
     <div className="page">
@@ -180,7 +271,7 @@ export function ObservabilityPage() {
       {dashboard.isError && <div className="notice error" role="alert">无法读取可观测聚合，请检查应用接口、数据库和当前权限。</div>}
       {lifecycleMetrics.isError && <div className="notice error" role="alert">无法读取通用告警生命周期指标，请检查当前 Agent 与迁移状态。</div>}
       {alertLifecycles.isError && <div className="notice error" role="alert">无法读取通用告警生命周期，请检查当前 Agent 与迁移状态。</div>}
-      {(dispositionInputError || dispositionMutation.error) && <div className="notice error" role="alert">{dispositionInputError ?? dispositionMutation.error?.message}</div>}
+      {(dispositionInputError || dispositionMutation.error || batchDispositionMutation.error) && <div className="notice error" role="alert">{dispositionInputError ?? dispositionMutation.error?.message ?? batchDispositionMutation.error?.message}</div>}
       {dispositionFeedback && <div className="notice success" role="status"><CheckCircle2 size={17} /><div><strong>告警处置已更新</strong><span>{dispositionFeedback}</span></div></div>}
       <section className="metric-grid" aria-label="服务等级与成本指标">
         <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>应用接口错误率</p><strong>{data ? `${data.api.error_rate_percent.toFixed(2)}%` : '—'}</strong><span>{data?.api.requests ?? 0} 次请求 · {data?.api.server_errors ?? 0} 次服务端错误</span></article>
@@ -229,10 +320,20 @@ export function ObservabilityPage() {
             <small>{alertLifecycles.data?.length ?? 0} 条</small>
           </div>
         </div>
+        <div className="alert-batch-toolbar" aria-label="批量告警处置">
+          <span>已选择 <strong>{selectedLifecycleIds.size}</strong> 条</span>
+          <div className="table-actions">
+            <button disabled={!selectedLifecycleIds.size || batchDispositionMutation.isPending} onClick={() => setSelectedLifecycleIds(new Set())}><X size={13} />取消选择</button>
+            <button disabled={!canManageAlerts || !selectedLifecycleIds.size || !canBatchSetDisposition || batchDispositionMutation.isPending} onClick={() => runBatchDisposition('acknowledge')}><CheckCircle2 size={13} />批量确认</button>
+            <button disabled={!canManageAlerts || !selectedLifecycleIds.size || !canBatchSetDisposition || batchDispositionMutation.isPending} onClick={() => runBatchDisposition('suppress')}><ShieldCheck size={13} />批量抑制</button>
+            <button disabled={!canManageAlerts || !selectedLifecycleIds.size || !canBatchClearDisposition || batchDispositionMutation.isPending} onClick={() => runBatchDisposition('clear')}><RefreshCw size={13} />批量解除</button>
+          </div>
+        </div>
         <div className="admin-table-scroll">
           <table className="admin-table">
-            <thead><tr><th>来源</th><th>状态</th><th>当前 / 阈值</th><th>升级</th><th>发生时间</th><th>恢复</th><th>处置</th><th>操作</th></tr></thead>
+            <thead><tr><th className="selection-cell"><input type="checkbox" aria-label="选择当前全部告警" checked={allVisibleSelected} onChange={toggleAllVisible} /></th><th>来源</th><th>状态</th><th>当前 / 阈值</th><th>升级</th><th>发生时间</th><th>恢复</th><th>处置</th><th>操作</th></tr></thead>
             <tbody>{alertLifecycles.data?.map((item) => <tr key={item.id}>
+              <td className="selection-cell"><input type="checkbox" aria-label={`选择 ${displayLabel(observabilityAlertCodeLabels, item.code)}`} checked={selectedLifecycleIds.has(item.id)} onChange={() => toggleLifecycle(item.id)} /></td>
               <td className="table-primary"><strong>{displayLabel(observabilityAlertCodeLabels, item.code)}</strong><small>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)}</small><code>{item.source_key}</code></td>
               <td><span className={`entity-status ${item.status}`}>{item.status === 'active' ? '活动' : '已恢复'}</span><small className={`severity-label ${item.severity}`}>{item.severity === 'critical' ? '严重' : '警告'}</small></td>
               <td><strong>{item.current_value.toFixed(2)} {observabilityUnitLabel(item.unit)}</strong><small>阈值 {item.threshold_value.toFixed(2)} {observabilityUnitLabel(item.unit)} · {item.occurrences} 次评估</small></td>
@@ -246,12 +347,21 @@ export function ObservabilityPage() {
                 {item.status === 'active' && item.disposition_status !== 'acknowledged' && <button disabled={!canManageAlerts || dispositionMutation.isPending} onClick={() => runDisposition(item, 'acknowledge')}><CheckCircle2 size={12} />确认</button>}
                 {item.status === 'active' && item.disposition_status !== 'suppressed' && <button disabled={!canManageAlerts || dispositionMutation.isPending} onClick={() => runDisposition(item, 'suppress')}><ShieldCheck size={12} />抑制</button>}
                 {item.disposition_status && <button disabled={!canManageAlerts || dispositionMutation.isPending} onClick={() => clearDisposition(item)}><RefreshCw size={12} />解除</button>}
+                <button title="查看处置历史" aria-label={`查看 ${displayLabel(observabilityAlertCodeLabels, item.code)} 的处置历史`} onClick={() => setHistoryLifecycle(item)}><History size={12} /></button>
               </div></td>
             </tr>)}</tbody>
           </table>
           {!alertLifecycles.data?.length && <div className="admin-table-empty">当前筛选条件下没有通用告警生命周期。</div>}
         </div>
       </section>
+
+      {historyLifecycle && <section className="panel alert-history-panel" aria-label="通用告警处置历史">
+        <div className="panel-heading"><div><p className="eyebrow">追加式处置记录</p><h2>{displayLabel(observabilityAlertCodeLabels, historyLifecycle.code)} · 处置历史</h2></div><button className="icon-button" title="关闭处置历史" aria-label="关闭处置历史" onClick={() => setHistoryLifecycle(null)}><X size={15} /></button></div>
+        {dispositionHistory.isError && <div className="notice error">无法读取处置历史，请检查迁移与当前权限。</div>}
+        {dispositionHistory.isLoading && <div className="empty-state">正在读取处置历史…</div>}
+        {!dispositionHistory.isLoading && !dispositionHistory.data?.length && <div className="empty-state">该生命周期尚无处置记录。</div>}
+        {!!dispositionHistory.data?.length && <ol className="alert-history-timeline">{dispositionHistory.data.map((event) => <li key={event.id}><span className={`entity-status disposition-${event.action}`}>{event.action === 'acknowledged' ? '已确认' : event.action === 'suppressed' ? '已抑制' : '已解除'}</span><div><strong>{event.reason}</strong><small>{new Date(event.occurred_at).toLocaleString('zh-CN')} · 操作者 {event.actor_id.slice(0, 8)}</small>{event.expires_at && <small>抑制到期 {new Date(event.expires_at).toLocaleString('zh-CN')}</small>}</div></li>)}</ol>}
+      </section>}
 
       <div className="observability-grid">
         <section className="panel alert-panel">

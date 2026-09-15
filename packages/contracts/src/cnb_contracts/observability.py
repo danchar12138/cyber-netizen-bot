@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from cnb_domain import (
     AlertSeverity,
+    ObservabilityAlertDispositionAction,
     ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycleStatus,
 )
@@ -190,6 +191,37 @@ class ObservabilityAlertDispositionResponse(BaseModel):
     reason: str
     expires_at: datetime | None
     updated_at: datetime
+
+
+class ObservabilityAlertBatchDispositionCommand(BaseModel):
+    """最多 100 项的原子批量处置命令。"""
+
+    lifecycle_ids: tuple[UUID, ...] = Field(min_length=1, max_length=100)
+    action: Literal["acknowledge", "suppress", "clear"]
+    reason: str = Field(min_length=1, max_length=500)
+    expires_at: datetime | None = None
+    confirmed: bool = False
+
+
+class ObservabilityAlertBatchDispositionResponse(BaseModel):
+    """批量处置的逐项结果。"""
+
+    items: tuple[ObservabilityAlertDispositionResponse, ...]
+
+
+class ObservabilityAlertDispositionEventResponse(BaseModel):
+    """不含正文、通知目标或 Secret 的处置历史事件。"""
+
+    id: UUID
+    lifecycle_id: UUID
+    source_type: str
+    source_key: str
+    code: str
+    action: ObservabilityAlertDispositionAction
+    reason: str = Field(min_length=1, max_length=500)
+    actor_id: UUID
+    expires_at: datetime | None
+    occurred_at: datetime
 
 
 class ObservabilityDashboardResponse(BaseModel):

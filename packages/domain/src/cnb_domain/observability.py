@@ -147,6 +147,14 @@ class ObservabilityAlertDispositionStatus(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class ObservabilityAlertDispositionAction(StrEnum):
+    """通用告警处置历史动作。"""
+
+    ACKNOWLEDGED = "acknowledged"
+    SUPPRESSED = "suppressed"
+    CLEARED = "cleared"
+
+
 @dataclass(frozen=True, slots=True)
 class ObservabilityAlertLifecycle:
     """不含业务正文的通用可观测告警事件生命周期。"""
@@ -204,6 +212,24 @@ class ObservabilityAlertDisposition:
     def alert_key(self) -> str:
         """返回与生命周期一致的稳定告警键。"""
         return f"{self.source_type}:{self.source_key}"
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertDispositionEvent:
+    """追加式通用告警处置历史事件，不保存正文或凭据。"""
+
+    id: UUID
+    tenant_id: UUID
+    agent_id: UUID
+    lifecycle_id: UUID
+    source_type: str
+    source_key: str
+    code: str
+    action: ObservabilityAlertDispositionAction
+    reason: str
+    actor_id: UUID
+    expires_at: datetime | None
+    occurred_at: datetime
 
 
 @dataclass(frozen=True, slots=True)

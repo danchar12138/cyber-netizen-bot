@@ -36,8 +36,10 @@ import type {
   ManagedUserDetailResponse,
   NotificationDeliveryTimelineItemResponse,
   NotificationDeliveryTimelineResponse,
+  ObservabilityAlertBatchDispositionCommand,
   ObservabilityAlertDispositionClearCommand,
   ObservabilityAlertDispositionCommand,
+  ObservabilityAlertDispositionEventResponse,
   ObservabilityAlertDispositionResponse,
   ObservabilityAlertLifecycleResponse,
   ObservabilityAlertLifecycleMetricsResponse,
@@ -1680,6 +1682,7 @@ export const getObservabilityDashboard = () =>
 
 export type ObservabilityAlertLifecycle = ObservabilityAlertLifecycleResponse
 export type ObservabilityAlertDisposition = ObservabilityAlertDispositionResponse
+export type ObservabilityAlertDispositionEvent = ObservabilityAlertDispositionEventResponse
 export type ObservabilityAlertLifecycleMetrics = ObservabilityAlertLifecycleMetricsResponse
 
 export interface ObservabilityAlertLifecycleFilters {
@@ -1709,6 +1712,21 @@ export const getObservabilityAlertLifecycleMetrics = (filters: {
     severity: filters.severity,
   },
 })
+
+export const getObservabilityAlertDispositionEvents = (filters: {
+  lifecycle_id?: string
+  source_type?: string
+  source_key?: string
+  action?: 'acknowledged' | 'suppressed' | 'cleared'
+  occurred_after?: string
+  occurred_before?: string
+} = {}) => apiSdk.getApiV1ObservabilityAlertDispositionEvents({
+  query: { ...filters, limit: 100 },
+})
+
+export const batchDisposeObservabilityAlerts = (
+  command: ObservabilityAlertBatchDispositionCommand,
+) => apiSdk.postApiV1ObservabilityAlertLifecyclesBatchDisposition({ body: command })
 
 export const acknowledgeObservabilityAlert = (
   lifecycleId: string,

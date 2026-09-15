@@ -170,8 +170,10 @@ from cnb_application.object_storage import (
     StoredObjectInfo,
     UploadGrant,
 )
+from cnb_application.observability_replay_guard import ObservabilityNotificationReplayGuard
 from cnb_application.observability_service import (
     ApiRequestObservation,
+    ObservabilityAlertDispositionResult,
     ObservabilityAlertEscalationCandidate,
     ObservabilityAlertLifecycleEvaluation,
     ObservabilityAlertLifecycleMetrics,
@@ -208,6 +210,7 @@ from cnb_application.task_service import (
     TaskConflictError,
     TaskDispatcher,
     TaskNotFoundError,
+    TaskReplayGuard,
     TaskRepository,
     TaskValidationError,
 )
@@ -340,6 +343,7 @@ __all__ = [
     "ObjectInspectionError",
     "ObjectNotFoundError",
     "ObjectStorage",
+    "ObservabilityAlertDispositionResult",
     "ObservabilityAlertEscalationCandidate",
     "ObservabilityAlertLifecycleEvaluation",
     "ObservabilityAlertLifecycleMetrics",
@@ -347,6 +351,7 @@ __all__ = [
     "ObservabilityAlertLifecycleTrendPoint",
     "ObservabilityAlertSourceLifecycleMetrics",
     "ObservabilityNotFoundError",
+    "ObservabilityNotificationReplayGuard",
     "ObservabilityRepository",
     "ObservabilityService",
     "ObservabilityValidationError",
@@ -371,6 +376,7 @@ __all__ = [
     "TaskConflictError",
     "TaskDispatcher",
     "TaskNotFoundError",
+    "TaskReplayGuard",
     "TaskRepository",
     "TaskValidationError",
     "TelegramWebhookStatus",

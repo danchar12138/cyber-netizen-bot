@@ -5,16 +5,23 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+import pytest
+
 from cnb_application import (
     BackgroundTaskService,
     ConfigurationService,
     MemoryService,
+    ObservabilityNotificationReplayGuard,
+    ObservabilityService,
     ReflectionTaskHandler,
     ScheduledActionService,
+    TaskConflictError,
     build_default_registry,
 )
 from cnb_cognition import ProactiveContext, ProactivePolicy, ProactivePolicyEvaluator
 from cnb_domain import (
+    ActiveAlert,
+    AlertSeverity,
     BackgroundJob,
     BackgroundJobKind,
     BackgroundJobStatus,
@@ -22,6 +29,7 @@ from cnb_domain import (
     ConfigScope,
     DevelopmentIdentity,
     JsonValue,
+    ObservabilityAlertDispositionStatus,
     OutboxEventStatus,
     ScheduledAction,
     ScheduledActionKind,
@@ -32,6 +40,7 @@ from cnb_infrastructure import (
     InMemoryTaskRepository,
     MemoryConfigurationRepository,
     MemoryConversationRepository,
+    MemoryObservabilityRepository,
 )
 
 
@@ -215,6 +224,98 @@ async def test_failure_enters_dead_letter_and_replay_preserves_original() -> Non
     assert replayed.replayed_from_id == failed.id
     assert replayed.status is BackgroundJobStatus.PENDING
     assert repository.jobs[failed.id].status is BackgroundJobStatus.DEAD_LETTER
+
+
+async def test_observability_notification_replay_rechecks_current_suppression() -> None:
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
+    now = datetime.now(UTC)
+    observability_repository = MemoryObservabilityRepository()
+    observability_service = ObservabilityService(
+        observability_repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+    reconciliation = await observability_repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(
+            ActiveAlert(
+                code="notification_delivery_dead_letters",
+                severity=AlertSeverity.CRITICAL,
+                title="通知死信",
+                summary="安全摘要",
+                current_value=1,
+                threshold_value=0,
+                unit="jobs",
+                source_type="notification",
+                source_key="notification_delivery_dead_letters",
+            ),
+        ),
+        observed_at=now,
+    )
+    lifecycle = reconciliation.active_lifecycles[0]
+    suppressed = await observability_service.suppress_alert(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=lifecycle.id,
+        reason="计划内维护",
+        expires_at=now + timedelta(hours=1),
+        actor_id=actor_id,
+        confirmed=True,
+        now=now,
+    )
+    assert suppressed.status is ObservabilityAlertDispositionStatus.SUPPRESSED
+
+    task_repository = InMemoryTaskRepository()
+    replay_guard = ObservabilityNotificationReplayGuard(observability_repository)
+    task_service = BackgroundTaskService(
+        task_repository,
+        replay_guard=replay_guard,
+    )
+    queued = await task_service.enqueue(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        kind=BackgroundJobKind.NOTIFICATION_DELIVERY,
+        payload={
+            "agent_id": str(agent_id),
+            "delivery_payload": {
+                "event": "observability.alerts.active",
+                "source_type": lifecycle.source_type,
+                "source_key": lifecycle.source_key,
+            },
+        },
+        deduplication_key="notification:replay-suppression-test",
+        created_by=actor_id,
+    )
+    task_repository.jobs[queued.job.id] = replace(
+        queued.job, status=BackgroundJobStatus.DEAD_LETTER
+    )
+
+    with pytest.raises(TaskConflictError, match="仍处于抑制期"):
+        await task_service.replay(
+            tenant_id=tenant_id,
+            job_id=queued.job.id,
+            actor_id=actor_id,
+            confirmed=True,
+            reason="尝试重放",
+        )
+    assert len(task_repository.jobs) == 1
+    await replay_guard.check(job=queued.job, now=now + timedelta(hours=2))
+
+    await observability_service.clear_alert_disposition(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=lifecycle.id,
+        actor_id=actor_id,
+        confirmed=True,
+    )
+    replayed = await task_service.replay(
+        tenant_id=tenant_id,
+        job_id=queued.job.id,
+        actor_id=actor_id,
+        confirmed=True,
+        reason="抑制已解除",
+    )
+    assert replayed.replayed_from_id == queued.job.id
 
 
 async def test_replay_chain_returns_oldest_source_first() -> None:

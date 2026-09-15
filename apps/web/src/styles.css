@@ -580,9 +580,19 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .entity-status.resolved { color: #80b8a1; border-color: #305748; background: #10251d; }
 .entity-status.disposition-acknowledged { color: #8fc8df; border-color: #31586b; background: #102631; }
 .entity-status.disposition-suppressed { color: #d8b979; border-color: #665026; background: #261e0e; }
+.entity-status.disposition-cleared { color: #9aaca5; border-color: #45564f; background: #18201d; }
 .disposition-summary { min-width: 130px; max-width: 220px; }
 .disposition-summary small { overflow-wrap: anywhere; }
 .disposition-actions { min-width: 96px; }
+.alert-batch-toolbar { min-height: 38px; padding: 8px 12px; border-top: 1px solid #1c322a; border-bottom: 1px solid #1c322a; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #78998d; font-size: 9px; }
+.alert-batch-toolbar strong { color: #bad0c7; }
+.alert-history-panel { margin-bottom: 13px; }
+.alert-history-timeline { list-style: none; margin: 2px 0 0; padding: 0; }
+.alert-history-timeline li { min-height: 52px; display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 12px; align-items: start; padding: 10px 2px; border-top: 1px solid #1c322a; }
+.alert-history-timeline li > div { min-width: 0; }
+.alert-history-timeline strong, .alert-history-timeline small { display: block; overflow-wrap: anywhere; }
+.alert-history-timeline strong { color: #b4cac1; font-size: 10px; }
+.alert-history-timeline small { margin-top: 4px; color: #668378; font-size: 8px; }
 .lifecycle-observability-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .lifecycle-trend-panel { padding-top: 12px; }
 .lifecycle-trend-legend { display: flex; justify-content: flex-end; gap: 14px; margin-bottom: 10px; color: #78998d; font-size: 8px; }
@@ -802,6 +812,8 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 
 @media (max-width: 680px) {
   .integration-form { grid-template-columns: 1fr; }
+  .alert-batch-toolbar { align-items: flex-start; flex-direction: column; }
+  .alert-history-timeline li { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

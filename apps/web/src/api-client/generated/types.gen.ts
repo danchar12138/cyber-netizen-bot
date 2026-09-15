@@ -6157,6 +6157,53 @@ export type NotificationDeliveryTimelineResponse = {
 };
 
 /**
+ * ObservabilityAlertBatchDispositionCommand
+ *
+ * 最多 100 项的原子批量处置命令。
+ */
+export type ObservabilityAlertBatchDispositionCommand = {
+    /**
+     * Action
+     */
+    action: 'acknowledge' | 'suppress' | 'clear';
+    /**
+     * Confirmed
+     */
+    confirmed?: boolean;
+    /**
+     * Expires At
+     */
+    expires_at?: string | null;
+    /**
+     * Lifecycle Ids
+     */
+    lifecycle_ids: Array<string>;
+    /**
+     * Reason
+     */
+    reason: string;
+};
+
+/**
+ * ObservabilityAlertBatchDispositionResponse
+ *
+ * 批量处置的逐项结果。
+ */
+export type ObservabilityAlertBatchDispositionResponse = {
+    /**
+     * Items
+     */
+    items: Array<ObservabilityAlertDispositionResponse>;
+};
+
+/**
+ * ObservabilityAlertDispositionAction
+ *
+ * 通用告警处置历史动作。
+ */
+export type ObservabilityAlertDispositionAction = 'acknowledged' | 'suppressed' | 'cleared';
+
+/**
  * ObservabilityAlertDispositionClearCommand
  *
  * 解除当前通用告警处置的显式确认命令。
@@ -6182,6 +6229,51 @@ export type ObservabilityAlertDispositionCommand = {
      * Reason
      */
     reason: string;
+};
+
+/**
+ * ObservabilityAlertDispositionEventResponse
+ *
+ * 不含正文、通知目标或 Secret 的处置历史事件。
+ */
+export type ObservabilityAlertDispositionEventResponse = {
+    action: ObservabilityAlertDispositionAction;
+    /**
+     * Actor Id
+     */
+    actor_id: string;
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Expires At
+     */
+    expires_at: string | null;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Lifecycle Id
+     */
+    lifecycle_id: string;
+    /**
+     * Occurred At
+     */
+    occurred_at: string;
+    /**
+     * Reason
+     */
+    reason: string;
+    /**
+     * Source Key
+     */
+    source_key: string;
+    /**
+     * Source Type
+     */
+    source_type: string;
 };
 
 /**
@@ -15574,6 +15666,94 @@ export type PostApiV1MemoryRelationshipEventsResponses = {
 
 export type PostApiV1MemoryRelationshipEventsResponse = PostApiV1MemoryRelationshipEventsResponses[keyof PostApiV1MemoryRelationshipEventsResponses];
 
+export type GetApiV1ObservabilityAlertDispositionEventsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Lifecycle Id
+         */
+        lifecycle_id?: string | null;
+        /**
+         * Source Type
+         */
+        source_type?: string | null;
+        /**
+         * Source Key
+         */
+        source_key?: string | null;
+        /**
+         * Action
+         */
+        action?: ObservabilityAlertDispositionAction | null;
+        /**
+         * Occurred After
+         */
+        occurred_after?: string | null;
+        /**
+         * Occurred Before
+         */
+        occurred_before?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/observability/alert-disposition-events';
+};
+
+export type GetApiV1ObservabilityAlertDispositionEventsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ObservabilityAlertDispositionEventsError = GetApiV1ObservabilityAlertDispositionEventsErrors[keyof GetApiV1ObservabilityAlertDispositionEventsErrors];
+
+export type GetApiV1ObservabilityAlertDispositionEventsResponses = {
+    /**
+     * Response Get Api V1 Observability Alert Disposition Events
+     *
+     * 请求成功
+     */
+    200: Array<ObservabilityAlertDispositionEventResponse>;
+};
+
+export type GetApiV1ObservabilityAlertDispositionEventsResponse = GetApiV1ObservabilityAlertDispositionEventsResponses[keyof GetApiV1ObservabilityAlertDispositionEventsResponses];
+
 export type GetApiV1ObservabilityAlertLifecyclesData = {
     body?: never;
     path?: never;
@@ -15653,6 +15833,63 @@ export type GetApiV1ObservabilityAlertLifecyclesResponses = {
 };
 
 export type GetApiV1ObservabilityAlertLifecyclesResponse = GetApiV1ObservabilityAlertLifecyclesResponses[keyof GetApiV1ObservabilityAlertLifecyclesResponses];
+
+export type PostApiV1ObservabilityAlertLifecyclesBatchDispositionData = {
+    body: ObservabilityAlertBatchDispositionCommand;
+    path?: never;
+    query?: never;
+    url: '/api/v1/observability/alert-lifecycles/batch-disposition';
+};
+
+export type PostApiV1ObservabilityAlertLifecyclesBatchDispositionErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1ObservabilityAlertLifecyclesBatchDispositionError = PostApiV1ObservabilityAlertLifecyclesBatchDispositionErrors[keyof PostApiV1ObservabilityAlertLifecyclesBatchDispositionErrors];
+
+export type PostApiV1ObservabilityAlertLifecyclesBatchDispositionResponses = {
+    /**
+     * 请求成功
+     */
+    200: ObservabilityAlertBatchDispositionResponse;
+};
+
+export type PostApiV1ObservabilityAlertLifecyclesBatchDispositionResponse = PostApiV1ObservabilityAlertLifecyclesBatchDispositionResponses[keyof PostApiV1ObservabilityAlertLifecyclesBatchDispositionResponses];
 
 export type GetApiV1ObservabilityAlertLifecyclesMetricsData = {
     body?: never;

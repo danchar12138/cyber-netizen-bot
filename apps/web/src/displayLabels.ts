@@ -471,6 +471,9 @@ export const auditActionLabels: Readonly<Record<string, string>> = {
   'external_conversation.status_updated': '更新外部会话映射状态',
   'background_job.cancel_requested': '请求取消后台任务',
   'background_job.replayed': '重放后台任务',
+  'observability_alert.acknowledged': '确认通用告警',
+  'observability_alert.suppressed': '抑制通用告警',
+  'observability_alert.disposition_cleared': '解除通用告警处置',
   'scheduled_action.created': '创建定时行为',
   'scheduled_action.canceled': '取消定时行为',
   'episode.created': '创建情景记录',
@@ -507,6 +510,7 @@ export const auditResourceLabels: Readonly<Record<string, string>> = {
   memory_link: '记忆关系',
   relationship: '关系状态',
   memory_index_job: '向量索引任务',
+  observability_alert_disposition: '通用告警处置',
 }
 
 export const metadataKeyLabels: Readonly<Record<string, string>> = {

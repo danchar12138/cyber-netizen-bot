@@ -22,6 +22,7 @@ from cnb_domain import (
     LatencyPercentiles,
     ModelUsageMetrics,
     NotificationDeliveryMetrics,
+    ObservabilityAlertDispositionAction,
     ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycleStatus,
     ObservabilityMetrics,
@@ -526,6 +527,96 @@ async def test_suppressed_observability_alert_is_excluded_from_escalation_candid
     assert "api_error_rate" not in {item.lifecycle.code for item in evaluation.due_escalations}
     enriched = next(item for item in evaluation.active_lifecycles if item.id == target.id)
     assert enriched.disposition_status is ObservabilityAlertDispositionStatus.SUPPRESSED
+
+
+async def test_batch_disposition_appends_history_and_is_agent_scoped() -> None:
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
+    repository = MemoryObservabilityRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+    now = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    reconciliation = await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(
+            ActiveAlert(
+                code="api_error_rate",
+                severity=AlertSeverity.CRITICAL,
+                title="API 错误率",
+                summary="安全摘要",
+                current_value=20,
+                threshold_value=1,
+                unit="%",
+                source_type="api",
+                source_key="api_error_rate",
+            ),
+            ActiveAlert(
+                code="queue_backlog",
+                severity=AlertSeverity.WARNING,
+                title="任务积压",
+                summary="安全摘要",
+                current_value=101,
+                threshold_value=100,
+                unit="jobs",
+                source_type="task_queue",
+                source_key="queue_backlog",
+            ),
+        ),
+        observed_at=now,
+    )
+    ids = tuple(item.id for item in reconciliation.active_lifecycles)
+    acknowledged = await service.batch_disposition(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_ids=ids,
+        action="acknowledge",
+        reason="批量交由值班人员处理",
+        expires_at=None,
+        actor_id=actor_id,
+        confirmed=True,
+        now=now,
+    )
+    assert {item.disposition.status for item in acknowledged} == {
+        ObservabilityAlertDispositionStatus.ACKNOWLEDGED
+    }
+    history = await service.disposition_events(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        action=ObservabilityAlertDispositionAction.ACKNOWLEDGED,
+    )
+    assert len(history) == 2
+    assert {item.lifecycle_id for item in history} == set(ids)
+
+    with pytest.raises(ObservabilityValidationError, match="不能重复"):
+        await service.batch_disposition(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lifecycle_ids=(ids[0], ids[0]),
+            action="acknowledge",
+            reason="重复目标",
+            expires_at=None,
+            actor_id=actor_id,
+            confirmed=True,
+        )
+
+    cleared = await service.batch_disposition(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_ids=ids,
+        action="clear",
+        reason="批量解除处置",
+        expires_at=None,
+        actor_id=actor_id,
+        confirmed=True,
+    )
+    assert len(cleared) == 2
+    all_history = await service.disposition_events(tenant_id=tenant_id, agent_id=agent_id)
+    assert [item.action for item in all_history].count(
+        ObservabilityAlertDispositionAction.CLEARED
+    ) == 2
+    assert await service.disposition_events(tenant_id=uuid4(), agent_id=agent_id) == ()
 
 
 async def test_observability_lifecycle_metrics_use_independent_source_and_trend_scope() -> None:

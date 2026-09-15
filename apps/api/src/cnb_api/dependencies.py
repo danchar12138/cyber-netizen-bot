@@ -41,6 +41,7 @@ from cnb_application import (
     ModelProviderResolver,
     MultimodalInputService,
     ObjectStorage,
+    ObservabilityNotificationReplayGuard,
     ObservabilityRepository,
     ObservabilityService,
     ScheduledActionService,
@@ -409,10 +410,15 @@ def get_task_repository(request: HTTPConnection) -> TaskRepository:
 
 
 def get_task_service(
+    request: HTTPConnection,
     repository: Annotated[TaskRepository, Depends(get_task_repository)],
 ) -> BackgroundTaskService:
     """构建请求级后台任务治理服务。"""
-    return BackgroundTaskService(repository)
+    observability_repository: ObservabilityRepository = request.app.state.observability_repository
+    return BackgroundTaskService(
+        repository,
+        replay_guard=ObservabilityNotificationReplayGuard(observability_repository),
+    )
 
 
 def get_inbound_service(

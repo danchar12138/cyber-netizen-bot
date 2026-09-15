@@ -42,6 +42,8 @@ describe('管理后台中文显示文案', () => {
     expect(auditActionLabels['agent.created']).toBe('创建智能体')
     expect(auditResourceLabels.prompt).toBe('提示词版本')
     expect(permissionLabels['observability_alert:manage']).toBe('处置通用告警')
+    expect(auditActionLabels['observability_alert.suppressed']).toBe('抑制通用告警')
+    expect(auditResourceLabels.observability_alert_disposition).toBe('通用告警处置')
   })
 
   it('覆盖拟人认知与长期记忆协议值', () => {

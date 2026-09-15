@@ -47,6 +47,8 @@ from cnb_contracts import (
     MessageFeedbackResponse,
     MessageListResponse,
     MessageSearchResponse,
+    ObservabilityAlertBatchDispositionResponse,
+    ObservabilityAlertDispositionEventResponse,
     ObservabilityAlertDispositionResponse,
     ObservabilityAlertLifecycleMetricsResponse,
     ObservabilityAlertLifecycleResponse,
@@ -172,6 +174,7 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
         for item in own_reconciliation.active_lifecycles
         if item.source_key == own_alert.alert_key
     )
+    lifecycle_ids = tuple(item.id for item in own_reconciliation.active_lifecycles)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         filtered_response = await client.get(
@@ -227,6 +230,21 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
             json={"confirmed": True},
             headers={"X-CNB-Development-Role": "operator"},
         )
+        batch_response = await client.post(
+            "/api/v1/observability/alert-lifecycles/batch-disposition",
+            json={
+                "lifecycle_ids": [str(item) for item in lifecycle_ids],
+                "action": "acknowledge",
+                "reason": "批量值班确认",
+                "confirmed": True,
+            },
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+        history_response = await client.get(
+            "/api/v1/observability/alert-disposition-events",
+            params={"lifecycle_id": str(lifecycle_id), "limit": 20},
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
         missing_response = await client.post(
             f"/api/v1/observability/alert-lifecycles/{uuid4()}/acknowledge",
             json={"reason": "不存在的生命周期", "confirmed": True},
@@ -259,6 +277,11 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
         for item in disposed_list_response.json()
     )
     cleared = ObservabilityAlertDispositionResponse.model_validate(cleared_response.json())
+    batch = ObservabilityAlertBatchDispositionResponse.model_validate(batch_response.json())
+    history = tuple(
+        ObservabilityAlertDispositionEventResponse.model_validate(item)
+        for item in history_response.json()
+    )
     assert filtered_response.status_code == 200
     assert [item.id for item in filtered] == [lifecycle_id]
     assert metrics_response.status_code == 200
@@ -273,6 +296,15 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
     assert disposed[0].disposition_status == "suppressed"
     assert disposed[0].disposition_reason == "计划内维护窗口"
     assert cleared.status == "cleared"
+    assert batch_response.status_code == 200
+    assert {item.lifecycle_id for item in batch.items} == set(lifecycle_ids)
+    assert history_response.status_code == 200
+    assert [item.action for item in history] == [
+        "acknowledged",
+        "cleared",
+        "suppressed",
+        "acknowledged",
+    ]
     assert missing_response.status_code == 404
     assert cross_agent_response.status_code == 404
 

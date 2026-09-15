@@ -313,6 +313,53 @@ class ObservabilityAlertDispositionModel(Base):
     )
 
 
+class ObservabilityAlertDispositionEventModel(Base):
+    """通用告警处置追加历史，不保存正文或通知凭据。"""
+
+    __tablename__ = "observability_alert_disposition_events"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    lifecycle_id: Mapped[UUID] = mapped_column(
+        ForeignKey("observability_alert_lifecycles.id", ondelete="CASCADE"), nullable=False
+    )
+    source_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    code: Mapped[str] = mapped_column(String(120), nullable=False)
+    action: Mapped[str] = mapped_column(String(24), nullable=False)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    actor_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "action IN ('acknowledged', 'suppressed', 'cleared')",
+            name="ck_observability_alert_disposition_events_action",
+        ),
+        Index(
+            "ix_observability_alert_disposition_events_tenant_agent_time",
+            "tenant_id",
+            "agent_id",
+            "occurred_at",
+        ),
+        Index(
+            "ix_observability_alert_disposition_events_lifecycle_time",
+            "tenant_id",
+            "agent_id",
+            "lifecycle_id",
+            "occurred_at",
+        ),
+    )
+
+
 class Tenant(Base):
     """承载全部业务数据隔离边界的租户。"""
 

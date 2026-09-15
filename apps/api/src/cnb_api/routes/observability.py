@@ -1,5 +1,6 @@
 """性能、成本、服务等级与活动告警管理接口。"""
 
+from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -23,8 +24,11 @@ from cnb_contracts import (
     ChannelDeliveryMetricsResponse,
     ModelUsageResponse,
     NotificationDeliveryMetricsResponse,
+    ObservabilityAlertBatchDispositionCommand,
+    ObservabilityAlertBatchDispositionResponse,
     ObservabilityAlertDispositionClearCommand,
     ObservabilityAlertDispositionCommand,
+    ObservabilityAlertDispositionEventResponse,
     ObservabilityAlertDispositionResponse,
     ObservabilityAlertLifecycleMetricsResponse,
     ObservabilityAlertLifecycleResponse,
@@ -38,6 +42,7 @@ from cnb_domain import (
     AlertSeverity,
     DevelopmentIdentity,
     ObservabilityAlertDisposition,
+    ObservabilityAlertDispositionAction,
     ObservabilityAlertLifecycleStatus,
 )
 
@@ -162,6 +167,87 @@ def _disposition_response(
         reason=item.reason,
         expires_at=item.expires_at,
         updated_at=item.updated_at,
+    )
+
+
+@router.get(
+    "/alert-disposition-events",
+    response_model=tuple[ObservabilityAlertDispositionEventResponse, ...],
+    dependencies=[Depends(require_permission(AdminPermission.TRACE_READ))],
+)
+async def alert_disposition_events(
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ObservabilityService, Depends(get_observability_service)],
+    lifecycle_id: UUID | None = None,
+    source_type: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
+    source_key: Annotated[str | None, Query(min_length=1, max_length=255)] = None,
+    action: ObservabilityAlertDispositionAction | None = None,
+    occurred_after: datetime | None = None,
+    occurred_before: datetime | None = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> tuple[ObservabilityAlertDispositionEventResponse, ...]:
+    """查询当前 Agent 的通用告警处置历史时间线。"""
+    try:
+        rows = await service.disposition_events(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            lifecycle_id=lifecycle_id,
+            source_type=source_type,
+            source_key=source_key,
+            action=action,
+            occurred_after=occurred_after,
+            occurred_before=occurred_before,
+            limit=limit,
+        )
+    except ObservabilityValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return tuple(
+        ObservabilityAlertDispositionEventResponse.model_validate(item, from_attributes=True)
+        for item in rows
+    )
+
+
+@router.post(
+    "/alert-lifecycles/batch-disposition",
+    response_model=ObservabilityAlertBatchDispositionResponse,
+    dependencies=[Depends(require_permission(AdminPermission.OBSERVABILITY_ALERT_MANAGE))],
+)
+async def batch_disposition(
+    command: ObservabilityAlertBatchDispositionCommand,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ObservabilityService, Depends(get_observability_service)],
+) -> ObservabilityAlertBatchDispositionResponse:
+    """原子确认、临时抑制或解除多个通用告警。"""
+    try:
+        rows = await service.batch_disposition(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            lifecycle_ids=command.lifecycle_ids,
+            action=command.action,
+            reason=command.reason,
+            expires_at=command.expires_at,
+            actor_id=principal.user_id,
+            confirmed=command.confirmed,
+        )
+    except ObservabilityNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except ObservabilityValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return ObservabilityAlertBatchDispositionResponse(
+        items=tuple(
+            _disposition_response(
+                item.lifecycle_id,
+                item.disposition,
+                cleared=command.action == "clear",
+            )
+            for item in rows
+        )
     )
 
 
