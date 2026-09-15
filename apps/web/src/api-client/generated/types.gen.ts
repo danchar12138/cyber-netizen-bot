@@ -6165,6 +6165,82 @@ export type NotificationDeliveryTimelineResponse = {
 };
 
 /**
+ * ObservabilityAlertBaselineResponse
+ *
+ * 当前 Agent 的等长窗口告警异常基线。
+ */
+export type ObservabilityAlertBaselineResponse = {
+    /**
+     * Minimum Current Count
+     */
+    minimum_current_count: number;
+    /**
+     * Periods
+     */
+    periods: number;
+    /**
+     * Sensitivity
+     */
+    sensitivity: number;
+    /**
+     * Signals
+     */
+    signals: Array<ObservabilityAlertBaselineSignalResponse>;
+    /**
+     * Window Ended At
+     */
+    window_ended_at: string;
+    /**
+     * Window Minutes
+     */
+    window_minutes: number;
+    /**
+     * Window Started At
+     */
+    window_started_at: string;
+};
+
+/**
+ * ObservabilityAlertBaselineSignalResponse
+ *
+ * 告警开启或升级量相对稳健历史基线的偏离。
+ */
+export type ObservabilityAlertBaselineSignalResponse = {
+    /**
+     * Anomalous
+     */
+    anomalous: boolean;
+    /**
+     * Baseline Mad
+     */
+    baseline_mad: number;
+    /**
+     * Baseline Median
+     */
+    baseline_median: number;
+    /**
+     * Current Value
+     */
+    current_value: number;
+    /**
+     * Metric
+     */
+    metric: 'opened' | 'escalated';
+    /**
+     * Samples
+     */
+    samples: Array<number>;
+    /**
+     * Source Type
+     */
+    source_type?: string | null;
+    /**
+     * Threshold Value
+     */
+    threshold_value: number;
+};
+
+/**
  * ObservabilityAlertBatchDispositionCommand
  *
  * 最多 100 项的原子批量处置命令。
@@ -6330,6 +6406,144 @@ export type ObservabilityAlertDispositionResponse = {
  * 通用告警处置状态。
  */
 export type ObservabilityAlertDispositionStatus = 'acknowledged' | 'suppressed';
+
+/**
+ * ObservabilityAlertHandoffItemResponse
+ *
+ * 不含自由文本备注的值班交接优先关注项。
+ */
+export type ObservabilityAlertHandoffItemResponse = {
+    /**
+     * Active Minutes
+     */
+    active_minutes: number;
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Disposition Expires At
+     */
+    disposition_expires_at?: string | null;
+    disposition_status?: ObservabilityAlertDispositionStatus | null;
+    /**
+     * Escalation Level
+     */
+    escalation_level: number;
+    /**
+     * Lifecycle Id
+     */
+    lifecycle_id: string;
+    /**
+     * Reason Codes
+     */
+    reason_codes: Array<'critical' | 'unacknowledged' | 'escalated' | 'suppression_expiring'>;
+    severity: AlertSeverity;
+    /**
+     * Source Key
+     */
+    source_key: string;
+    /**
+     * Source Type
+     */
+    source_type: string;
+};
+
+/**
+ * ObservabilityAlertHandoffResponse
+ *
+ * 当前 Agent 的告警值班交接摘要。
+ */
+export type ObservabilityAlertHandoffResponse = {
+    /**
+     * Acknowledged Active
+     */
+    acknowledged_active: number;
+    /**
+     * Active
+     */
+    active: number;
+    /**
+     * Blocked Replays
+     */
+    blocked_replays: number;
+    /**
+     * Critical Active
+     */
+    critical_active: number;
+    /**
+     * Escalated
+     */
+    escalated: number;
+    /**
+     * Opened
+     */
+    opened: number;
+    /**
+     * Priority Items
+     */
+    priority_items: Array<ObservabilityAlertHandoffItemResponse>;
+    /**
+     * Resolved
+     */
+    resolved: number;
+    /**
+     * Sources
+     */
+    sources: Array<ObservabilityAlertHandoffSourceResponse>;
+    /**
+     * Suppressed Active
+     */
+    suppressed_active: number;
+    /**
+     * Unacknowledged Active
+     */
+    unacknowledged_active: number;
+    /**
+     * Window Ended At
+     */
+    window_ended_at: string;
+    /**
+     * Window Started At
+     */
+    window_started_at: string;
+};
+
+/**
+ * ObservabilityAlertHandoffSourceResponse
+ *
+ * 值班窗口内单一告警来源的安全聚合。
+ */
+export type ObservabilityAlertHandoffSourceResponse = {
+    /**
+     * Active
+     */
+    active: number;
+    /**
+     * Critical Active
+     */
+    critical_active: number;
+    /**
+     * Escalated
+     */
+    escalated: number;
+    /**
+     * Opened
+     */
+    opened: number;
+    /**
+     * Resolved
+     */
+    resolved: number;
+    /**
+     * Source Type
+     */
+    source_type: string;
+    /**
+     * Unacknowledged Active
+     */
+    unacknowledged_active: number;
+};
 
 /**
  * ObservabilityAlertHistoryExportCommand
@@ -6523,6 +6737,20 @@ export type ObservabilityAlertLifecycleTrendPointResponse = {
      * Resolved
      */
     resolved: number;
+};
+
+/**
+ * ObservabilityAlertOperationsSummaryResponse
+ *
+ * 告警异常基线与值班交接的统一安全读模型。
+ */
+export type ObservabilityAlertOperationsSummaryResponse = {
+    baseline: ObservabilityAlertBaselineResponse;
+    /**
+     * Generated At
+     */
+    generated_at: string;
+    handoff: ObservabilityAlertHandoffResponse;
 };
 
 /**
@@ -16472,6 +16700,63 @@ export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressResponses 
 };
 
 export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressResponse = PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressResponses[keyof PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressResponses];
+
+export type GetApiV1ObservabilityAlertOperationsSummaryData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/observability/alert-operations-summary';
+};
+
+export type GetApiV1ObservabilityAlertOperationsSummaryErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ObservabilityAlertOperationsSummaryError = GetApiV1ObservabilityAlertOperationsSummaryErrors[keyof GetApiV1ObservabilityAlertOperationsSummaryErrors];
+
+export type GetApiV1ObservabilityAlertOperationsSummaryResponses = {
+    /**
+     * 请求成功
+     */
+    200: ObservabilityAlertOperationsSummaryResponse;
+};
+
+export type GetApiV1ObservabilityAlertOperationsSummaryResponse = GetApiV1ObservabilityAlertOperationsSummaryResponses[keyof GetApiV1ObservabilityAlertOperationsSummaryResponses];
 
 export type GetApiV1ObservabilityAlertReplayReviewsData = {
     body?: never;

@@ -567,6 +567,26 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .candidate-list span, .model-invocations span, .model-invocations small { margin-top: 4px; color: #78998d; font-size: 8px; }
 .candidate-list p { margin: 6px 0 0; color: #78998d; font-size: 9px; }
 .observability-grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 13px; margin-bottom: 13px; }
+.alert-operations-section { margin-bottom: 13px; }
+.alert-handoff-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.alert-operations-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 13px; }
+.baseline-signal-list, .handoff-priority-list { margin: 0; padding: 0; list-style: none; }
+.baseline-signal-list article { display: grid; grid-template-columns: minmax(0, 1fr) minmax(130px, .8fr); gap: 14px; padding: 11px 0; border-top: 1px solid #1c322a; }
+.baseline-signal-list article > div { min-width: 0; }
+.baseline-signal-list article > div:last-child { text-align: right; }
+.baseline-signal-list strong, .baseline-signal-list span { display: block; overflow-wrap: anywhere; }
+.baseline-signal-list strong { color: #dcb372; font-size: 10px; }
+.baseline-signal-list span { margin-top: 4px; color: #78998d; font-size: 8px; }
+.handoff-priority-list li { display: grid; grid-template-columns: 54px minmax(0, 1fr) 30px; align-items: start; gap: 10px; min-height: 55px; padding: 11px 0; border-top: 1px solid #1c322a; }
+.handoff-priority-list li > div { min-width: 0; }
+.handoff-priority-list strong, .handoff-priority-list small, .handoff-priority-list li > div > span { display: block; overflow-wrap: anywhere; }
+.handoff-priority-list strong { color: #b7cec4; font-size: 10px; }
+.handoff-priority-list small, .handoff-priority-list li > div > span { margin-top: 4px; color: #6f9184; font-size: 8px; }
+.handoff-priority-list li > div > span { color: #c99e63; }
+.handoff-priority-list .severity-label { width: 54px; text-align: center; }
+.handoff-priority-list .severity-label.critical { color: #e18470; }
+.handoff-priority-list .severity-label.warning { color: #d8ad65; }
+.handoff-source-panel { margin-top: 13px; }
 .channel-lifecycle-observability { margin-bottom: 13px; }
 .observability-lifecycle-table { margin-bottom: 13px; }
 .observability-source-metrics { margin-top: 13px; }
@@ -731,6 +751,7 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .brand, .nav-item { justify-content: center; }
   .environment-switcher { grid-template-columns: 1fr; justify-items: center; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
+  .alert-operations-grid { grid-template-columns: 1fr; }
   .lifecycle-observability-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .overview-counts, .status-summary, .task-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .configuration-layout { grid-template-columns: 1fr; }
@@ -767,6 +788,7 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .page { width: calc(100% - 28px); padding-top: 28px; padding-bottom: 90px; }
   .page-heading { align-items: flex-start; flex-direction: column; }
   .metric-grid, .dashboard-grid { grid-template-columns: 1fr; }
+  .alert-handoff-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lifecycle-observability-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .replay-review-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .replay-review-summary-grid { grid-template-columns: 1fr; }
@@ -782,6 +804,8 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .settings-card:last-child { grid-column: auto; }
   .settings-list > div { grid-template-columns: 1fr; gap: 5px; }
   .settings-list dd { justify-content: flex-start; text-align: left; }
+  .baseline-signal-list article { grid-template-columns: 1fr; gap: 7px; }
+  .baseline-signal-list article > div:last-child { text-align: left; }
   .definition-row { grid-template-columns: 1fr; gap: 12px; }
   .memory-tabs { width: 100%; overflow-x: auto; }
     .memory-toolbar, .memory-form-grid, .recall-results { grid-template-columns: 1fr; }

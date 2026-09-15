@@ -10380,6 +10380,132 @@
         "title": "NotificationDeliveryTimelineResponse",
         "type": "object"
       },
+      "ObservabilityAlertBaselineResponse": {
+        "description": "当前 Agent 的等长窗口告警异常基线。",
+        "properties": {
+          "minimum_current_count": {
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Minimum Current Count",
+            "type": "integer"
+          },
+          "periods": {
+            "maximum": 30.0,
+            "minimum": 3.0,
+            "title": "Periods",
+            "type": "integer"
+          },
+          "sensitivity": {
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Sensitivity",
+            "type": "number"
+          },
+          "signals": {
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityAlertBaselineSignalResponse"
+            },
+            "title": "Signals",
+            "type": "array"
+          },
+          "window_ended_at": {
+            "format": "date-time",
+            "title": "Window Ended At",
+            "type": "string"
+          },
+          "window_minutes": {
+            "maximum": 10080.0,
+            "minimum": 60.0,
+            "title": "Window Minutes",
+            "type": "integer"
+          },
+          "window_started_at": {
+            "format": "date-time",
+            "title": "Window Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_started_at",
+          "window_ended_at",
+          "window_minutes",
+          "periods",
+          "sensitivity",
+          "minimum_current_count",
+          "signals"
+        ],
+        "title": "ObservabilityAlertBaselineResponse",
+        "type": "object"
+      },
+      "ObservabilityAlertBaselineSignalResponse": {
+        "description": "告警开启或升级量相对稳健历史基线的偏离。",
+        "properties": {
+          "anomalous": {
+            "title": "Anomalous",
+            "type": "boolean"
+          },
+          "baseline_mad": {
+            "minimum": 0.0,
+            "title": "Baseline Mad",
+            "type": "number"
+          },
+          "baseline_median": {
+            "minimum": 0.0,
+            "title": "Baseline Median",
+            "type": "number"
+          },
+          "current_value": {
+            "minimum": 0.0,
+            "title": "Current Value",
+            "type": "integer"
+          },
+          "metric": {
+            "enum": [
+              "opened",
+              "escalated"
+            ],
+            "title": "Metric",
+            "type": "string"
+          },
+          "samples": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 30,
+            "minItems": 3,
+            "title": "Samples",
+            "type": "array"
+          },
+          "source_type": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Type"
+          },
+          "threshold_value": {
+            "minimum": 0.0,
+            "title": "Threshold Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "metric",
+          "current_value",
+          "baseline_median",
+          "baseline_mad",
+          "threshold_value",
+          "anomalous",
+          "samples"
+        ],
+        "title": "ObservabilityAlertBaselineSignalResponse",
+        "type": "object"
+      },
       "ObservabilityAlertBatchDispositionCommand": {
         "description": "最多 100 项的原子批量处置命令。",
         "properties": {
@@ -10638,6 +10764,239 @@
         ],
         "title": "ObservabilityAlertDispositionStatus",
         "type": "string"
+      },
+      "ObservabilityAlertHandoffItemResponse": {
+        "description": "不含自由文本备注的值班交接优先关注项。",
+        "properties": {
+          "active_minutes": {
+            "minimum": 0.0,
+            "title": "Active Minutes",
+            "type": "integer"
+          },
+          "code": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "disposition_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disposition Expires At"
+          },
+          "disposition_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObservabilityAlertDispositionStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "escalation_level": {
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Escalation Level",
+            "type": "integer"
+          },
+          "lifecycle_id": {
+            "format": "uuid",
+            "title": "Lifecycle Id",
+            "type": "string"
+          },
+          "reason_codes": {
+            "items": {
+              "enum": [
+                "critical",
+                "unacknowledged",
+                "escalated",
+                "suppression_expiring"
+              ],
+              "type": "string"
+            },
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AlertSeverity"
+          },
+          "source_key": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Source Key",
+            "type": "string"
+          },
+          "source_type": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lifecycle_id",
+          "source_type",
+          "source_key",
+          "code",
+          "severity",
+          "escalation_level",
+          "active_minutes",
+          "reason_codes"
+        ],
+        "title": "ObservabilityAlertHandoffItemResponse",
+        "type": "object"
+      },
+      "ObservabilityAlertHandoffResponse": {
+        "description": "当前 Agent 的告警值班交接摘要。",
+        "properties": {
+          "acknowledged_active": {
+            "minimum": 0.0,
+            "title": "Acknowledged Active",
+            "type": "integer"
+          },
+          "active": {
+            "minimum": 0.0,
+            "title": "Active",
+            "type": "integer"
+          },
+          "blocked_replays": {
+            "minimum": 0.0,
+            "title": "Blocked Replays",
+            "type": "integer"
+          },
+          "critical_active": {
+            "minimum": 0.0,
+            "title": "Critical Active",
+            "type": "integer"
+          },
+          "escalated": {
+            "minimum": 0.0,
+            "title": "Escalated",
+            "type": "integer"
+          },
+          "opened": {
+            "minimum": 0.0,
+            "title": "Opened",
+            "type": "integer"
+          },
+          "priority_items": {
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityAlertHandoffItemResponse"
+            },
+            "maxItems": 10,
+            "title": "Priority Items",
+            "type": "array"
+          },
+          "resolved": {
+            "minimum": 0.0,
+            "title": "Resolved",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityAlertHandoffSourceResponse"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "suppressed_active": {
+            "minimum": 0.0,
+            "title": "Suppressed Active",
+            "type": "integer"
+          },
+          "unacknowledged_active": {
+            "minimum": 0.0,
+            "title": "Unacknowledged Active",
+            "type": "integer"
+          },
+          "window_ended_at": {
+            "format": "date-time",
+            "title": "Window Ended At",
+            "type": "string"
+          },
+          "window_started_at": {
+            "format": "date-time",
+            "title": "Window Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_started_at",
+          "window_ended_at",
+          "active",
+          "critical_active",
+          "unacknowledged_active",
+          "acknowledged_active",
+          "suppressed_active",
+          "opened",
+          "resolved",
+          "escalated",
+          "blocked_replays",
+          "sources",
+          "priority_items"
+        ],
+        "title": "ObservabilityAlertHandoffResponse",
+        "type": "object"
+      },
+      "ObservabilityAlertHandoffSourceResponse": {
+        "description": "值班窗口内单一告警来源的安全聚合。",
+        "properties": {
+          "active": {
+            "minimum": 0.0,
+            "title": "Active",
+            "type": "integer"
+          },
+          "critical_active": {
+            "minimum": 0.0,
+            "title": "Critical Active",
+            "type": "integer"
+          },
+          "escalated": {
+            "minimum": 0.0,
+            "title": "Escalated",
+            "type": "integer"
+          },
+          "opened": {
+            "minimum": 0.0,
+            "title": "Opened",
+            "type": "integer"
+          },
+          "resolved": {
+            "minimum": 0.0,
+            "title": "Resolved",
+            "type": "integer"
+          },
+          "source_type": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Source Type",
+            "type": "string"
+          },
+          "unacknowledged_active": {
+            "minimum": 0.0,
+            "title": "Unacknowledged Active",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source_type",
+          "active",
+          "critical_active",
+          "unacknowledged_active",
+          "opened",
+          "resolved",
+          "escalated"
+        ],
+        "title": "ObservabilityAlertHandoffSourceResponse",
+        "type": "object"
       },
       "ObservabilityAlertHistoryExportCommand": {
         "description": "按受限时间窗口导出当前 Agent 的安全告警运营历史。",
@@ -10971,6 +11330,29 @@
           "escalated"
         ],
         "title": "ObservabilityAlertLifecycleTrendPointResponse",
+        "type": "object"
+      },
+      "ObservabilityAlertOperationsSummaryResponse": {
+        "description": "告警异常基线与值班交接的统一安全读模型。",
+        "properties": {
+          "baseline": {
+            "$ref": "#/components/schemas/ObservabilityAlertBaselineResponse"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "handoff": {
+            "$ref": "#/components/schemas/ObservabilityAlertHandoffResponse"
+          }
+        },
+        "required": [
+          "generated_at",
+          "baseline",
+          "handoff"
+        ],
+        "title": "ObservabilityAlertOperationsSummaryResponse",
         "type": "object"
       },
       "ObservabilityAlertReplayDecision": {
@@ -31485,6 +31867,118 @@
           }
         },
         "summary": "临时抑制当前 Agent 的活动通用告警通知",
+        "tags": [
+          "可观测性"
+        ]
+      }
+    },
+    "/api/v1/observability/alert-operations-summary": {
+      "get": {
+        "description": "返回当前 Agent 的告警异常基线与值班交接摘要。",
+        "operationId": "get_api_v1_observability_alert_operations_summary",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservabilityAlertOperationsSummaryResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "返回当前 Agent 的告警异常基线与值班交接摘要",
         "tags": [
           "可观测性"
         ]

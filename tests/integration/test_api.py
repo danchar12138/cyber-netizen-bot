@@ -53,6 +53,7 @@ from cnb_contracts import (
     ObservabilityAlertLifecycleMetricsResponse,
     ObservabilityAlertLifecyclePageResponse,
     ObservabilityAlertLifecycleResponse,
+    ObservabilityAlertOperationsSummaryResponse,
     ObservabilityAlertReplayMetricsResponse,
     ObservabilityAlertReplayReviewPageResponse,
     ObservabilityDashboardResponse,
@@ -70,6 +71,7 @@ from cnb_domain import (
     DevelopmentIdentity,
     JsonValue,
     ManagedAdminSession,
+    ObservabilityAlertLifecycle,
     ObservabilityAlertReplayDecision,
     ObservabilityAlertReplayReason,
     ObservabilityAlertReplayReview,
@@ -130,6 +132,65 @@ async def test_observability_dashboard_records_only_safe_request_metadata() -> N
     assert payload.channel_delivery.failure_rate_percent == 0
     assert payload.notification_delivery.total == 0
     assert payload.notification_delivery.dead_letters == 0
+
+
+async def test_alert_operations_summary_maps_history_overflow_to_conflict() -> None:
+    class OverflowRepository(MemoryObservabilityRepository):
+        lifecycle: ObservabilityAlertLifecycle | None = None
+
+        async def list_observability_alert_lifecycles_in_window(
+            self,
+            *,
+            tenant_id: UUID,
+            agent_id: UUID,
+            window_started_at: datetime,
+            window_ended_at: datetime,
+            source_type: str | None = None,
+            severity: AlertSeverity | None = None,
+            limit: int | None = None,
+        ) -> tuple[ObservabilityAlertLifecycle, ...]:
+            del tenant_id, agent_id, window_started_at, window_ended_at, source_type, severity
+            assert self.lifecycle is not None
+            return (self.lifecycle,) * (limit or 0)
+
+    repository = OverflowRepository()
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+        observability_repository=repository,
+    )
+    identity = cast(DevelopmentIdentity, app.state.development_identity)
+    now = datetime.now(UTC).replace(microsecond=0)
+    reconciliation = await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=identity.tenant_id,
+        agent_id=identity.agent_id,
+        alerts=(
+            ActiveAlert(
+                code="api_error_rate",
+                severity=AlertSeverity.WARNING,
+                title="API 错误率",
+                summary="安全摘要",
+                current_value=20,
+                threshold_value=1,
+                unit="%",
+                source_type="api",
+                source_key="overflow",
+                first_occurred_at=now,
+            ),
+        ),
+        observed_at=now,
+    )
+    repository.lifecycle = reconciliation.active_lifecycles[0]
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(
+            "/api/v1/observability/alert-operations-summary",
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+
+    assert response.status_code == 409
+    assert "10000 条生命周期安全上限" in response.json()["error"]["message"]
 
 
 async def test_observability_alert_lifecycle_api_filters_and_manages_dispositions() -> None:
@@ -218,6 +279,10 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
             },
             headers={"X-CNB-Development-Role": "viewer"},
         )
+        operations_response = await client.get(
+            "/api/v1/observability/alert-operations-summary",
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
         page_response = await client.get(
             "/api/v1/observability/alert-lifecycles/page",
             params={"source_type": "model_runtime", "limit": 1},
@@ -294,6 +359,13 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
             "/api/v1/administration/agents",
             json={"name": "通用告警隔离伙伴"},
         )
+        other_agent_summary_response = await client.get(
+            "/api/v1/observability/alert-operations-summary",
+            headers={
+                "X-CNB-Development-Role": "viewer",
+                "X-CNB-Agent-ID": other_agent_response.json()["id"],
+            },
+        )
         cross_agent_response = await client.post(
             f"/api/v1/observability/alert-lifecycles/{lifecycle_id}/acknowledge",
             json={"reason": "不得跨 Agent 处置", "confirmed": True},
@@ -308,6 +380,12 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
         for item in filtered_response.json()
     )
     metrics = ObservabilityAlertLifecycleMetricsResponse.model_validate(metrics_response.json())
+    operations = ObservabilityAlertOperationsSummaryResponse.model_validate(
+        operations_response.json()
+    )
+    other_agent_summary = ObservabilityAlertOperationsSummaryResponse.model_validate(
+        other_agent_summary_response.json()
+    )
     page = ObservabilityAlertLifecyclePageResponse.model_validate(page_response.json())
     replay_metrics = ObservabilityAlertReplayMetricsResponse.model_validate(
         replay_metrics_response.json()
@@ -335,6 +413,18 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
     assert (metrics.active, metrics.opened, metrics.resolved, metrics.escalated) == (1, 1, 0, 0)
     assert [item.source_type for item in metrics.sources] == ["model_runtime"]
     assert len(metrics.trend) == 24
+    assert operations_response.status_code == 200
+    assert operations.handoff.active == 2
+    assert operations.handoff.critical_active == 1
+    assert operations.handoff.unacknowledged_active == 2
+    assert operations.handoff.blocked_replays == 1
+    assert len(operations.handoff.priority_items) == 2
+    assert all(item.disposition_status is None for item in operations.handoff.priority_items)
+    assert "仅用于 API 契约测试的安全摘要" not in operations_response.text
+    assert "disposition_reason" not in operations_response.text
+    assert other_agent_summary.handoff.active == 0
+    assert other_agent_summary.handoff.priority_items == ()
+    assert all(item.current_value == 0 for item in other_agent_summary.baseline.signals)
     assert page_response.status_code == 200
     assert [item.id for item in page.items] == [lifecycle_id]
     assert page.next_cursor is None

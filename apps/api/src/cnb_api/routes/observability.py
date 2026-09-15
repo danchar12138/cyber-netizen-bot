@@ -33,6 +33,7 @@ from cnb_contracts import (
     ObservabilityAlertLifecycleMetricsResponse,
     ObservabilityAlertLifecyclePageResponse,
     ObservabilityAlertLifecycleResponse,
+    ObservabilityAlertOperationsSummaryResponse,
     ObservabilityAlertReplayMetricsResponse,
     ObservabilityAlertReplayReviewPageResponse,
     ObservabilityAlertReplayReviewResponse,
@@ -156,6 +157,30 @@ async def alert_lifecycle_metrics(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
         ) from error
     return ObservabilityAlertLifecycleMetricsResponse.model_validate(metrics, from_attributes=True)
+
+
+@router.get(
+    "/alert-operations-summary",
+    response_model=ObservabilityAlertOperationsSummaryResponse,
+    dependencies=[Depends(require_permission(AdminPermission.TRACE_READ))],
+)
+async def alert_operations_summary(
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ObservabilityService, Depends(get_observability_service)],
+) -> ObservabilityAlertOperationsSummaryResponse:
+    """返回当前 Agent 的告警异常基线与值班交接摘要。"""
+    try:
+        summary = await service.alert_operations_summary(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+        )
+    except ObservabilityValidationError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return ObservabilityAlertOperationsSummaryResponse.model_validate(
+        summary,
+        from_attributes=True,
+    )
 
 
 @router.get(

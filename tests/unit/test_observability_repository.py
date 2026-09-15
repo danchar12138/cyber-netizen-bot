@@ -271,6 +271,7 @@ async def test_postgresql_lifecycle_metrics_query_keeps_scope_and_filters() -> N
         window_ended_at=ended_at,
         source_type="model_runtime",
         severity=AlertSeverity.CRITICAL,
+        limit=10_001,
     )
 
     lifecycle_sql = _sql(captured.statements[-1])
@@ -283,3 +284,15 @@ async def test_postgresql_lifecycle_metrics_query_keeps_scope_and_filters() -> N
     assert "first_occurred_at BETWEEN" in lifecycle_sql
     assert "resolved_at BETWEEN" in lifecycle_sql
     assert "escalated_at BETWEEN" in lifecycle_sql
+    assert "LIMIT 10001" in lifecycle_sql
+
+    await repository.list_observability_alert_dispositions(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        limit=10_001,
+    )
+    disposition_sql = _sql(captured.statements[-1])
+    assert "observability_alert_dispositions" in disposition_sql
+    assert str(tenant_id) in disposition_sql
+    assert str(agent_id) in disposition_sql
+    assert "LIMIT 10001" in disposition_sql

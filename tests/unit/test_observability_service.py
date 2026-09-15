@@ -22,8 +22,10 @@ from cnb_domain import (
     LatencyPercentiles,
     ModelUsageMetrics,
     NotificationDeliveryMetrics,
+    ObservabilityAlertDisposition,
     ObservabilityAlertDispositionAction,
     ObservabilityAlertDispositionStatus,
+    ObservabilityAlertLifecycle,
     ObservabilityAlertLifecycleStatus,
     ObservabilityAlertReplayDecision,
     ObservabilityAlertReplayReason,
@@ -741,6 +743,300 @@ async def test_observability_lifecycle_metrics_use_independent_source_and_trend_
             window_minutes=60,
             bucket_minutes=120,
         )
+
+
+async def test_alert_operations_summary_uses_robust_baseline_and_safe_handoff() -> None:
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
+    repository = MemoryObservabilityRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+    ended_at = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    window = timedelta(minutes=480)
+    current_started_at = ended_at - window
+    history_started_at = current_started_at - window * 7
+
+    def alert(
+        *,
+        source_key: str,
+        severity: AlertSeverity = AlertSeverity.WARNING,
+        occurred_at: datetime,
+    ) -> ActiveAlert:
+        return ActiveAlert(
+            code="api_error_rate",
+            severity=severity,
+            title="API 错误率",
+            summary="安全摘要",
+            current_value=20,
+            threshold_value=1,
+            unit="%",
+            source_type="api",
+            source_key=source_key,
+            first_occurred_at=occurred_at,
+        )
+
+    for sample_index, count in enumerate((1, 1, 20, 1, 1, 1, 1)):
+        occurred_at = history_started_at + window * sample_index + timedelta(minutes=10)
+        await repository.reconcile_observability_alert_lifecycles(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            alerts=tuple(
+                alert(
+                    source_key=f"historical-{sample_index}-{item_index}",
+                    occurred_at=occurred_at,
+                )
+                for item_index in range(count)
+            ),
+            observed_at=occurred_at,
+        )
+        await repository.reconcile_observability_alert_lifecycles(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            alerts=(),
+            observed_at=occurred_at + timedelta(minutes=1),
+        )
+
+    active_at = ended_at - timedelta(minutes=10)
+    current = await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(
+            alert(source_key="acknowledged", occurred_at=active_at),
+            alert(source_key="suppressed", occurred_at=active_at),
+            alert(
+                source_key="expired-suppression",
+                severity=AlertSeverity.CRITICAL,
+                occurred_at=active_at,
+            ),
+            alert(
+                source_key="escalated",
+                severity=AlertSeverity.CRITICAL,
+                occurred_at=active_at,
+            ),
+        ),
+        observed_at=active_at,
+    )
+    by_key = {item.source_key: item for item in current.active_lifecycles}
+    await service.acknowledge_alert(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=by_key["acknowledged"].id,
+        reason="内部处置备注不得进入交接摘要",
+        actor_id=actor_id,
+        confirmed=True,
+        now=active_at,
+    )
+    await service.suppress_alert(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=by_key["suppressed"].id,
+        reason="近期维护窗口",
+        expires_at=ended_at + timedelta(hours=1),
+        actor_id=actor_id,
+        confirmed=True,
+        now=active_at,
+    )
+    await service.suppress_alert(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=by_key["expired-suppression"].id,
+        reason="已过期的维护窗口",
+        expires_at=ended_at - timedelta(minutes=1),
+        actor_id=actor_id,
+        confirmed=True,
+        now=active_at,
+    )
+    await repository.mark_observability_alert_lifecycles_escalated(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_ids=(by_key["escalated"].id,),
+        escalation_level=2,
+        escalated_at=ended_at - timedelta(minutes=5),
+    )
+    await repository.record_observability_alert_replay_review(
+        ObservabilityAlertReplayReview(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            source_job_id=uuid4(),
+            source_type="api",
+            source_key="suppressed",
+            decision=ObservabilityAlertReplayDecision.BLOCKED,
+            reason_code=ObservabilityAlertReplayReason.BLOCKED_ACTIVE_SUPPRESSION,
+            actor_id=actor_id,
+            suppression_expires_at=ended_at + timedelta(hours=1),
+            reviewed_at=ended_at - timedelta(minutes=2),
+        )
+    )
+    await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=uuid4(),
+        agent_id=agent_id,
+        alerts=tuple(
+            alert(source_key=f"foreign-{index}", occurred_at=active_at) for index in range(10)
+        ),
+        observed_at=active_at,
+    )
+    await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=uuid4(),
+        alerts=tuple(
+            alert(source_key=f"other-agent-{index}", occurred_at=active_at) for index in range(10)
+        ),
+        observed_at=active_at,
+    )
+
+    summary = await service.alert_operations_summary(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=ended_at,
+    )
+
+    opened = next(
+        item
+        for item in summary.baseline.signals
+        if item.metric == "opened" and item.source_type is None
+    )
+    assert opened.samples == (1, 1, 20, 1, 1, 1, 1)
+    assert opened.current_value == 4
+    assert opened.baseline_median == 1
+    assert opened.baseline_mad == 0
+    assert opened.threshold_value == 4
+    assert opened.anomalous is True
+    assert any(
+        item.metric == "opened" and item.source_type == "api" and item.anomalous
+        for item in summary.baseline.signals
+    )
+    assert (
+        summary.handoff.active,
+        summary.handoff.critical_active,
+        summary.handoff.unacknowledged_active,
+        summary.handoff.acknowledged_active,
+        summary.handoff.suppressed_active,
+    ) == (4, 2, 2, 1, 1)
+    assert (summary.handoff.opened, summary.handoff.escalated) == (4, 1)
+    assert summary.handoff.blocked_replays == 1
+    assert summary.handoff.priority_items[0].source_key == "escalated"
+    assert summary.handoff.priority_items[0].reason_codes == (
+        "critical",
+        "unacknowledged",
+        "escalated",
+    )
+    suppressed_item = next(
+        item for item in summary.handoff.priority_items if item.source_key == "suppressed"
+    )
+    assert suppressed_item.reason_codes == ("suppression_expiring",)
+    assert not hasattr(suppressed_item, "disposition_reason")
+    assert summary.handoff.sources[0].source_type == "api"
+    assert summary.handoff.sources[0].active == 4
+
+
+async def test_alert_operations_summary_rejects_unbounded_history() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    ended_at = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    lifecycle = ObservabilityAlertLifecycle(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        source_type="api",
+        source_key="overflow",
+        code="api_error_rate",
+        status=ObservabilityAlertLifecycleStatus.RESOLVED,
+        severity=AlertSeverity.WARNING,
+        occurrences=1,
+        current_value=20,
+        threshold_value=1,
+        unit="%",
+        first_occurred_at=ended_at - timedelta(minutes=1),
+        last_occurred_at=ended_at - timedelta(minutes=1),
+        last_evaluated_at=ended_at,
+        escalated_at=None,
+        resolved_at=ended_at,
+        recovery_duration_seconds=60,
+        created_at=ended_at - timedelta(minutes=1),
+        updated_at=ended_at,
+    )
+
+    class OverflowRepository(MemoryObservabilityRepository):
+        requested_limit: int | None = None
+
+        async def list_observability_alert_lifecycles_in_window(
+            self,
+            *,
+            tenant_id: UUID,
+            agent_id: UUID,
+            window_started_at: datetime,
+            window_ended_at: datetime,
+            source_type: str | None = None,
+            severity: AlertSeverity | None = None,
+            limit: int | None = None,
+        ) -> tuple[ObservabilityAlertLifecycle, ...]:
+            del tenant_id, agent_id, window_started_at, window_ended_at, source_type, severity
+            self.requested_limit = limit
+            return (lifecycle,) * (limit or 0)
+
+    repository = OverflowRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+
+    with pytest.raises(ObservabilityValidationError, match="10000 条生命周期安全上限"):
+        await service.alert_operations_summary(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            now=ended_at,
+        )
+
+    assert repository.requested_limit == 10_001
+
+
+async def test_alert_operations_summary_rejects_unbounded_dispositions() -> None:
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
+    ended_at = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    disposition = ObservabilityAlertDisposition(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        source_type="api",
+        source_key="overflow",
+        code="api_error_rate",
+        status=ObservabilityAlertDispositionStatus.ACKNOWLEDGED,
+        reason="不得出现在摘要中",
+        actor_id=actor_id,
+        expires_at=None,
+        created_at=ended_at,
+        updated_at=ended_at,
+    )
+
+    class OverflowDispositionRepository(MemoryObservabilityRepository):
+        requested_limit: int | None = None
+
+        async def list_observability_alert_dispositions(
+            self,
+            *,
+            tenant_id: UUID,
+            agent_id: UUID,
+            limit: int | None = None,
+        ) -> tuple[ObservabilityAlertDisposition, ...]:
+            del tenant_id, agent_id
+            self.requested_limit = limit
+            return (disposition,) * (limit or 0)
+
+    repository = OverflowDispositionRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+
+    with pytest.raises(ObservabilityValidationError, match="10000 条处置记录安全上限"):
+        await service.alert_operations_summary(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            now=ended_at,
+        )
+
+    assert repository.requested_limit == 10_001
 
 
 async def test_lifecycle_and_replay_review_pages_use_stable_scoped_cursors() -> None:

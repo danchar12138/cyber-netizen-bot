@@ -112,6 +112,30 @@ def test_alert_recovery_notification_is_runtime_managed_and_enabled_by_default()
     assert ConfigScope.AGENT in definition.scopes
 
 
+def test_alert_baseline_settings_are_runtime_managed_and_bounded() -> None:
+    definitions = {item.key: item for item in build_default_registry().all()}
+    expected = {
+        "alerts.baseline.window_minutes": (ConfigValueKind.INTEGER, 480, 60, 10_080),
+        "alerts.baseline.periods": (ConfigValueKind.INTEGER, 7, 3, 30),
+        "alerts.baseline.sensitivity": (ConfigValueKind.NUMBER, 3.0, 1.0, 10.0),
+        "alerts.baseline.minimum_current_count": (
+            ConfigValueKind.INTEGER,
+            3,
+            1,
+            10_000,
+        ),
+    }
+
+    for key, (kind, default, minimum, maximum) in expected.items():
+        definition = definitions[key]
+        assert definition.section == "observability"
+        assert definition.value_kind is kind
+        assert definition.default == default
+        assert definition.minimum == minimum
+        assert definition.maximum == maximum
+        assert definition.scopes == (ConfigScope.SYSTEM, ConfigScope.TENANT)
+
+
 def test_registry_rejects_duplicate_keys() -> None:
     definition = ConfigDefinition(
         key="test.enabled",

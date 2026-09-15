@@ -263,6 +263,7 @@ class MemoryObservabilityRepository:
         window_ended_at: datetime,
         source_type: str | None = None,
         severity: AlertSeverity | None = None,
+        limit: int | None = None,
     ) -> tuple[ObservabilityAlertLifecycle, ...]:
         async with self._lock:
             values = [
@@ -286,7 +287,7 @@ class MemoryObservabilityRepository:
                 )
             ]
             values.sort(key=lambda item: (item.first_occurred_at, str(item.id)), reverse=True)
-            return tuple(values)
+            return tuple(values if limit is None else values[:limit])
 
     async def get_observability_alert_lifecycle(
         self,
@@ -317,19 +318,19 @@ class MemoryObservabilityRepository:
         *,
         tenant_id: UUID,
         agent_id: UUID,
+        limit: int | None = None,
     ) -> tuple[ObservabilityAlertDisposition, ...]:
         async with self._lock:
-            return tuple(
-                sorted(
-                    (
-                        item
-                        for item in self._dispositions.values()
-                        if item.tenant_id == tenant_id and item.agent_id == agent_id
-                    ),
-                    key=lambda item: item.updated_at,
-                    reverse=True,
-                )
+            values = sorted(
+                (
+                    item
+                    for item in self._dispositions.values()
+                    if item.tenant_id == tenant_id and item.agent_id == agent_id
+                ),
+                key=lambda item: item.updated_at,
+                reverse=True,
             )
+            return tuple(values if limit is None else values[:limit])
 
     async def save_observability_alert_disposition(
         self, disposition: ObservabilityAlertDisposition, *, lifecycle_id: UUID | None = None
@@ -1038,6 +1039,7 @@ class SqlAlchemyObservabilityRepository:
         window_ended_at: datetime,
         source_type: str | None = None,
         severity: AlertSeverity | None = None,
+        limit: int | None = None,
     ) -> tuple[ObservabilityAlertLifecycle, ...]:
         statement = (
             select(ObservabilityAlertLifecycleModel)
@@ -1067,6 +1069,8 @@ class SqlAlchemyObservabilityRepository:
             statement = statement.where(ObservabilityAlertLifecycleModel.source_type == source_type)
         if severity is not None:
             statement = statement.where(ObservabilityAlertLifecycleModel.severity == severity.value)
+        if limit is not None:
+            statement = statement.limit(limit)
         async with self._session_factory() as session:
             rows = (await session.scalars(statement)).all()
         return tuple(self._observability_lifecycle(row) for row in rows)
@@ -1110,6 +1114,7 @@ class SqlAlchemyObservabilityRepository:
         *,
         tenant_id: UUID,
         agent_id: UUID,
+        limit: int | None = None,
     ) -> tuple[ObservabilityAlertDisposition, ...]:
         statement = (
             select(ObservabilityAlertDispositionModel)
@@ -1119,6 +1124,8 @@ class SqlAlchemyObservabilityRepository:
             )
             .order_by(ObservabilityAlertDispositionModel.updated_at.desc())
         )
+        if limit is not None:
+            statement = statement.limit(limit)
         async with self._session_factory() as session:
             rows = (await session.scalars(statement)).all()
         return tuple(self._observability_disposition(row) for row in rows)

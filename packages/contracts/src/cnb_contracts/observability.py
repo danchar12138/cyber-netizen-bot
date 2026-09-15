@@ -170,6 +170,86 @@ class ObservabilityAlertLifecycleMetricsResponse(BaseModel):
     trend: tuple[ObservabilityAlertLifecycleTrendPointResponse, ...]
 
 
+class ObservabilityAlertBaselineSignalResponse(BaseModel):
+    """告警开启或升级量相对稳健历史基线的偏离。"""
+
+    metric: Literal["opened", "escalated"]
+    source_type: str | None = Field(default=None, max_length=80)
+    current_value: int = Field(ge=0)
+    baseline_median: float = Field(ge=0)
+    baseline_mad: float = Field(ge=0)
+    threshold_value: float = Field(ge=0)
+    anomalous: bool
+    samples: tuple[int, ...] = Field(min_length=3, max_length=30)
+
+
+class ObservabilityAlertBaselineResponse(BaseModel):
+    """当前 Agent 的等长窗口告警异常基线。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    window_minutes: int = Field(ge=60, le=10_080)
+    periods: int = Field(ge=3, le=30)
+    sensitivity: float = Field(ge=1, le=10)
+    minimum_current_count: int = Field(ge=1, le=10_000)
+    signals: tuple[ObservabilityAlertBaselineSignalResponse, ...]
+
+
+class ObservabilityAlertHandoffSourceResponse(BaseModel):
+    """值班窗口内单一告警来源的安全聚合。"""
+
+    source_type: str = Field(min_length=1, max_length=80)
+    active: int = Field(ge=0)
+    critical_active: int = Field(ge=0)
+    unacknowledged_active: int = Field(ge=0)
+    opened: int = Field(ge=0)
+    resolved: int = Field(ge=0)
+    escalated: int = Field(ge=0)
+
+
+class ObservabilityAlertHandoffItemResponse(BaseModel):
+    """不含自由文本备注的值班交接优先关注项。"""
+
+    lifecycle_id: UUID
+    source_type: str = Field(min_length=1, max_length=80)
+    source_key: str = Field(min_length=1, max_length=255)
+    code: str = Field(min_length=1, max_length=100)
+    severity: AlertSeverity
+    escalation_level: int = Field(ge=0, le=3)
+    active_minutes: int = Field(ge=0)
+    disposition_status: ObservabilityAlertDispositionStatus | None = None
+    disposition_expires_at: datetime | None = None
+    reason_codes: tuple[
+        Literal["critical", "unacknowledged", "escalated", "suppression_expiring"], ...
+    ]
+
+
+class ObservabilityAlertHandoffResponse(BaseModel):
+    """当前 Agent 的告警值班交接摘要。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    active: int = Field(ge=0)
+    critical_active: int = Field(ge=0)
+    unacknowledged_active: int = Field(ge=0)
+    acknowledged_active: int = Field(ge=0)
+    suppressed_active: int = Field(ge=0)
+    opened: int = Field(ge=0)
+    resolved: int = Field(ge=0)
+    escalated: int = Field(ge=0)
+    blocked_replays: int = Field(ge=0)
+    sources: tuple[ObservabilityAlertHandoffSourceResponse, ...]
+    priority_items: tuple[ObservabilityAlertHandoffItemResponse, ...] = Field(max_length=10)
+
+
+class ObservabilityAlertOperationsSummaryResponse(BaseModel):
+    """告警异常基线与值班交接的统一安全读模型。"""
+
+    generated_at: datetime
+    baseline: ObservabilityAlertBaselineResponse
+    handoff: ObservabilityAlertHandoffResponse
+
+
 class ObservabilityAlertDispositionCommand(BaseModel):
     """通用告警确认命令，调用方必须显式确认。"""
 

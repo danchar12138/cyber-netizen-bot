@@ -13,6 +13,7 @@ import {
   getObservabilityAlertDispositionEvents,
   getObservabilityAlertLifecycleMetrics,
   getObservabilityAlertLifecyclePage,
+  getObservabilityAlertOperationsSummary,
   getObservabilityAlertReplayMetrics,
   getObservabilityAlertReplayReviews,
   importConfigPackage,
@@ -48,6 +49,44 @@ describe('formatConfigVersionStatus', () => {
 })
 
 describe('通用告警客户端', () => {
+  it('使用当前 Agent 的告警运营摘要端点', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      generated_at: '2026-09-15T12:00:00Z',
+      baseline: {
+        window_started_at: '2026-09-15T04:00:00Z',
+        window_ended_at: '2026-09-15T12:00:00Z',
+        window_minutes: 480,
+        periods: 7,
+        sensitivity: 3,
+        minimum_current_count: 3,
+        signals: [],
+      },
+      handoff: {
+        window_started_at: '2026-09-15T04:00:00Z',
+        window_ended_at: '2026-09-15T12:00:00Z',
+        active: 0,
+        critical_active: 0,
+        unacknowledged_active: 0,
+        acknowledged_active: 0,
+        suppressed_active: 0,
+        opened: 0,
+        resolved: 0,
+        escalated: 0,
+        blocked_replays: 0,
+        sources: [],
+        priority_items: [],
+      },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getObservabilityAlertOperationsSummary()
+
+    const request = fetchMock.mock.calls[0]?.[0] as Request
+    expect(new URL(request.url).pathname).toBe(
+      '/api/v1/observability/alert-operations-summary',
+    )
+  })
+
   it('完整传递生命周期组合筛选参数', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify([]), {
       status: 200,

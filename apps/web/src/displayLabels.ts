@@ -236,6 +236,18 @@ export const observabilityReplayReasonLabels = {
   blocked_agent_mismatch: '任务与通知 Agent 归属冲突',
 } as const
 
+export const observabilityBaselineMetricLabels = {
+  opened: '告警开启量',
+  escalated: '告警升级量',
+} as const
+
+export const observabilityHandoffReasonLabels = {
+  critical: '严重告警',
+  unacknowledged: '尚未确认',
+  escalated: '已发生升级',
+  suppression_expiring: '抑制将在交接窗口内到期',
+} as const
+
 const observabilityUnitLabels: Readonly<Record<string, string>> = {
   '%': '%',
   ms: '毫秒',

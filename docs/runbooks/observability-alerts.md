@@ -24,6 +24,10 @@ uv run poe dev-api
 SLO、队列阈值、成本预算与聚合窗口在“配置中心 → observability”修改、校验并发布，无需手改文件：
 
 - `observability.window_minutes`
+- `alerts.baseline.window_minutes`
+- `alerts.baseline.periods`
+- `alerts.baseline.sensitivity`
+- `alerts.baseline.minimum_current_count`
 - `slo.api.maximum_error_rate_percent`
 - `slo.api.maximum_p95_ms`
 - `slo.agent.minimum_success_rate_percent`
@@ -74,6 +78,14 @@ SLO、队列阈值、成本预算与聚合窗口在“配置中心 → observabi
 2. 对通用告警通知死信发起重放后，在“通知重放复核运营”确认允许或阻止结论、稳定原因码、来源和源任务短 ID。
 3. 有效抑制期间的重放必须被阻止且不创建新任务；需要恢复投递时先确认事故状态，再解除抑制或等待抑制到期后重新发起重放。
 4. 复核历史和通用审计只保存来源键、操作者、原因码与抑制到期时间，不得向排障记录复制任务载荷、通知目标、Secret 或业务正文。
+
+### 异常基线与值班交接
+
+1. 在“配置中心 → observability”维护 `alerts.baseline.*` 四项配置；基线窗口同时是交接摘要窗口，历史周期数越大计算越稳定。
+2. 异常信号以等长历史窗口的中位数和 MAD 估计开启量、升级量基线；单个历史尖峰不应抬高整体基线，但样本过少时也不应据此放宽告警阈值。
+3. 交接时先处理“优先关注”中的严重、未确认和已升级项，再查看抑制将到期项、阻止重放数与来源汇总；使用下钻按钮联动生命周期筛选。
+4. 摘要不返回处置备注、任务载荷、通知目标、Secret、Prompt、隐藏推理或业务正文；需要查看处置备注时必须进入单条生命周期的审计时间线。
+5. 单次摘要最多精确处理 10000 条生命周期和 10000 条处置记录；超过任一上限会明确拒绝，不会静默截断。应缩短基线窗口或按保留策略清理历史后重试。
 
 ### 告警运营历史保留与导出
 

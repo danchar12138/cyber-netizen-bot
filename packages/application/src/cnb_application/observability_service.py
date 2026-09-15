@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from statistics import median
 from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
@@ -94,6 +95,101 @@ class ObservabilityAlertLifecycleMetrics:
     trend: tuple[ObservabilityAlertLifecycleTrendPoint, ...]
 
 
+ObservabilityAlertBaselineMetric = Literal["opened", "escalated"]
+ObservabilityAlertHandoffReason = Literal[
+    "critical",
+    "unacknowledged",
+    "escalated",
+    "suppression_expiring",
+]
+
+ALERT_OPERATIONS_SUMMARY_MAX_RECORDS = 10_000
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertBaselineSignal:
+    """告警事件在当前窗口相对历史稳健基线的偏离。"""
+
+    metric: ObservabilityAlertBaselineMetric
+    source_type: str | None
+    current_value: int
+    baseline_median: float
+    baseline_mad: float
+    threshold_value: float
+    anomalous: bool
+    samples: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertBaseline:
+    """当前 Agent 的等长历史窗口稳健基线。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    window_minutes: int
+    periods: int
+    sensitivity: float
+    minimum_current_count: int
+    signals: tuple[ObservabilityAlertBaselineSignal, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertHandoffSource:
+    """值班窗口内单一告警来源的安全聚合。"""
+
+    source_type: str
+    active: int
+    critical_active: int
+    unacknowledged_active: int
+    opened: int
+    resolved: int
+    escalated: int
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertHandoffItem:
+    """值班交接的优先关注告警，不包含自由文本处置备注。"""
+
+    lifecycle_id: UUID
+    source_type: str
+    source_key: str
+    code: str
+    severity: AlertSeverity
+    escalation_level: int
+    active_minutes: int
+    disposition_status: ObservabilityAlertDispositionStatus | None
+    disposition_expires_at: datetime | None
+    reason_codes: tuple[ObservabilityAlertHandoffReason, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertHandoff:
+    """当前 Agent 的值班交接摘要。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    active: int
+    critical_active: int
+    unacknowledged_active: int
+    acknowledged_active: int
+    suppressed_active: int
+    opened: int
+    resolved: int
+    escalated: int
+    blocked_replays: int
+    sources: tuple[ObservabilityAlertHandoffSource, ...]
+    priority_items: tuple[ObservabilityAlertHandoffItem, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertOperationsSummary:
+    """异常基线与值班交接的统一安全读模型。"""
+
+    generated_at: datetime
+    baseline: ObservabilityAlertBaseline
+    handoff: ObservabilityAlertHandoff
+
+
 @dataclass(frozen=True, slots=True)
 class ObservabilityAlertDispositionResult:
     """处置结果与其生命周期标识。"""
@@ -164,6 +260,7 @@ class ObservabilityRepository(ObservabilityHistoryRepository, Protocol):
         window_ended_at: datetime,
         source_type: str | None = None,
         severity: AlertSeverity | None = None,
+        limit: int | None = None,
     ) -> tuple[ObservabilityAlertLifecycle, ...]: ...
 
     async def get_observability_alert_lifecycle(
@@ -188,6 +285,7 @@ class ObservabilityRepository(ObservabilityHistoryRepository, Protocol):
         *,
         tenant_id: UUID,
         agent_id: UUID,
+        limit: int | None = None,
     ) -> tuple[ObservabilityAlertDisposition, ...]: ...
 
     async def save_observability_alert_disposition(
@@ -643,6 +741,85 @@ class ObservabilityService:
             trend=tuple(buckets),
         )
 
+    async def alert_operations_summary(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        now: datetime | None = None,
+    ) -> ObservabilityAlertOperationsSummary:
+        """计算当前 Agent 的稳健异常基线与值班交接摘要。"""
+        ended_at = (now or datetime.now(UTC)).astimezone(UTC)
+        configuration = await self._configuration_service.resolve_effective(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+        )
+        window_minutes = self._integer(
+            configuration.values["alerts.baseline.window_minutes"],
+            "alerts.baseline.window_minutes",
+        )
+        periods = self._integer(
+            configuration.values["alerts.baseline.periods"],
+            "alerts.baseline.periods",
+        )
+        sensitivity = self._number(
+            configuration.values["alerts.baseline.sensitivity"],
+            "alerts.baseline.sensitivity",
+        )
+        minimum_current_count = self._integer(
+            configuration.values["alerts.baseline.minimum_current_count"],
+            "alerts.baseline.minimum_current_count",
+        )
+        window_delta = timedelta(minutes=window_minutes)
+        started_at = ended_at - window_delta
+        history_started_at = started_at - window_delta * periods
+        rows = await self._repository.list_observability_alert_lifecycles_in_window(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            window_started_at=history_started_at,
+            window_ended_at=ended_at,
+            limit=ALERT_OPERATIONS_SUMMARY_MAX_RECORDS + 1,
+        )
+        if len(rows) > ALERT_OPERATIONS_SUMMARY_MAX_RECORDS:
+            raise ObservabilityValidationError(
+                "告警运营摘要超过 10000 条生命周期安全上限，请缩短基线窗口或清理历史后重试"
+            )
+        dispositions = await self._repository.list_observability_alert_dispositions(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            limit=ALERT_OPERATIONS_SUMMARY_MAX_RECORDS + 1,
+        )
+        if len(dispositions) > ALERT_OPERATIONS_SUMMARY_MAX_RECORDS:
+            raise ObservabilityValidationError(
+                "告警运营摘要超过 10000 条处置记录安全上限，请清理历史后重试"
+            )
+        enriched = self._attach_dispositions(tuple(rows), dispositions, ended_at)
+        replay_metrics = await self._repository.get_observability_alert_replay_metrics(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            window_started_at=started_at,
+            window_ended_at=ended_at,
+        )
+        return ObservabilityAlertOperationsSummary(
+            generated_at=ended_at,
+            baseline=self._build_alert_baseline(
+                rows=tuple(rows),
+                started_at=started_at,
+                ended_at=ended_at,
+                window_delta=window_delta,
+                window_minutes=window_minutes,
+                periods=periods,
+                sensitivity=sensitivity,
+                minimum_current_count=minimum_current_count,
+            ),
+            handoff=self._build_alert_handoff(
+                rows=enriched,
+                started_at=started_at,
+                ended_at=ended_at,
+                blocked_replays=replay_metrics.blocked,
+            ),
+        )
+
     async def acknowledge_alert(
         self,
         *,
@@ -1023,6 +1200,245 @@ class ObservabilityService:
         if lifecycle is None:
             raise ObservabilityNotFoundError("通用告警生命周期不存在")
         return lifecycle
+
+    @classmethod
+    def _build_alert_baseline(
+        cls,
+        *,
+        rows: tuple[ObservabilityAlertLifecycle, ...],
+        started_at: datetime,
+        ended_at: datetime,
+        window_delta: timedelta,
+        window_minutes: int,
+        periods: int,
+        sensitivity: float,
+        minimum_current_count: int,
+    ) -> ObservabilityAlertBaseline:
+        history_started_at = started_at - window_delta * periods
+        source_types = sorted(
+            {
+                row.source_type
+                for row in rows
+                if any(
+                    event_at is not None and history_started_at <= event_at <= ended_at
+                    for event_at in (row.first_occurred_at, row.escalated_at)
+                )
+            }
+        )
+        signals: list[ObservabilityAlertBaselineSignal] = []
+        for source_type in (None, *source_types):
+            for metric in ("opened", "escalated"):
+                current = cls._count_lifecycle_events(
+                    rows,
+                    metric=metric,
+                    source_type=source_type,
+                    started_at=started_at,
+                    ended_at=ended_at,
+                    include_end=True,
+                )
+                samples = tuple(
+                    cls._count_lifecycle_events(
+                        rows,
+                        metric=metric,
+                        source_type=source_type,
+                        started_at=started_at - window_delta * offset,
+                        ended_at=started_at - window_delta * (offset - 1),
+                        include_end=False,
+                    )
+                    for offset in range(periods, 0, -1)
+                )
+                if source_type is None or current or any(samples):
+                    signals.append(
+                        cls._alert_baseline_signal(
+                            metric=metric,
+                            source_type=source_type,
+                            current=current,
+                            samples=samples,
+                            sensitivity=sensitivity,
+                            minimum_current_count=minimum_current_count,
+                        )
+                    )
+        return ObservabilityAlertBaseline(
+            window_started_at=started_at,
+            window_ended_at=ended_at,
+            window_minutes=window_minutes,
+            periods=periods,
+            sensitivity=sensitivity,
+            minimum_current_count=minimum_current_count,
+            signals=tuple(signals),
+        )
+
+    @staticmethod
+    def _count_lifecycle_events(
+        rows: tuple[ObservabilityAlertLifecycle, ...],
+        *,
+        metric: ObservabilityAlertBaselineMetric,
+        source_type: str | None,
+        started_at: datetime,
+        ended_at: datetime,
+        include_end: bool,
+    ) -> int:
+        def in_window(event_at: datetime | None) -> bool:
+            if event_at is None:
+                return False
+            return (
+                started_at <= event_at <= ended_at
+                if include_end
+                else started_at <= event_at < ended_at
+            )
+
+        return sum(
+            1
+            for row in rows
+            if source_type is None or row.source_type == source_type
+            if in_window(row.first_occurred_at if metric == "opened" else row.escalated_at)
+        )
+
+    @staticmethod
+    def _alert_baseline_signal(
+        *,
+        metric: ObservabilityAlertBaselineMetric,
+        source_type: str | None,
+        current: int,
+        samples: tuple[int, ...],
+        sensitivity: float,
+        minimum_current_count: int,
+    ) -> ObservabilityAlertBaselineSignal:
+        baseline_median = float(median(samples))
+        baseline_mad = float(median(tuple(abs(item - baseline_median) for item in samples)))
+        robust_deviation = max(1.0, 1.4826 * baseline_mad)
+        threshold = round(
+            max(
+                float(minimum_current_count),
+                baseline_median + sensitivity * robust_deviation,
+            ),
+            4,
+        )
+        return ObservabilityAlertBaselineSignal(
+            metric=metric,
+            source_type=source_type,
+            current_value=current,
+            baseline_median=round(baseline_median, 4),
+            baseline_mad=round(baseline_mad, 4),
+            threshold_value=threshold,
+            anomalous=current >= threshold,
+            samples=samples,
+        )
+
+    @classmethod
+    def _build_alert_handoff(
+        cls,
+        *,
+        rows: tuple[ObservabilityAlertLifecycle, ...],
+        started_at: datetime,
+        ended_at: datetime,
+        blocked_replays: int,
+    ) -> ObservabilityAlertHandoff:
+        def in_window(event_at: datetime | None) -> bool:
+            return event_at is not None and started_at <= event_at <= ended_at
+
+        active_rows = tuple(
+            row for row in rows if row.status is ObservabilityAlertLifecycleStatus.ACTIVE
+        )
+        source_types = sorted(
+            {
+                row.source_type
+                for row in rows
+                if row.status is ObservabilityAlertLifecycleStatus.ACTIVE
+                or in_window(row.first_occurred_at)
+                or in_window(row.resolved_at)
+                or in_window(row.escalated_at)
+            }
+        )
+        sources = tuple(
+            ObservabilityAlertHandoffSource(
+                source_type=source_type,
+                active=sum(row.source_type == source_type for row in active_rows),
+                critical_active=sum(
+                    row.source_type == source_type and row.severity is AlertSeverity.CRITICAL
+                    for row in active_rows
+                ),
+                unacknowledged_active=sum(
+                    row.source_type == source_type and row.disposition_status is None
+                    for row in active_rows
+                ),
+                opened=sum(
+                    row.source_type == source_type and in_window(row.first_occurred_at)
+                    for row in rows
+                ),
+                resolved=sum(
+                    row.source_type == source_type and in_window(row.resolved_at) for row in rows
+                ),
+                escalated=sum(
+                    row.source_type == source_type and in_window(row.escalated_at) for row in rows
+                ),
+            )
+            for source_type in source_types
+        )
+        priority_rows = sorted(
+            active_rows,
+            key=lambda row: (
+                row.severity is not AlertSeverity.CRITICAL,
+                row.disposition_status is not None,
+                -row.escalation_level,
+                row.first_occurred_at,
+                str(row.id),
+            ),
+        )[:10]
+        priority_items: list[ObservabilityAlertHandoffItem] = []
+        suppression_expiry_limit = ended_at + (ended_at - started_at)
+        for row in priority_rows:
+            reasons: list[ObservabilityAlertHandoffReason] = []
+            if row.severity is AlertSeverity.CRITICAL:
+                reasons.append("critical")
+            if row.disposition_status is None:
+                reasons.append("unacknowledged")
+            if row.escalation_level > 0:
+                reasons.append("escalated")
+            if (
+                row.disposition_status is ObservabilityAlertDispositionStatus.SUPPRESSED
+                and row.disposition_expires_at is not None
+                and row.disposition_expires_at <= suppression_expiry_limit
+            ):
+                reasons.append("suppression_expiring")
+            priority_items.append(
+                ObservabilityAlertHandoffItem(
+                    lifecycle_id=row.id,
+                    source_type=row.source_type,
+                    source_key=row.source_key,
+                    code=row.code,
+                    severity=row.severity,
+                    escalation_level=row.escalation_level,
+                    active_minutes=max(
+                        0,
+                        int((ended_at - row.first_occurred_at).total_seconds() // 60),
+                    ),
+                    disposition_status=row.disposition_status,
+                    disposition_expires_at=row.disposition_expires_at,
+                    reason_codes=tuple(reasons),
+                )
+            )
+        return ObservabilityAlertHandoff(
+            window_started_at=started_at,
+            window_ended_at=ended_at,
+            active=len(active_rows),
+            critical_active=sum(row.severity is AlertSeverity.CRITICAL for row in active_rows),
+            unacknowledged_active=sum(row.disposition_status is None for row in active_rows),
+            acknowledged_active=sum(
+                row.disposition_status is ObservabilityAlertDispositionStatus.ACKNOWLEDGED
+                for row in active_rows
+            ),
+            suppressed_active=sum(
+                row.disposition_status is ObservabilityAlertDispositionStatus.SUPPRESSED
+                for row in active_rows
+            ),
+            opened=sum(in_window(row.first_occurred_at) for row in rows),
+            resolved=sum(in_window(row.resolved_at) for row in rows),
+            escalated=sum(in_window(row.escalated_at) for row in rows),
+            blocked_replays=blocked_replays,
+            sources=sources,
+            priority_items=tuple(priority_items),
+        )
 
     @staticmethod
     def _attach_dispositions(

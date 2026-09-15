@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, BellRing, CheckCircle2, ChevronDown, CircleDollarSign, Clock3, History, RefreshCw, Search, Send, ShieldAlert, ShieldCheck, TriangleAlert, X } from 'lucide-react'
+import { Activity, BellRing, CheckCircle2, ChevronDown, CircleDollarSign, ClipboardList, Clock3, Gauge, History, RefreshCw, Search, Send, ShieldAlert, ShieldCheck, TriangleAlert, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import {
@@ -11,6 +11,7 @@ import {
   getObservabilityAlertDispositionEvents,
   getObservabilityAlertLifecycleMetrics,
   getObservabilityAlertLifecyclePage,
+  getObservabilityAlertOperationsSummary,
   getObservabilityAlertReplayMetrics,
   getObservabilityAlertReplayReviews,
   getObservabilityDashboard,
@@ -25,8 +26,10 @@ import {
   formatMetadataEntries,
   modelInvocationStatusLabels,
   modelPurposeLabels,
+  observabilityBaselineMetricLabels,
   observabilityAlertCodeLabels,
   observabilityAlertSourceTypeLabels,
+  observabilityHandoffReasonLabels,
   observabilityReplayDecisionLabels,
   observabilityReplayReasonLabels,
   observabilityUnitLabel,
@@ -86,6 +89,12 @@ export function ObservabilityPage() {
     enabled: canReadTrace,
     refetchInterval: 30_000,
   })
+  const alertOperations = useQuery({
+    queryKey: ['observability-alert-operations-summary', selectedAgentId],
+    queryFn: getObservabilityAlertOperationsSummary,
+    enabled: canReadTrace,
+    refetchInterval: 30_000,
+  })
   const alertLifecycles = useInfiniteQuery({
     queryKey: [
       'observability-alert-lifecycles',
@@ -142,6 +151,7 @@ export function ObservabilityPage() {
       invalidateAcrossTabs(queryClient, ['observability-alert-lifecycles']),
       invalidateAcrossTabs(queryClient, ['observability-dashboard']),
       invalidateAcrossTabs(queryClient, ['observability-alert-disposition-events']),
+      invalidateAcrossTabs(queryClient, ['observability-alert-operations-summary']),
       invalidateAcrossTabs(queryClient, ['observability-alert-replay-metrics']),
       invalidateAcrossTabs(queryClient, ['observability-alert-replay-reviews']),
       invalidateAcrossTabs(queryClient, ['audit-records']),
@@ -199,6 +209,8 @@ export function ObservabilityPage() {
   const trace = useMutation({ mutationFn: getCognitiveRunTrace })
   const data = dashboard.data
   const lifecycle = lifecycleMetrics.data
+  const operations = alertOperations.data
+  const anomalousSignals = operations?.baseline.signals.filter((item) => item.anomalous) ?? []
   const lifecycleRows = alertLifecycles.data?.pages.flatMap((page) => page.items) ?? []
   const replay = replayMetrics.data
   const replayRows = replayReviews.data?.pages.flatMap((page) => page.items) ?? []
@@ -306,6 +318,7 @@ export function ObservabilityPage() {
 
       {dashboard.isError && <div className="notice error" role="alert">无法读取可观测聚合，请检查应用接口、数据库和当前权限。</div>}
       {lifecycleMetrics.isError && <div className="notice error" role="alert">无法读取通用告警生命周期指标，请检查当前 Agent 与迁移状态。</div>}
+      {alertOperations.isError && <div className="notice error" role="alert">无法读取告警异常基线与值班交接摘要。</div>}
       {alertLifecycles.isError && <div className="notice error" role="alert">无法读取通用告警生命周期，请检查当前 Agent 与迁移状态。</div>}
       {(replayMetrics.isError || replayReviews.isError) && <div className="notice error" role="alert">无法读取通知重放复核记录，请检查当前 Agent 与迁移状态。</div>}
       {(dispositionInputError || dispositionMutation.error || batchDispositionMutation.error) && <div className="notice error" role="alert">{dispositionInputError ?? dispositionMutation.error?.message ?? batchDispositionMutation.error?.message}</div>}
@@ -317,6 +330,29 @@ export function ObservabilityPage() {
         <article className="metric-card"><div className="metric-icon"><CircleDollarSign size={18} /></div><p>模型冻结估算成本</p><strong>{data ? formatUsd(data.total_estimated_cost_microusd) : '—'}</strong><span>{data?.models.reduce((sum, item) => sum + item.input_tokens + item.output_tokens, 0) ?? 0} 词元</span></article>
         <article className="metric-card"><div className="metric-icon"><Send size={18} /></div><p>渠道出站失败率</p><strong>{data ? `${data.channel_delivery.failure_rate_percent.toFixed(2)}%` : '—'}</strong><span>{data?.channel_delivery.attempts ?? 0} 次尝试 · 成功 {data?.channel_delivery.delivered ?? 0}</span></article>
         <article className="metric-card"><div className="metric-icon"><BellRing size={18} /></div><p>通知投递任务</p><strong>{data?.notification_delivery.total ?? '—'}</strong><span>成功 {data?.notification_delivery.succeeded ?? 0} · 重试 {data?.notification_delivery.retrying ?? 0} · 待处理死信 {data?.notification_delivery.dead_letters ?? 0}</span></article>
+      </section>
+
+      <section className="alert-operations-section" aria-label="告警异常基线与值班交接">
+        <div className="panel-heading channel-operation-heading"><div><p className="eyebrow">稳健基线 · {operations?.baseline.window_minutes ?? '—'} 分钟交接窗口</p><h2>值班交接摘要</h2></div><span className="subtle">{operations ? new Date(operations.generated_at).toLocaleString('zh-CN') : '正在聚合'}</span></div>
+        <div className="metric-grid alert-handoff-metrics">
+          <article className="metric-card"><div className="metric-icon"><TriangleAlert size={18} /></div><p>活动告警</p><strong>{operations?.handoff.active ?? '—'}</strong><span>{operations?.handoff.critical_active ?? 0} 条严重</span></article>
+          <article className="metric-card"><div className="metric-icon"><ClipboardList size={18} /></div><p>待确认</p><strong>{operations?.handoff.unacknowledged_active ?? '—'}</strong><span>已确认 {operations?.handoff.acknowledged_active ?? 0} · 抑制 {operations?.handoff.suppressed_active ?? 0}</span></article>
+          <article className="metric-card"><div className="metric-icon"><Gauge size={18} /></div><p>基线异常</p><strong>{anomalousSignals.length || 0}</strong><span>{operations?.baseline.periods ?? '—'} 个历史周期 · 灵敏度 {operations?.baseline.sensitivity ?? '—'}</span></article>
+          <article className="metric-card"><div className="metric-icon"><ShieldAlert size={18} /></div><p>阻止重放</p><strong>{operations?.handoff.blocked_replays ?? '—'}</strong><span>开启 {operations?.handoff.opened ?? 0} · 恢复 {operations?.handoff.resolved ?? 0} · 升级 {operations?.handoff.escalated ?? 0}</span></article>
+        </div>
+        <div className="alert-operations-grid">
+          <section className="panel baseline-signal-panel">
+            <div className="panel-heading"><div><p className="eyebrow">中位数 + MAD</p><h2>异常基线信号</h2></div><span className="subtle">{anomalousSignals.length} 项偏离</span></div>
+            {!anomalousSignals.length && <div className="empty-state">当前开启量与升级量未超过稳健历史基线。</div>}
+            {!!anomalousSignals.length && <div className="baseline-signal-list">{anomalousSignals.map((item) => <article key={`${item.source_type ?? 'all'}-${item.metric}`}><div><strong>{displayLabel(observabilityBaselineMetricLabels, item.metric)}</strong><span>{item.source_type ? displayLabel(observabilityAlertSourceTypeLabels, item.source_type) : '全部来源'}</span></div><div><strong>{item.current_value}</strong><span>阈值 {item.threshold_value.toFixed(2)} · 中位数 {item.baseline_median.toFixed(2)} · MAD {item.baseline_mad.toFixed(2)}</span></div></article>)}</div>}
+          </section>
+          <section className="panel handoff-priority-panel">
+            <div className="panel-heading"><div><p className="eyebrow">最多 10 项</p><h2>优先关注</h2></div></div>
+            {!operations?.handoff.priority_items.length && <div className="empty-state">当前没有需要交接的活动告警。</div>}
+            {!!operations?.handoff.priority_items.length && <ol className="handoff-priority-list">{operations.handoff.priority_items.map((item) => <li key={item.lifecycle_id}><span className={`severity-label ${item.severity}`}>{item.severity === 'critical' ? '严重' : '警告'}</span><div><strong>{displayLabel(observabilityAlertCodeLabels, item.code)}</strong><small>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)} · 持续 {formatDuration(item.active_minutes * 60)} · L{item.escalation_level}</small><span>{item.reason_codes.map((reason) => displayLabel(observabilityHandoffReasonLabels, reason)).join(' · ')}</span></div><button className="icon-button" title="下钻该来源" aria-label={`下钻 ${displayLabel(observabilityAlertCodeLabels, item.code)} 来源`} onClick={() => { setAlertSourceType(item.source_type); setAlertStatus('active') }}><Search size={13} /></button></li>)}</ol>}
+          </section>
+        </div>
+        {!!operations?.handoff.sources.length && <section className="panel handoff-source-panel"><div className="panel-heading"><div><p className="eyebrow">交接窗口</p><h2>来源汇总</h2></div></div><div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>来源</th><th>活动</th><th>严重</th><th>待确认</th><th>开启</th><th>恢复</th><th>升级</th><th>下钻</th></tr></thead><tbody>{operations.handoff.sources.map((item) => <tr key={item.source_type}><td><strong>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)}</strong></td><td>{item.active}</td><td>{item.critical_active}</td><td>{item.unacknowledged_active}</td><td>{item.opened}</td><td>{item.resolved}</td><td>{item.escalated}</td><td><button className="icon-button" title="下钻该来源" aria-label={`下钻 ${displayLabel(observabilityAlertSourceTypeLabels, item.source_type)} 来源`} onClick={() => setAlertSourceType(item.source_type)}><Search size={13} /></button></td></tr>)}</tbody></table></div></section>}
       </section>
 
       <section className="channel-lifecycle-observability" aria-label="通用告警生命周期指标">
