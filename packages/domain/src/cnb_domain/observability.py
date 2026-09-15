@@ -155,6 +155,41 @@ class ObservabilityAlertDispositionAction(StrEnum):
     CLEARED = "cleared"
 
 
+class ObservabilityAlertRecommendationAction(StrEnum):
+    """人工确认前只读告警建议的候选动作。"""
+
+    ACKNOWLEDGE = "acknowledge"
+    SUPPRESS = "suppress"
+    OBSERVE = "observe"
+
+
+class ObservabilityAlertRecommendationPriority(StrEnum):
+    """告警处置建议的确定性优先级。"""
+
+    URGENT = "urgent"
+    HIGH = "high"
+    NORMAL = "normal"
+
+
+class ObservabilityAlertRecommendationGuardrail(StrEnum):
+    """建议执行前不可绕过的稳定护栏码。"""
+
+    MANUAL_CONFIRMATION_REQUIRED = "manual_confirmation_required"
+    AUTOMATIC_EXECUTION_FORBIDDEN = "automatic_execution_forbidden"
+    CURRENT_SCOPE_ONLY = "current_scope_only"
+
+
+class ObservabilityAlertRecommendationReason(StrEnum):
+    """不含自由文本与隐藏推理的稳定建议原因码。"""
+
+    CRITICAL = "critical"
+    ESCALATED = "escalated"
+    BASELINE_ANOMALY = "baseline_anomaly"
+    LONG_RUNNING = "long_running"
+    REPEATED_WARNING = "repeated_warning"
+    INSUFFICIENT_SIGNAL = "insufficient_signal"
+
+
 class ObservabilityAlertReplayDecision(StrEnum):
     """通用告警通知重放复核结论。"""
 

@@ -25,6 +25,10 @@ from cnb_domain import (
     ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycle,
     ObservabilityAlertLifecycleStatus,
+    ObservabilityAlertRecommendationAction,
+    ObservabilityAlertRecommendationGuardrail,
+    ObservabilityAlertRecommendationPriority,
+    ObservabilityAlertRecommendationReason,
     ObservabilityAlertReplayDecision,
     ObservabilityAlertReplayMetrics,
     ObservabilityAlertReplayReason,
@@ -104,6 +108,7 @@ ObservabilityAlertHandoffReason = Literal[
 ]
 
 ALERT_OPERATIONS_SUMMARY_MAX_RECORDS = 10_000
+ALERT_RECOMMENDATION_SOURCE_SCAN_LIMIT = 500
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +193,29 @@ class ObservabilityAlertOperationsSummary:
     generated_at: datetime
     baseline: ObservabilityAlertBaseline
     handoff: ObservabilityAlertHandoff
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertRecommendation:
+    """不执行副作用的确定性告警处置建议。"""
+
+    lifecycle_id: UUID
+    source_type: str
+    source_key: str
+    code: str
+    severity: AlertSeverity
+    action: ObservabilityAlertRecommendationAction
+    priority: ObservabilityAlertRecommendationPriority
+    confidence: float
+    reason_codes: tuple[ObservabilityAlertRecommendationReason, ...]
+    guardrail_codes: tuple[ObservabilityAlertRecommendationGuardrail, ...]
+    active_minutes: int
+    occurrences: int
+    escalation_level: int
+    baseline_anomalous: bool
+    suggested_suppression_minutes: int | None
+    requires_confirmation: bool = True
+    automation_allowed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -818,6 +846,101 @@ class ObservabilityService:
                 ended_at=ended_at,
                 blocked_replays=replay_metrics.blocked,
             ),
+        )
+
+    async def alert_recommendations(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        source_type: str | None = None,
+        severity: AlertSeverity | None = None,
+        action: ObservabilityAlertRecommendationAction | None = None,
+        limit: int = 50,
+        now: datetime | None = None,
+    ) -> tuple[ObservabilityAlertRecommendation, ...]:
+        """生成当前 Agent 的只读建议，并在任何处置副作用前停止。"""
+        if not 1 <= limit <= 100:
+            raise ObservabilityValidationError("告警处置建议数量必须位于 1 到 100 之间")
+        evaluated_at = (now or datetime.now(UTC)).astimezone(UTC)
+        summary = await self.alert_operations_summary(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            now=evaluated_at,
+        )
+        normalized_source = source_type.strip() if source_type is not None else None
+        if source_type is not None and not normalized_source:
+            raise ObservabilityValidationError("通用告警来源类型不能为空")
+        if normalized_source is not None and len(normalized_source) > 80:
+            raise ObservabilityValidationError("通用告警来源类型不能超过 80 个字符")
+        rows = await self._repository.list_observability_alert_lifecycles(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            status=ObservabilityAlertLifecycleStatus.ACTIVE,
+            source_type=normalized_source,
+            severity=severity,
+            limit=ALERT_RECOMMENDATION_SOURCE_SCAN_LIMIT + 1,
+            evaluated_at=evaluated_at,
+        )
+        if len(rows) > ALERT_RECOMMENDATION_SOURCE_SCAN_LIMIT:
+            raise ObservabilityValidationError(
+                "告警处置建议超过 500 条活动生命周期安全上限，请按来源或级别筛选后重试"
+            )
+        dispositions = await self._repository.list_observability_alert_dispositions(
+            tenant_id=tenant_id, agent_id=agent_id
+        )
+        lifecycles = self._attach_dispositions(rows, dispositions, evaluated_at)
+        configuration = await self._configuration_service.resolve_effective(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+        )
+        long_running_minutes = self._integer(
+            configuration.values["alerts.recommendation.long_running_minutes"],
+            "alerts.recommendation.long_running_minutes",
+        )
+        suppression_minutes = self._integer(
+            configuration.values["alerts.recommendation.suppression_minutes"],
+            "alerts.recommendation.suppression_minutes",
+        )
+        minimum_repeated_occurrences = self._integer(
+            configuration.values["alerts.recommendation.minimum_repeated_occurrences"],
+            "alerts.recommendation.minimum_repeated_occurrences",
+        )
+        anomalous_sources = {
+            signal.source_type
+            for signal in summary.baseline.signals
+            if signal.source_type is not None and signal.anomalous
+        }
+        recommendations = tuple(
+            self._build_alert_recommendation(
+                lifecycle=lifecycle,
+                evaluated_at=evaluated_at,
+                baseline_anomalous=lifecycle.source_type in anomalous_sources,
+                long_running_minutes=long_running_minutes,
+                suppression_minutes=suppression_minutes,
+                minimum_repeated_occurrences=minimum_repeated_occurrences,
+            )
+            for lifecycle in lifecycles
+            if lifecycle.disposition_status is None
+        )
+        matching = tuple(
+            item for item in recommendations if action is None or item.action is action
+        )
+        priority_order = {
+            ObservabilityAlertRecommendationPriority.URGENT: 0,
+            ObservabilityAlertRecommendationPriority.HIGH: 1,
+            ObservabilityAlertRecommendationPriority.NORMAL: 2,
+        }
+        return tuple(
+            sorted(
+                matching,
+                key=lambda item: (
+                    priority_order[item.priority],
+                    -item.confidence,
+                    -item.active_minutes,
+                    str(item.lifecycle_id),
+                ),
+            )[:limit]
         )
 
     async def acknowledge_alert(
@@ -1465,6 +1588,85 @@ class ObservabilityService:
             )
             for lifecycle in lifecycles
             for disposition in (by_key.get((lifecycle.source_type, lifecycle.source_key)),)
+        )
+
+    @staticmethod
+    def _build_alert_recommendation(
+        *,
+        lifecycle: ObservabilityAlertLifecycle,
+        evaluated_at: datetime,
+        baseline_anomalous: bool,
+        long_running_minutes: int,
+        suppression_minutes: int,
+        minimum_repeated_occurrences: int,
+    ) -> ObservabilityAlertRecommendation:
+        active_minutes = max(
+            0,
+            int((evaluated_at - lifecycle.first_occurred_at).total_seconds() // 60),
+        )
+        investigation_reasons: list[ObservabilityAlertRecommendationReason] = []
+        if lifecycle.severity is AlertSeverity.CRITICAL:
+            investigation_reasons.append(ObservabilityAlertRecommendationReason.CRITICAL)
+        if lifecycle.escalation_level > 0:
+            investigation_reasons.append(ObservabilityAlertRecommendationReason.ESCALATED)
+        if baseline_anomalous:
+            investigation_reasons.append(ObservabilityAlertRecommendationReason.BASELINE_ANOMALY)
+        if active_minutes >= long_running_minutes:
+            investigation_reasons.append(ObservabilityAlertRecommendationReason.LONG_RUNNING)
+
+        if investigation_reasons:
+            urgent = lifecycle.severity is AlertSeverity.CRITICAL and (
+                lifecycle.escalation_level > 0 or baseline_anomalous
+            )
+            confidence = min(
+                0.99,
+                0.72
+                + (0.1 if lifecycle.severity is AlertSeverity.CRITICAL else 0)
+                + (0.08 if lifecycle.escalation_level > 0 else 0)
+                + (0.06 if baseline_anomalous else 0)
+                + (0.03 if active_minutes >= long_running_minutes else 0),
+            )
+            recommendation_action = ObservabilityAlertRecommendationAction.ACKNOWLEDGE
+            priority = (
+                ObservabilityAlertRecommendationPriority.URGENT
+                if urgent
+                else ObservabilityAlertRecommendationPriority.HIGH
+            )
+            reason_codes = tuple(investigation_reasons)
+            suggested_minutes = None
+        elif lifecycle.occurrences >= minimum_repeated_occurrences:
+            recommendation_action = ObservabilityAlertRecommendationAction.SUPPRESS
+            priority = ObservabilityAlertRecommendationPriority.NORMAL
+            confidence = 0.72
+            reason_codes = (ObservabilityAlertRecommendationReason.REPEATED_WARNING,)
+            suggested_minutes = suppression_minutes
+        else:
+            recommendation_action = ObservabilityAlertRecommendationAction.OBSERVE
+            priority = ObservabilityAlertRecommendationPriority.NORMAL
+            confidence = 0.55
+            reason_codes = (ObservabilityAlertRecommendationReason.INSUFFICIENT_SIGNAL,)
+            suggested_minutes = None
+
+        return ObservabilityAlertRecommendation(
+            lifecycle_id=lifecycle.id,
+            source_type=lifecycle.source_type,
+            source_key=lifecycle.source_key,
+            code=lifecycle.code,
+            severity=lifecycle.severity,
+            action=recommendation_action,
+            priority=priority,
+            confidence=round(confidence, 2),
+            reason_codes=reason_codes,
+            guardrail_codes=(
+                ObservabilityAlertRecommendationGuardrail.MANUAL_CONFIRMATION_REQUIRED,
+                ObservabilityAlertRecommendationGuardrail.AUTOMATIC_EXECUTION_FORBIDDEN,
+                ObservabilityAlertRecommendationGuardrail.CURRENT_SCOPE_ONLY,
+            ),
+            active_minutes=active_minutes,
+            occurrences=lifecycle.occurrences,
+            escalation_level=lifecycle.escalation_level,
+            baseline_anomalous=baseline_anomalous,
+            suggested_suppression_minutes=suggested_minutes,
         )
 
     async def mark_alert_lifecycles_escalated(

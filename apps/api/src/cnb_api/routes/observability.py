@@ -34,6 +34,7 @@ from cnb_contracts import (
     ObservabilityAlertLifecyclePageResponse,
     ObservabilityAlertLifecycleResponse,
     ObservabilityAlertOperationsSummaryResponse,
+    ObservabilityAlertRecommendationResponse,
     ObservabilityAlertReplayMetricsResponse,
     ObservabilityAlertReplayReviewPageResponse,
     ObservabilityAlertReplayReviewResponse,
@@ -49,6 +50,7 @@ from cnb_domain import (
     ObservabilityAlertDisposition,
     ObservabilityAlertDispositionAction,
     ObservabilityAlertLifecycleStatus,
+    ObservabilityAlertRecommendationAction,
     ObservabilityAlertReplayDecision,
     ObservabilityAlertReplayReason,
 )
@@ -180,6 +182,44 @@ async def alert_operations_summary(
     return ObservabilityAlertOperationsSummaryResponse.model_validate(
         summary,
         from_attributes=True,
+    )
+
+
+@router.get(
+    "/alert-recommendations",
+    response_model=tuple[ObservabilityAlertRecommendationResponse, ...],
+    dependencies=[Depends(require_permission(AdminPermission.TRACE_READ))],
+)
+async def alert_recommendations(
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ObservabilityService, Depends(get_observability_service)],
+    source_type: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
+    severity: AlertSeverity | None = None,
+    action_filter: Annotated[
+        ObservabilityAlertRecommendationAction | None,
+        Query(alias="action"),
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> tuple[ObservabilityAlertRecommendationResponse, ...]:
+    """返回当前 Agent 不执行副作用的确定性告警处置建议。"""
+    try:
+        recommendations = await service.alert_recommendations(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            source_type=source_type,
+            severity=severity,
+            action=action_filter,
+            limit=limit,
+        )
+    except ObservabilityValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(error),
+        ) from error
+    return tuple(
+        ObservabilityAlertRecommendationResponse.model_validate(item, from_attributes=True)
+        for item in recommendations
     )
 
 

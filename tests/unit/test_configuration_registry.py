@@ -136,6 +136,39 @@ def test_alert_baseline_settings_are_runtime_managed_and_bounded() -> None:
         assert definition.scopes == (ConfigScope.SYSTEM, ConfigScope.TENANT)
 
 
+def test_alert_recommendation_settings_are_runtime_managed_and_bounded() -> None:
+    definitions = {item.key: item for item in build_default_registry().all()}
+    expected = {
+        "alerts.recommendation.long_running_minutes": (
+            ConfigValueKind.INTEGER,
+            120,
+            5,
+            525_600,
+        ),
+        "alerts.recommendation.suppression_minutes": (
+            ConfigValueKind.INTEGER,
+            60,
+            5,
+            10_080,
+        ),
+        "alerts.recommendation.minimum_repeated_occurrences": (
+            ConfigValueKind.INTEGER,
+            3,
+            2,
+            10_000,
+        ),
+    }
+
+    for key, (kind, default, minimum, maximum) in expected.items():
+        definition = definitions[key]
+        assert definition.section == "observability"
+        assert definition.value_kind is kind
+        assert definition.default == default
+        assert definition.minimum == minimum
+        assert definition.maximum == maximum
+        assert definition.scopes == (ConfigScope.SYSTEM, ConfigScope.TENANT)
+
+
 def test_registry_rejects_duplicate_keys() -> None:
     definition = ConfigDefinition(
         key="test.enabled",

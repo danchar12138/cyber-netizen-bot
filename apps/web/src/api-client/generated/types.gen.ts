@@ -6754,6 +6754,105 @@ export type ObservabilityAlertOperationsSummaryResponse = {
 };
 
 /**
+ * ObservabilityAlertRecommendationAction
+ *
+ * 人工确认前只读告警建议的候选动作。
+ */
+export type ObservabilityAlertRecommendationAction = 'acknowledge' | 'suppress' | 'observe';
+
+/**
+ * ObservabilityAlertRecommendationGuardrail
+ *
+ * 建议执行前不可绕过的稳定护栏码。
+ */
+export type ObservabilityAlertRecommendationGuardrail = 'manual_confirmation_required' | 'automatic_execution_forbidden' | 'current_scope_only';
+
+/**
+ * ObservabilityAlertRecommendationPriority
+ *
+ * 告警处置建议的确定性优先级。
+ */
+export type ObservabilityAlertRecommendationPriority = 'urgent' | 'high' | 'normal';
+
+/**
+ * ObservabilityAlertRecommendationReason
+ *
+ * 不含自由文本与隐藏推理的稳定建议原因码。
+ */
+export type ObservabilityAlertRecommendationReason = 'critical' | 'escalated' | 'baseline_anomaly' | 'long_running' | 'repeated_warning' | 'insufficient_signal';
+
+/**
+ * ObservabilityAlertRecommendationResponse
+ *
+ * 只读告警处置建议及不可绕过的人工确认护栏。
+ */
+export type ObservabilityAlertRecommendationResponse = {
+    action: ObservabilityAlertRecommendationAction;
+    /**
+     * Active Minutes
+     */
+    active_minutes: number;
+    /**
+     * Automation Allowed
+     */
+    automation_allowed: boolean;
+    /**
+     * Baseline Anomalous
+     */
+    baseline_anomalous: boolean;
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Confidence
+     */
+    confidence: number;
+    /**
+     * Escalation Level
+     */
+    escalation_level: number;
+    /**
+     * Guardrail Codes
+     */
+    guardrail_codes: [
+        ObservabilityAlertRecommendationGuardrail,
+        ObservabilityAlertRecommendationGuardrail,
+        ObservabilityAlertRecommendationGuardrail
+    ];
+    /**
+     * Lifecycle Id
+     */
+    lifecycle_id: string;
+    /**
+     * Occurrences
+     */
+    occurrences: number;
+    priority: ObservabilityAlertRecommendationPriority;
+    /**
+     * Reason Codes
+     */
+    reason_codes: Array<ObservabilityAlertRecommendationReason>;
+    /**
+     * Requires Confirmation
+     */
+    requires_confirmation: boolean;
+    severity: AlertSeverity;
+    /**
+     * Source Key
+     */
+    source_key: string;
+    /**
+     * Source Type
+     */
+    source_type: string;
+    /**
+     * Suggested Suppression Minutes
+     */
+    suggested_suppression_minutes?: number | null;
+};
+
+/**
  * ObservabilityAlertReplayDecision
  *
  * 通用告警通知重放复核结论。
@@ -16757,6 +16856,82 @@ export type GetApiV1ObservabilityAlertOperationsSummaryResponses = {
 };
 
 export type GetApiV1ObservabilityAlertOperationsSummaryResponse = GetApiV1ObservabilityAlertOperationsSummaryResponses[keyof GetApiV1ObservabilityAlertOperationsSummaryResponses];
+
+export type GetApiV1ObservabilityAlertRecommendationsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Source Type
+         */
+        source_type?: string | null;
+        /**
+         * Severity
+         */
+        severity?: AlertSeverity | null;
+        /**
+         * Action
+         */
+        action?: ObservabilityAlertRecommendationAction | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/observability/alert-recommendations';
+};
+
+export type GetApiV1ObservabilityAlertRecommendationsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ObservabilityAlertRecommendationsError = GetApiV1ObservabilityAlertRecommendationsErrors[keyof GetApiV1ObservabilityAlertRecommendationsErrors];
+
+export type GetApiV1ObservabilityAlertRecommendationsResponses = {
+    /**
+     * Response Get Api V1 Observability Alert Recommendations
+     *
+     * 请求成功
+     */
+    200: Array<ObservabilityAlertRecommendationResponse>;
+};
+
+export type GetApiV1ObservabilityAlertRecommendationsResponse = GetApiV1ObservabilityAlertRecommendationsResponses[keyof GetApiV1ObservabilityAlertRecommendationsResponses];
 
 export type GetApiV1ObservabilityAlertReplayReviewsData = {
     body?: never;

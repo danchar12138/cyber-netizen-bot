@@ -587,6 +587,20 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .handoff-priority-list .severity-label.critical { color: #e18470; }
 .handoff-priority-list .severity-label.warning { color: #d8ad65; }
 .handoff-source-panel { margin-top: 13px; }
+.alert-recommendation-panel { margin-bottom: 13px; }
+.alert-recommendation-list { display: grid; }
+.alert-recommendation-list > article { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.2fr) minmax(150px, auto); gap: 14px; align-items: center; min-height: 68px; padding: 12px 0; border-top: 1px solid #1c322a; }
+.recommendation-heading { display: grid; grid-template-columns: 50px minmax(0, 1fr); gap: 10px; align-items: start; min-width: 0; }
+.recommendation-heading > div, .recommendation-reasons { min-width: 0; }
+.recommendation-heading strong, .recommendation-heading small, .recommendation-reasons strong, .recommendation-reasons span, .recommendation-reasons small { display: block; overflow-wrap: anywhere; }
+.recommendation-heading strong, .recommendation-reasons strong { color: #b7cec4; font-size: 10px; }
+.recommendation-heading small, .recommendation-reasons span, .recommendation-reasons small { margin-top: 4px; color: #6f9184; font-size: 8px; }
+.recommendation-reasons span { color: #c99e63; }
+.recommendation-reasons small { color: #78998d; }
+.recommendation-actions { display: flex; justify-content: flex-end; }
+.entity-status.priority-urgent { color: #ee8d78; border-color: #794335; background: #301812; }
+.entity-status.priority-high { color: #e2bc75; border-color: #685126; background: #291f0d; }
+.entity-status.priority-normal { color: #8fc8df; border-color: #31586b; background: #102631; }
 .channel-lifecycle-observability { margin-bottom: 13px; }
 .observability-lifecycle-table { margin-bottom: 13px; }
 .observability-source-metrics { margin-top: 13px; }
@@ -806,6 +820,8 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .settings-list dd { justify-content: flex-start; text-align: left; }
   .baseline-signal-list article { grid-template-columns: 1fr; gap: 7px; }
   .baseline-signal-list article > div:last-child { text-align: left; }
+  .alert-recommendation-list > article { grid-template-columns: 1fr; gap: 10px; }
+  .recommendation-actions { justify-content: flex-start; }
   .definition-row { grid-template-columns: 1fr; gap: 12px; }
   .memory-tabs { width: 100%; overflow-x: auto; }
     .memory-toolbar, .memory-form-grid, .recall-results { grid-template-columns: 1fr; }

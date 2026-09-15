@@ -248,6 +248,33 @@ export const observabilityHandoffReasonLabels = {
   suppression_expiring: '抑制将在交接窗口内到期',
 } as const
 
+export const observabilityRecommendationActionLabels = {
+  acknowledge: '确认并调查',
+  suppress: '人工临时抑制',
+  observe: '继续观察',
+} as const
+
+export const observabilityRecommendationPriorityLabels = {
+  urgent: '紧急',
+  high: '高',
+  normal: '普通',
+} as const
+
+export const observabilityRecommendationReasonLabels = {
+  critical: '严重告警',
+  escalated: '已经升级',
+  baseline_anomaly: '超过稳健基线',
+  long_running: '持续时间过长',
+  repeated_warning: '普通警告重复出现',
+  insufficient_signal: '信号不足，保持观察',
+} as const
+
+export const observabilityRecommendationGuardrailLabels = {
+  manual_confirmation_required: '必须人工确认',
+  automatic_execution_forbidden: '禁止自动执行',
+  current_scope_only: '仅限当前智能体范围',
+} as const
+
 const observabilityUnitLabels: Readonly<Record<string, string>> = {
   '%': '%',
   ms: '毫秒',

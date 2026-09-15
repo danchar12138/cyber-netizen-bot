@@ -8,6 +8,7 @@ import pytest
 from cnb_application import (
     ApiRequestObservation,
     ConfigurationService,
+    EntityCursor,
     ObservabilityNotFoundError,
     ObservabilityService,
     ObservabilityValidationError,
@@ -27,6 +28,8 @@ from cnb_domain import (
     ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycle,
     ObservabilityAlertLifecycleStatus,
+    ObservabilityAlertRecommendationAction,
+    ObservabilityAlertRecommendationPriority,
     ObservabilityAlertReplayDecision,
     ObservabilityAlertReplayReason,
     ObservabilityAlertReplayReview,
@@ -929,6 +932,187 @@ async def test_alert_operations_summary_uses_robust_baseline_and_safe_handoff() 
     assert not hasattr(suppressed_item, "disposition_reason")
     assert summary.handoff.sources[0].source_type == "api"
     assert summary.handoff.sources[0].active == 4
+
+
+async def test_alert_recommendations_are_deterministic_scoped_and_never_execute() -> None:
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
+    repository = MemoryObservabilityRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+    now = datetime(2026, 9, 15, 12, tzinfo=UTC)
+
+    def alert(source_type: str, source_key: str, severity: AlertSeverity) -> ActiveAlert:
+        return ActiveAlert(
+            code=f"{source_type}_test",
+            severity=severity,
+            title="建议规则测试",
+            summary="不得进入建议响应的安全摘要",
+            current_value=20,
+            threshold_value=10,
+            unit="count",
+            source_type=source_type,
+            source_key=source_key,
+            first_occurred_at=now - timedelta(minutes=30),
+            last_occurred_at=now,
+        )
+
+    critical = alert("agent_runtime", "critical", AlertSeverity.CRITICAL)
+    repeated = alert("task_queue", "repeated", AlertSeverity.WARNING)
+    observed = alert("model_runtime", "observed", AlertSeverity.WARNING)
+    acknowledged = alert("notification", "acknowledged", AlertSeverity.WARNING)
+    all_alerts = (critical, repeated, observed, acknowledged)
+    await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=all_alerts,
+        observed_at=now - timedelta(minutes=3),
+    )
+    await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=all_alerts,
+        observed_at=now - timedelta(minutes=2),
+    )
+    current = await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(critical, repeated, acknowledged),
+        observed_at=now - timedelta(minutes=1),
+    )
+    current = await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=all_alerts,
+        observed_at=now,
+    )
+    by_key = {item.source_key: item for item in current.active_lifecycles}
+    await repository.mark_observability_alert_lifecycles_escalated(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_ids=(by_key["critical"].id,),
+        escalation_level=1,
+        escalated_at=now,
+    )
+    await service.acknowledge_alert(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=by_key["acknowledged"].id,
+        reason="已由值班人员接手",
+        actor_id=actor_id,
+        confirmed=True,
+        now=now,
+    )
+
+    recommendations = await service.alert_recommendations(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=now,
+    )
+    repeated_only = await service.alert_recommendations(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        action=ObservabilityAlertRecommendationAction.SUPPRESS,
+        source_type=" task_queue ",
+        now=now,
+    )
+    other_agent = await service.alert_recommendations(
+        tenant_id=tenant_id,
+        agent_id=uuid4(),
+        now=now,
+    )
+
+    assert [item.source_key for item in recommendations] == [
+        "critical",
+        "repeated",
+        "observed",
+    ]
+    urgent, suppression, observation = recommendations
+    assert urgent.action is ObservabilityAlertRecommendationAction.ACKNOWLEDGE
+    assert urgent.priority is ObservabilityAlertRecommendationPriority.URGENT
+    assert urgent.reason_codes == ("critical", "escalated")
+    assert suppression.action is ObservabilityAlertRecommendationAction.SUPPRESS
+    assert suppression.suggested_suppression_minutes == 60
+    assert suppression.reason_codes == ("repeated_warning",)
+    assert observation.action is ObservabilityAlertRecommendationAction.OBSERVE
+    assert observation.reason_codes == ("insufficient_signal",)
+    assert all(item.requires_confirmation for item in recommendations)
+    assert all(not item.automation_allowed for item in recommendations)
+    assert all(len(item.guardrail_codes) == 3 for item in recommendations)
+    assert repeated_only == (suppression,)
+    assert other_agent == ()
+
+
+async def test_alert_recommendations_reject_an_unbounded_active_scan() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    now = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    lifecycle = ObservabilityAlertLifecycle(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        source_type="api",
+        source_key="overflow",
+        code="api_error_rate",
+        status=ObservabilityAlertLifecycleStatus.ACTIVE,
+        severity=AlertSeverity.WARNING,
+        occurrences=1,
+        current_value=20,
+        threshold_value=1,
+        unit="%",
+        first_occurred_at=now - timedelta(minutes=1),
+        last_occurred_at=now,
+        last_evaluated_at=now,
+        escalated_at=None,
+        resolved_at=None,
+        recovery_duration_seconds=None,
+        created_at=now - timedelta(minutes=1),
+        updated_at=now,
+    )
+
+    class OverflowRepository(MemoryObservabilityRepository):
+        requested_limit: int | None = None
+
+        async def list_observability_alert_lifecycles(
+            self,
+            *,
+            tenant_id: UUID,
+            agent_id: UUID,
+            status: ObservabilityAlertLifecycleStatus | None = None,
+            source_type: str | None = None,
+            severity: AlertSeverity | None = None,
+            minimum_duration_minutes: int | None = None,
+            evaluated_at: datetime | None = None,
+            cursor: EntityCursor | None = None,
+            limit: int = 100,
+        ) -> tuple[ObservabilityAlertLifecycle, ...]:
+            del (
+                tenant_id,
+                agent_id,
+                status,
+                source_type,
+                severity,
+                minimum_duration_minutes,
+                evaluated_at,
+                cursor,
+            )
+            self.requested_limit = limit
+            return (lifecycle,) * limit
+
+    repository = OverflowRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+
+    with pytest.raises(ObservabilityValidationError, match="500 条活动生命周期安全上限"):
+        await service.alert_recommendations(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            now=now,
+        )
+
+    assert repository.requested_limit == 501
 
 
 async def test_alert_operations_summary_rejects_unbounded_history() -> None:

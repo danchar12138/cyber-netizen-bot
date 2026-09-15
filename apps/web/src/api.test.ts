@@ -14,6 +14,7 @@ import {
   getObservabilityAlertLifecycleMetrics,
   getObservabilityAlertLifecyclePage,
   getObservabilityAlertOperationsSummary,
+  getObservabilityAlertRecommendations,
   getObservabilityAlertReplayMetrics,
   getObservabilityAlertReplayReviews,
   importConfigPackage,
@@ -85,6 +86,32 @@ describe('通用告警客户端', () => {
     expect(new URL(request.url).pathname).toBe(
       '/api/v1/observability/alert-operations-summary',
     )
+  })
+
+  it('使用只读端点完整传递告警建议筛选', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getObservabilityAlertRecommendations({
+      source_type: 'model_runtime',
+      severity: 'critical',
+      action: 'acknowledge',
+      limit: 20,
+    })
+
+    const request = fetchMock.mock.calls[0]?.[0] as Request
+    const url = new URL(request.url)
+    expect(url.pathname).toBe('/api/v1/observability/alert-recommendations')
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      source_type: 'model_runtime',
+      severity: 'critical',
+      action: 'acknowledge',
+      limit: '20',
+    })
+    expect(request.method).toBe('GET')
   })
 
   it('完整传递生命周期组合筛选参数', async () => {

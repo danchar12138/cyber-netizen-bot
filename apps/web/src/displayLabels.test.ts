@@ -25,6 +25,10 @@ import {
   observabilityAlertSourceTypeLabels,
   observabilityReplayDecisionLabels,
   observabilityReplayReasonLabels,
+  observabilityRecommendationActionLabels,
+  observabilityRecommendationGuardrailLabels,
+  observabilityRecommendationPriorityLabels,
+  observabilityRecommendationReasonLabels,
   observabilityUnitLabel,
   permissionLabels,
   relationshipStageLabels,
@@ -71,6 +75,12 @@ describe('管理后台中文显示文案', () => {
     expect(observabilityAlertCodeLabels.model_cost_budget).toBe('模型成本超出窗口预算')
     expect(observabilityReplayDecisionLabels.blocked).toBe('阻止重放')
     expect(observabilityReplayReasonLabels.blocked_active_suppression).toBe('告警仍在抑制期')
+    expect(observabilityRecommendationActionLabels.acknowledge).toBe('确认并调查')
+    expect(observabilityRecommendationPriorityLabels.urgent).toBe('紧急')
+    expect(observabilityRecommendationReasonLabels.baseline_anomaly).toBe('超过稳健基线')
+    expect(observabilityRecommendationGuardrailLabels.automatic_execution_forbidden).toBe(
+      '禁止自动执行',
+    )
     expect(observabilityUnitLabel('jobs')).toBe('项')
   })
 

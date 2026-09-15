@@ -54,6 +54,7 @@ from cnb_contracts import (
     ObservabilityAlertLifecyclePageResponse,
     ObservabilityAlertLifecycleResponse,
     ObservabilityAlertOperationsSummaryResponse,
+    ObservabilityAlertRecommendationResponse,
     ObservabilityAlertReplayMetricsResponse,
     ObservabilityAlertReplayReviewPageResponse,
     ObservabilityDashboardResponse,
@@ -283,6 +284,11 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
             "/api/v1/observability/alert-operations-summary",
             headers={"X-CNB-Development-Role": "viewer"},
         )
+        recommendations_response = await client.get(
+            "/api/v1/observability/alert-recommendations",
+            params={"source_type": "model_runtime", "action": "acknowledge"},
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
         page_response = await client.get(
             "/api/v1/observability/alert-lifecycles/page",
             params={"source_type": "model_runtime", "limit": 1},
@@ -366,6 +372,13 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
                 "X-CNB-Agent-ID": other_agent_response.json()["id"],
             },
         )
+        other_agent_recommendations_response = await client.get(
+            "/api/v1/observability/alert-recommendations",
+            headers={
+                "X-CNB-Development-Role": "viewer",
+                "X-CNB-Agent-ID": other_agent_response.json()["id"],
+            },
+        )
         cross_agent_response = await client.post(
             f"/api/v1/observability/alert-lifecycles/{lifecycle_id}/acknowledge",
             json={"reason": "不得跨 Agent 处置", "confirmed": True},
@@ -382,6 +395,10 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
     metrics = ObservabilityAlertLifecycleMetricsResponse.model_validate(metrics_response.json())
     operations = ObservabilityAlertOperationsSummaryResponse.model_validate(
         operations_response.json()
+    )
+    recommendations = tuple(
+        ObservabilityAlertRecommendationResponse.model_validate(item)
+        for item in recommendations_response.json()
     )
     other_agent_summary = ObservabilityAlertOperationsSummaryResponse.model_validate(
         other_agent_summary_response.json()
@@ -422,9 +439,19 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
     assert all(item.disposition_status is None for item in operations.handoff.priority_items)
     assert "仅用于 API 契约测试的安全摘要" not in operations_response.text
     assert "disposition_reason" not in operations_response.text
+    assert recommendations_response.status_code == 200
+    assert len(recommendations) == 1
+    assert recommendations[0].lifecycle_id == lifecycle_id
+    assert recommendations[0].action == "acknowledge"
+    assert recommendations[0].requires_confirmation is True
+    assert recommendations[0].automation_allowed is False
+    assert "manual_confirmation_required" in recommendations[0].guardrail_codes
+    assert "仅用于 API 契约测试的安全摘要" not in recommendations_response.text
     assert other_agent_summary.handoff.active == 0
     assert other_agent_summary.handoff.priority_items == ()
     assert all(item.current_value == 0 for item in other_agent_summary.baseline.signals)
+    assert other_agent_recommendations_response.status_code == 200
+    assert other_agent_recommendations_response.json() == []
     assert page_response.status_code == 200
     assert [item.id for item in page.items] == [lifecycle_id]
     assert page.next_cursor is None

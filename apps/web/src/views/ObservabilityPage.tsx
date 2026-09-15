@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Activity, BellRing, CheckCircle2, ChevronDown, CircleDollarSign, ClipboardList, Clock3, Gauge, History, RefreshCw, Search, Send, ShieldAlert, ShieldCheck, TriangleAlert, X } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
   acknowledgeObservabilityAlert,
@@ -12,6 +12,7 @@ import {
   getObservabilityAlertLifecycleMetrics,
   getObservabilityAlertLifecyclePage,
   getObservabilityAlertOperationsSummary,
+  getObservabilityAlertRecommendations,
   getObservabilityAlertReplayMetrics,
   getObservabilityAlertReplayReviews,
   getObservabilityDashboard,
@@ -30,6 +31,10 @@ import {
   observabilityAlertCodeLabels,
   observabilityAlertSourceTypeLabels,
   observabilityHandoffReasonLabels,
+  observabilityRecommendationActionLabels,
+  observabilityRecommendationGuardrailLabels,
+  observabilityRecommendationPriorityLabels,
+  observabilityRecommendationReasonLabels,
   observabilityReplayDecisionLabels,
   observabilityReplayReasonLabels,
   observabilityUnitLabel,
@@ -95,6 +100,20 @@ export function ObservabilityPage() {
     enabled: canReadTrace,
     refetchInterval: 30_000,
   })
+  const alertRecommendations = useQuery({
+    queryKey: [
+      'observability-alert-recommendations',
+      selectedAgentId,
+      alertSourceType,
+      alertSeverity,
+    ],
+    queryFn: () => getObservabilityAlertRecommendations({
+      source_type: alertSourceType || undefined,
+      severity: alertSeverity || undefined,
+    }),
+    enabled: canReadTrace,
+    refetchInterval: 30_000,
+  })
   const alertLifecycles = useInfiniteQuery({
     queryKey: [
       'observability-alert-lifecycles',
@@ -152,6 +171,7 @@ export function ObservabilityPage() {
       invalidateAcrossTabs(queryClient, ['observability-dashboard']),
       invalidateAcrossTabs(queryClient, ['observability-alert-disposition-events']),
       invalidateAcrossTabs(queryClient, ['observability-alert-operations-summary']),
+      invalidateAcrossTabs(queryClient, ['observability-alert-recommendations']),
       invalidateAcrossTabs(queryClient, ['observability-alert-replay-metrics']),
       invalidateAcrossTabs(queryClient, ['observability-alert-replay-reviews']),
       invalidateAcrossTabs(queryClient, ['audit-records']),
@@ -210,6 +230,10 @@ export function ObservabilityPage() {
   const data = dashboard.data
   const lifecycle = lifecycleMetrics.data
   const operations = alertOperations.data
+  const recommendations = useMemo(
+    () => alertRecommendations.data ?? [],
+    [alertRecommendations.data],
+  )
   const anomalousSignals = operations?.baseline.signals.filter((item) => item.anomalous) ?? []
   const lifecycleRows = alertLifecycles.data?.pages.flatMap((page) => page.items) ?? []
   const replay = replayMetrics.data
@@ -247,6 +271,27 @@ export function ObservabilityPage() {
     if (!window.confirm(`确认${action === 'suppress' ? '临时抑制' : '标记已确认'}“${title}”？`)) return
     dispositionMutation.mutate({ action, lifecycleId: item.id, reason, expiresAt })
   }, [dispositionMutation])
+  const executeRecommendation = useCallback((lifecycleId: string, action: 'acknowledge' | 'suppress', suppressionMinutes?: number | null) => {
+    setDispositionInputError(null)
+    setDispositionFeedback(null)
+    const recommendation = recommendations.find((item) => item.lifecycle_id === lifecycleId)
+    if (!recommendation || !recommendation.requires_confirmation || recommendation.automation_allowed) {
+      setDispositionInputError('该建议缺少有效人工确认护栏，已拒绝执行')
+      return
+    }
+    const title = displayLabel(observabilityAlertCodeLabels, recommendation.code)
+    const actionLabel = displayLabel(observabilityRecommendationActionLabels, action)
+    if (!window.confirm(`建议不会自动执行。确认对“${title}”执行“${actionLabel}”？`)) return
+    const reason = `人工采纳处置建议：${recommendation.reason_codes.map((reasonCode) => displayLabel(observabilityRecommendationReasonLabels, reasonCode)).join('、')}`
+    dispositionMutation.mutate({
+      action,
+      lifecycleId,
+      reason,
+      expiresAt: action === 'suppress'
+        ? new Date(Date.now() + (suppressionMinutes ?? 60) * 60_000).toISOString()
+        : undefined,
+    })
+  }, [dispositionMutation, recommendations])
   const clearDisposition = useCallback((item: ObservabilityAlertLifecycle) => {
     setDispositionInputError(null)
     setDispositionFeedback(null)
@@ -319,6 +364,7 @@ export function ObservabilityPage() {
       {dashboard.isError && <div className="notice error" role="alert">无法读取可观测聚合，请检查应用接口、数据库和当前权限。</div>}
       {lifecycleMetrics.isError && <div className="notice error" role="alert">无法读取通用告警生命周期指标，请检查当前 Agent 与迁移状态。</div>}
       {alertOperations.isError && <div className="notice error" role="alert">无法读取告警异常基线与值班交接摘要。</div>}
+      {alertRecommendations.isError && <div className="notice error" role="alert">无法读取告警处置建议，系统不会自动执行任何动作。</div>}
       {alertLifecycles.isError && <div className="notice error" role="alert">无法读取通用告警生命周期，请检查当前 Agent 与迁移状态。</div>}
       {(replayMetrics.isError || replayReviews.isError) && <div className="notice error" role="alert">无法读取通知重放复核记录，请检查当前 Agent 与迁移状态。</div>}
       {(dispositionInputError || dispositionMutation.error || batchDispositionMutation.error) && <div className="notice error" role="alert">{dispositionInputError ?? dispositionMutation.error?.message ?? batchDispositionMutation.error?.message}</div>}
@@ -353,6 +399,19 @@ export function ObservabilityPage() {
           </section>
         </div>
         {!!operations?.handoff.sources.length && <section className="panel handoff-source-panel"><div className="panel-heading"><div><p className="eyebrow">交接窗口</p><h2>来源汇总</h2></div></div><div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>来源</th><th>活动</th><th>严重</th><th>待确认</th><th>开启</th><th>恢复</th><th>升级</th><th>下钻</th></tr></thead><tbody>{operations.handoff.sources.map((item) => <tr key={item.source_type}><td><strong>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)}</strong></td><td>{item.active}</td><td>{item.critical_active}</td><td>{item.unacknowledged_active}</td><td>{item.opened}</td><td>{item.resolved}</td><td>{item.escalated}</td><td><button className="icon-button" title="下钻该来源" aria-label={`下钻 ${displayLabel(observabilityAlertSourceTypeLabels, item.source_type)} 来源`} onClick={() => setAlertSourceType(item.source_type)}><Search size={13} /></button></td></tr>)}</tbody></table></div></section>}
+      </section>
+
+      <section className="panel alert-recommendation-panel" aria-label="告警处置建议">
+        <div className="panel-heading channel-operation-heading"><div><p className="eyebrow">确定性规则 · 人工确认</p><h2>告警处置建议</h2></div><span className="subtle">{recommendations.length} 项 · 禁止自动执行</span></div>
+        <div className="notice info"><ShieldCheck size={17} /><div><strong>建议与执行严格分离</strong><span>系统只提供原因码、置信度与安全护栏；只有具备处置权限的管理员确认后才会调用现有审计接口。</span></div></div>
+        {!recommendations.length && !alertRecommendations.isLoading && <div className="empty-state">当前筛选范围没有需要建议的未处置活动告警。</div>}
+        <div className="alert-recommendation-list">{recommendations.map((item) => <article key={item.lifecycle_id} className={`recommendation-${item.priority}`}>
+          <div className="recommendation-heading"><span className={`entity-status priority-${item.priority}`}>{displayLabel(observabilityRecommendationPriorityLabels, item.priority)}</span><div><strong>{displayLabel(observabilityAlertCodeLabels, item.code)}</strong><small>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)} · 持续 {formatDuration(item.active_minutes * 60)} · 出现 {item.occurrences} 次 · 置信度 {(item.confidence * 100).toFixed(0)}%</small></div></div>
+          <div className="recommendation-reasons"><strong>{displayLabel(observabilityRecommendationActionLabels, item.action)}</strong><span>{item.reason_codes.map((reason) => displayLabel(observabilityRecommendationReasonLabels, reason)).join(' · ')}</span><small>{item.guardrail_codes.map((guardrail) => displayLabel(observabilityRecommendationGuardrailLabels, guardrail)).join(' · ')}</small></div>
+          <div className="recommendation-actions">{item.action === 'observe' || !canManageAlerts
+            ? <span className="subtle">{item.action === 'observe' ? '无需处置' : '当前角色只读'}</span>
+            : <button className="secondary-button" disabled={dispositionMutation.isPending} onClick={() => executeRecommendation(item.lifecycle_id, item.action === 'suppress' ? 'suppress' : 'acknowledge', item.suggested_suppression_minutes)}><CheckCircle2 size={14} />{item.action === 'suppress' ? `确认抑制 ${item.suggested_suppression_minutes} 分钟` : '确认并接手调查'}</button>}</div>
+        </article>)}</div>
       </section>
 
       <section className="channel-lifecycle-observability" aria-label="通用告警生命周期指标">

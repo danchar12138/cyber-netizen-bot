@@ -11,6 +11,10 @@ from cnb_domain import (
     ObservabilityAlertDispositionAction,
     ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycleStatus,
+    ObservabilityAlertRecommendationAction,
+    ObservabilityAlertRecommendationGuardrail,
+    ObservabilityAlertRecommendationPriority,
+    ObservabilityAlertRecommendationReason,
     ObservabilityAlertReplayDecision,
     ObservabilityAlertReplayReason,
 )
@@ -248,6 +252,34 @@ class ObservabilityAlertOperationsSummaryResponse(BaseModel):
     generated_at: datetime
     baseline: ObservabilityAlertBaselineResponse
     handoff: ObservabilityAlertHandoffResponse
+
+
+class ObservabilityAlertRecommendationResponse(BaseModel):
+    """只读告警处置建议及不可绕过的人工确认护栏。"""
+
+    lifecycle_id: UUID
+    source_type: str = Field(min_length=1, max_length=80)
+    source_key: str = Field(min_length=1, max_length=255)
+    code: str = Field(min_length=1, max_length=100)
+    severity: AlertSeverity
+    action: ObservabilityAlertRecommendationAction
+    priority: ObservabilityAlertRecommendationPriority
+    confidence: float = Field(ge=0, le=1)
+    reason_codes: tuple[ObservabilityAlertRecommendationReason, ...] = Field(
+        min_length=1,
+        max_length=6,
+    )
+    guardrail_codes: tuple[ObservabilityAlertRecommendationGuardrail, ...] = Field(
+        min_length=3,
+        max_length=3,
+    )
+    active_minutes: int = Field(ge=0)
+    occurrences: int = Field(ge=1)
+    escalation_level: int = Field(ge=0, le=3)
+    baseline_anomalous: bool
+    suggested_suppression_minutes: int | None = Field(default=None, ge=5, le=10_080)
+    requires_confirmation: bool
+    automation_allowed: bool
 
 
 class ObservabilityAlertDispositionCommand(BaseModel):

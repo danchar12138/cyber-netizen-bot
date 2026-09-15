@@ -28,6 +28,9 @@ SLO、队列阈值、成本预算与聚合窗口在“配置中心 → observabi
 - `alerts.baseline.periods`
 - `alerts.baseline.sensitivity`
 - `alerts.baseline.minimum_current_count`
+- `alerts.recommendation.long_running_minutes`
+- `alerts.recommendation.suppression_minutes`
+- `alerts.recommendation.minimum_repeated_occurrences`
 - `slo.api.maximum_error_rate_percent`
 - `slo.api.maximum_p95_ms`
 - `slo.agent.minimum_success_rate_percent`
@@ -93,6 +96,14 @@ SLO、队列阈值、成本预算与聚合窗口在“配置中心 → observabi
 2. “执行保留期清理”会按当前租户和单批上限分别删除到期处置事件、重放复核事件；运行证据中的两个清理计数和截止时间用于复核结果。
 3. 在“数据生命周期 → 告警历史导出”选择窗口并下载。导出只覆盖当前 Agent，不在服务端落盘，并通过响应头返回 SHA-256 和运行记录 ID。
 4. 导出不包含处置自由文本、任务载荷、通知目标、Secret、Prompt、隐藏推理或业务正文；超过记录数或字节上限时应调整配置或缩短窗口，不得绕过保护直接查询生产库。
+
+### 告警处置建议与人工确认
+
+1. “告警处置建议”只根据当前生命周期、严重级别、升级状态、持续时间、重复次数和稳健异常基线生成，不调用模型，也不读取业务正文。
+2. 严重、升级、异常或持续过久的告警建议人工确认并调查；稳定但重复的普通警告可建议短时抑制；信号不足时只建议继续观察。
+3. 在“配置中心 → observability”维护 `alerts.recommendation.*` 三项配置，以控制长时间阈值、建议抑制时长和最小重复次数，无需修改环境变量或配置文件。
+4. 建议端点是只读接口，每项均返回“必须人工确认、禁止自动执行、仅限当前智能体范围”护栏。后台按钮只对具备通用告警处置权限的角色显示，并复用既有带审计处置接口。
+5. 已确认或仍在有效抑制期的告警不会重复生成建议；建议结果不包含处置备注、任务载荷、通知目标、Secret、Prompt、隐藏推理或业务正文。
 
 ### 成本超出窗口预算
 

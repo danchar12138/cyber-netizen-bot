@@ -46,6 +46,8 @@ import type {
   ObservabilityAlertLifecycleStatus,
   ObservabilityAlertLifecyclePageResponse,
   ObservabilityAlertOperationsSummaryResponse,
+  ObservabilityAlertRecommendationAction,
+  ObservabilityAlertRecommendationResponse,
   ObservabilityAlertReplayDecision,
   ObservabilityAlertReplayMetricsResponse,
   ObservabilityAlertReplayReason,
@@ -1719,6 +1721,7 @@ export type ObservabilityAlertDispositionEvent = ObservabilityAlertDispositionEv
 export type ObservabilityAlertLifecycleMetrics = ObservabilityAlertLifecycleMetricsResponse
 export type ObservabilityAlertLifecyclePage = ObservabilityAlertLifecyclePageResponse
 export type ObservabilityAlertOperationsSummary = ObservabilityAlertOperationsSummaryResponse
+export type ObservabilityAlertRecommendation = ObservabilityAlertRecommendationResponse
 export type ObservabilityAlertReplayReview = ObservabilityAlertReplayReviewResponse
 export type ObservabilityAlertReplayReviewPage = ObservabilityAlertReplayReviewPageResponse
 export type ObservabilityAlertReplayMetrics = ObservabilityAlertReplayMetricsResponse
@@ -1761,6 +1764,15 @@ export const getObservabilityAlertLifecycleMetrics = (filters: {
 
 export const getObservabilityAlertOperationsSummary = () =>
   apiSdk.getApiV1ObservabilityAlertOperationsSummary()
+
+export const getObservabilityAlertRecommendations = (filters: {
+  source_type?: string
+  severity?: AlertSeverity
+  action?: ObservabilityAlertRecommendationAction
+  limit?: number
+} = {}) => apiSdk.getApiV1ObservabilityAlertRecommendations({
+  query: { ...filters, limit: filters.limit ?? 50 },
+})
 
 export const getObservabilityAlertDispositionEvents = (filters: {
   lifecycle_id?: string
