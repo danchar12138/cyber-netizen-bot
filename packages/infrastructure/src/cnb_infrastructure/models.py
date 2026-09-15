@@ -360,6 +360,60 @@ class ObservabilityAlertDispositionEventModel(Base):
     )
 
 
+class ObservabilityAlertReplayReviewModel(Base):
+    """通用告警通知重放复核追加事件，不保存任务载荷。"""
+
+    __tablename__ = "observability_alert_replay_reviews"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID | None] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"))
+    source_job_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("background_jobs.id", ondelete="SET NULL")
+    )
+    source_type: Mapped[str | None] = mapped_column(String(80))
+    source_key: Mapped[str | None] = mapped_column(String(255))
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason_code: Mapped[str] = mapped_column(String(48), nullable=False)
+    actor_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    suppression_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "decision IN ('allowed', 'blocked')",
+            name="ck_observability_alert_replay_reviews_decision",
+        ),
+        CheckConstraint(
+            "reason_code IN ('allowed_no_suppression', 'allowed_suppression_expired', "
+            "'blocked_active_suppression', 'blocked_missing_source', "
+            "'blocked_invalid_agent', 'blocked_agent_mismatch')",
+            name="ck_observability_alert_replay_reviews_reason",
+        ),
+        Index(
+            "ix_observability_alert_replay_reviews_tenant_agent_time",
+            "tenant_id",
+            "agent_id",
+            "reviewed_at",
+        ),
+        Index(
+            "ix_observability_alert_replay_reviews_tenant_decision_time",
+            "tenant_id",
+            "decision",
+            "reviewed_at",
+        ),
+        Index(
+            "ix_observability_alert_replay_reviews_source_job_time",
+            "source_job_id",
+            "reviewed_at",
+        ),
+    )
+
+
 class Tenant(Base):
     """承载全部业务数据隔离边界的租户。"""
 

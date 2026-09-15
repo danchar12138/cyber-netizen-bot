@@ -63,7 +63,7 @@ class TaskDispatcher(Protocol):
 class TaskReplayGuard(Protocol):
     """在创建新任务前执行的框架无关重放安全复核。"""
 
-    async def check(self, *, job: BackgroundJob, now: datetime) -> None: ...
+    async def check(self, *, job: BackgroundJob, actor_id: UUID, now: datetime) -> None: ...
 
 
 class BackgroundJobHandler(Protocol):
@@ -534,7 +534,7 @@ class BackgroundTaskService:
             raise TaskConflictError("只有失败、死信或已取消任务可以安全重放")
         now = datetime.now(UTC)
         if self._replay_guard is not None:
-            await self._replay_guard.check(job=source, now=now)
+            await self._replay_guard.check(job=source, actor_id=actor_id, now=now)
         replay_id = uuid4()
         replayed = BackgroundJob(
             id=replay_id,

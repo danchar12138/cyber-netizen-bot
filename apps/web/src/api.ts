@@ -44,6 +44,12 @@ import type {
   ObservabilityAlertLifecycleResponse,
   ObservabilityAlertLifecycleMetricsResponse,
   ObservabilityAlertLifecycleStatus,
+  ObservabilityAlertLifecyclePageResponse,
+  ObservabilityAlertReplayDecision,
+  ObservabilityAlertReplayMetricsResponse,
+  ObservabilityAlertReplayReason,
+  ObservabilityAlertReplayReviewPageResponse,
+  ObservabilityAlertReplayReviewResponse,
   ObservabilityAlertSuppressionCommand,
   TelegramWebhookStatusResponse,
 } from './api-client/generated/types.gen'
@@ -1684,12 +1690,18 @@ export type ObservabilityAlertLifecycle = ObservabilityAlertLifecycleResponse
 export type ObservabilityAlertDisposition = ObservabilityAlertDispositionResponse
 export type ObservabilityAlertDispositionEvent = ObservabilityAlertDispositionEventResponse
 export type ObservabilityAlertLifecycleMetrics = ObservabilityAlertLifecycleMetricsResponse
+export type ObservabilityAlertLifecyclePage = ObservabilityAlertLifecyclePageResponse
+export type ObservabilityAlertReplayReview = ObservabilityAlertReplayReviewResponse
+export type ObservabilityAlertReplayReviewPage = ObservabilityAlertReplayReviewPageResponse
+export type ObservabilityAlertReplayMetrics = ObservabilityAlertReplayMetricsResponse
 
 export interface ObservabilityAlertLifecycleFilters {
   status?: ObservabilityAlertLifecycleStatus
   source_type?: string
   severity?: AlertSeverity
   minimum_duration_minutes?: number
+  cursor?: string
+  limit?: number
 }
 
 export const getObservabilityAlertLifecycles = (
@@ -1698,6 +1710,12 @@ export const getObservabilityAlertLifecycles = (
   apiSdk.getApiV1ObservabilityAlertLifecycles({
     query: { ...filters, limit: 100 },
   })
+
+export const getObservabilityAlertLifecyclePage = (
+  filters: ObservabilityAlertLifecycleFilters = {},
+) => apiSdk.getApiV1ObservabilityAlertLifecyclesPage({
+  query: { ...filters, limit: filters.limit ?? 50 },
+})
 
 export const getObservabilityAlertLifecycleMetrics = (filters: {
   window_minutes?: number
@@ -1722,6 +1740,26 @@ export const getObservabilityAlertDispositionEvents = (filters: {
   occurred_before?: string
 } = {}) => apiSdk.getApiV1ObservabilityAlertDispositionEvents({
   query: { ...filters, limit: 100 },
+})
+
+export const getObservabilityAlertReplayMetrics = (filters: {
+  window_minutes?: number
+  source_type?: string
+} = {}) => apiSdk.getApiV1ObservabilityAlertReplayReviewsMetrics({
+  query: {
+    window_minutes: filters.window_minutes ?? 1_440,
+    source_type: filters.source_type,
+  },
+})
+
+export const getObservabilityAlertReplayReviews = (filters: {
+  decision?: ObservabilityAlertReplayDecision
+  reason_code?: ObservabilityAlertReplayReason
+  source_type?: string
+  cursor?: string
+  limit?: number
+} = {}) => apiSdk.getApiV1ObservabilityAlertReplayReviews({
+  query: { ...filters, limit: filters.limit ?? 50 },
 })
 
 export const batchDisposeObservabilityAlerts = (

@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, BellRing, CheckCircle2, CircleDollarSign, Clock3, History, RefreshCw, Search, Send, ShieldCheck, TriangleAlert, X } from 'lucide-react'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Activity, BellRing, CheckCircle2, ChevronDown, CircleDollarSign, Clock3, History, RefreshCw, Search, Send, ShieldAlert, ShieldCheck, TriangleAlert, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import {
@@ -10,7 +10,9 @@ import {
   getCognitiveRunTrace,
   getObservabilityAlertDispositionEvents,
   getObservabilityAlertLifecycleMetrics,
-  getObservabilityAlertLifecycles,
+  getObservabilityAlertLifecyclePage,
+  getObservabilityAlertReplayMetrics,
+  getObservabilityAlertReplayReviews,
   getObservabilityDashboard,
   suppressObservabilityAlert,
   type ObservabilityAlertLifecycle,
@@ -25,6 +27,8 @@ import {
   modelPurposeLabels,
   observabilityAlertCodeLabels,
   observabilityAlertSourceTypeLabels,
+  observabilityReplayDecisionLabels,
+  observabilityReplayReasonLabels,
   observabilityUnitLabel,
 } from '../displayLabels'
 import { invalidateAcrossTabs } from '../tabSync'
@@ -52,6 +56,7 @@ export function ObservabilityPage() {
   const [alertSourceType, setAlertSourceType] = useState('')
   const [alertSeverity, setAlertSeverity] = useState<'warning' | 'critical' | ''>('')
   const [minimumDurationMinutes, setMinimumDurationMinutes] = useState('')
+  const [replayDecision, setReplayDecision] = useState<'allowed' | 'blocked' | ''>('')
   const [dispositionInputError, setDispositionInputError] = useState<string | null>(null)
   const [dispositionFeedback, setDispositionFeedback] = useState<string | null>(null)
   const [selectedLifecycleIds, setSelectedLifecycleIds] = useState<Set<string>>(new Set())
@@ -63,7 +68,7 @@ export function ObservabilityPage() {
   useEffect(() => {
     setSelectedLifecycleIds(new Set())
     setHistoryLifecycle(null)
-  }, [selectedAgentId])
+  }, [selectedAgentId, alertStatus, alertSourceType, alertSeverity, minimumDurationMinutes])
   const dashboard = useQuery({
     queryKey: ['observability-dashboard', selectedAgentId],
     queryFn: getObservabilityDashboard,
@@ -81,7 +86,7 @@ export function ObservabilityPage() {
     enabled: canReadTrace,
     refetchInterval: 30_000,
   })
-  const alertLifecycles = useQuery({
+  const alertLifecycles = useInfiniteQuery({
     queryKey: [
       'observability-alert-lifecycles',
       selectedAgentId,
@@ -90,14 +95,40 @@ export function ObservabilityPage() {
       alertSeverity,
       minimumDurationMinutes,
     ],
-    queryFn: () => getObservabilityAlertLifecycles({
+    queryFn: ({ pageParam }) => getObservabilityAlertLifecyclePage({
       status: alertStatus === 'all' ? undefined : alertStatus,
       source_type: alertSourceType || undefined,
       severity: alertSeverity || undefined,
       minimum_duration_minutes: minimumDurationMinutes
         ? Number(minimumDurationMinutes)
         : undefined,
+      cursor: pageParam ?? undefined,
+      limit: 50,
     }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+    enabled: canReadTrace,
+    refetchInterval: 30_000,
+  })
+  const replayMetrics = useQuery({
+    queryKey: ['observability-alert-replay-metrics', selectedAgentId, 1_440, alertSourceType],
+    queryFn: () => getObservabilityAlertReplayMetrics({
+      window_minutes: 1_440,
+      source_type: alertSourceType || undefined,
+    }),
+    enabled: canReadTrace,
+    refetchInterval: 30_000,
+  })
+  const replayReviews = useInfiniteQuery({
+    queryKey: ['observability-alert-replay-reviews', selectedAgentId, alertSourceType, replayDecision],
+    queryFn: ({ pageParam }) => getObservabilityAlertReplayReviews({
+      source_type: alertSourceType || undefined,
+      decision: replayDecision || undefined,
+      cursor: pageParam ?? undefined,
+      limit: 25,
+    }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled: canReadTrace,
     refetchInterval: 30_000,
   })
@@ -111,6 +142,8 @@ export function ObservabilityPage() {
       invalidateAcrossTabs(queryClient, ['observability-alert-lifecycles']),
       invalidateAcrossTabs(queryClient, ['observability-dashboard']),
       invalidateAcrossTabs(queryClient, ['observability-alert-disposition-events']),
+      invalidateAcrossTabs(queryClient, ['observability-alert-replay-metrics']),
+      invalidateAcrossTabs(queryClient, ['observability-alert-replay-reviews']),
       invalidateAcrossTabs(queryClient, ['audit-records']),
     ])
   }, [queryClient])
@@ -166,6 +199,9 @@ export function ObservabilityPage() {
   const trace = useMutation({ mutationFn: getCognitiveRunTrace })
   const data = dashboard.data
   const lifecycle = lifecycleMetrics.data
+  const lifecycleRows = alertLifecycles.data?.pages.flatMap((page) => page.items) ?? []
+  const replay = replayMetrics.data
+  const replayRows = replayReviews.data?.pages.flatMap((page) => page.items) ?? []
   const trendMaximum = Math.max(
     1,
     ...(lifecycle?.trend.map((point) => point.opened + point.resolved + point.escalated) ?? []),
@@ -234,8 +270,8 @@ export function ObservabilityPage() {
     if (!window.confirm(`确认批量处置 ${selectedLifecycleIds.size} 条通用告警？`)) return
     batchDispositionMutation.mutate({ action, reason, expiresAt })
   }, [batchDispositionMutation, selectedLifecycleIds])
-  const visibleLifecycleIds = alertLifecycles.data?.map((item) => item.id) ?? []
-  const selectedLifecycles = alertLifecycles.data?.filter(
+  const visibleLifecycleIds = lifecycleRows.map((item) => item.id)
+  const selectedLifecycles = lifecycleRows.filter(
     (item) => selectedLifecycleIds.has(item.id),
   ) ?? []
   const canBatchSetDisposition = selectedLifecycles.length === selectedLifecycleIds.size
@@ -271,6 +307,7 @@ export function ObservabilityPage() {
       {dashboard.isError && <div className="notice error" role="alert">无法读取可观测聚合，请检查应用接口、数据库和当前权限。</div>}
       {lifecycleMetrics.isError && <div className="notice error" role="alert">无法读取通用告警生命周期指标，请检查当前 Agent 与迁移状态。</div>}
       {alertLifecycles.isError && <div className="notice error" role="alert">无法读取通用告警生命周期，请检查当前 Agent 与迁移状态。</div>}
+      {(replayMetrics.isError || replayReviews.isError) && <div className="notice error" role="alert">无法读取通知重放复核记录，请检查当前 Agent 与迁移状态。</div>}
       {(dispositionInputError || dispositionMutation.error || batchDispositionMutation.error) && <div className="notice error" role="alert">{dispositionInputError ?? dispositionMutation.error?.message ?? batchDispositionMutation.error?.message}</div>}
       {dispositionFeedback && <div className="notice success" role="status"><CheckCircle2 size={17} /><div><strong>告警处置已更新</strong><span>{dispositionFeedback}</span></div></div>}
       <section className="metric-grid" aria-label="服务等级与成本指标">
@@ -305,7 +342,7 @@ export function ObservabilityPage() {
         <div className="panel observability-source-metrics">
           <div className="panel-heading"><div><p className="eyebrow">按来源独立聚合</p><h2>来源健康对比</h2></div><span className="subtle">{lifecycle?.sources.length ?? 0} 个来源</span></div>
           {!lifecycle?.sources.length && <div className="empty-state">当前筛选条件下暂无来源数据。</div>}
-          {!!lifecycle?.sources.length && <div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>来源</th><th>活动</th><th>开启</th><th>恢复</th><th>升级</th><th>平均恢复</th><th>P95 恢复</th></tr></thead><tbody>{lifecycle.sources.map((item) => <tr key={item.source_type}><td className="table-primary"><strong>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)}</strong><code>{item.source_type}</code></td><td>{item.active}</td><td>{item.opened}</td><td>{item.resolved}</td><td>{item.escalated}</td><td>{formatDuration(Math.round(item.mean_recovery_seconds))}</td><td>{formatDuration(item.p95_recovery_seconds)}</td></tr>)}</tbody></table></div>}
+          {!!lifecycle?.sources.length && <div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>来源</th><th>活动</th><th>开启</th><th>恢复</th><th>升级</th><th>平均恢复</th><th>P95 恢复</th><th>下钻</th></tr></thead><tbody>{lifecycle.sources.map((item) => <tr key={item.source_type} className={alertSourceType === item.source_type ? 'selected-row' : ''}><td className="table-primary"><strong>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)}</strong><code>{item.source_type}</code></td><td>{item.active}</td><td>{item.opened}</td><td>{item.resolved}</td><td>{item.escalated}</td><td>{formatDuration(Math.round(item.mean_recovery_seconds))}</td><td>{formatDuration(item.p95_recovery_seconds)}</td><td><button className="icon-button" title="下钻该来源" aria-label={`下钻 ${displayLabel(observabilityAlertSourceTypeLabels, item.source_type)} 生命周期`} onClick={() => setAlertSourceType(item.source_type)}><Search size={13} /></button></td></tr>)}</tbody></table></div>}
         </div>
       </section>
 
@@ -317,7 +354,7 @@ export function ObservabilityPage() {
             <label className="status-filter"><span>来源</span><select value={alertSourceType} onChange={(event) => setAlertSourceType(event.target.value)}><option value="">全部来源</option>{Object.entries(observabilityAlertSourceTypeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
             <label className="status-filter"><span>级别</span><select value={alertSeverity} onChange={(event) => setAlertSeverity(event.target.value as typeof alertSeverity)}><option value="">全部级别</option><option value="warning">警告</option><option value="critical">严重</option></select></label>
             <label className="status-filter"><span>最短持续</span><select value={minimumDurationMinutes} onChange={(event) => setMinimumDurationMinutes(event.target.value)}><option value="">不限</option><option value="15">15 分钟</option><option value="60">1 小时</option><option value="360">6 小时</option><option value="1440">24 小时</option></select></label>
-            <small>{alertLifecycles.data?.length ?? 0} 条</small>
+            <small>{lifecycleRows.length} 条</small>
           </div>
         </div>
         <div className="alert-batch-toolbar" aria-label="批量告警处置">
@@ -332,7 +369,7 @@ export function ObservabilityPage() {
         <div className="admin-table-scroll">
           <table className="admin-table">
             <thead><tr><th className="selection-cell"><input type="checkbox" aria-label="选择当前全部告警" checked={allVisibleSelected} onChange={toggleAllVisible} /></th><th>来源</th><th>状态</th><th>当前 / 阈值</th><th>升级</th><th>发生时间</th><th>恢复</th><th>处置</th><th>操作</th></tr></thead>
-            <tbody>{alertLifecycles.data?.map((item) => <tr key={item.id}>
+            <tbody>{lifecycleRows.map((item) => <tr key={item.id}>
               <td className="selection-cell"><input type="checkbox" aria-label={`选择 ${displayLabel(observabilityAlertCodeLabels, item.code)}`} checked={selectedLifecycleIds.has(item.id)} onChange={() => toggleLifecycle(item.id)} /></td>
               <td className="table-primary"><strong>{displayLabel(observabilityAlertCodeLabels, item.code)}</strong><small>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)}</small><code>{item.source_key}</code></td>
               <td><span className={`entity-status ${item.status}`}>{item.status === 'active' ? '活动' : '已恢复'}</span><small className={`severity-label ${item.severity}`}>{item.severity === 'critical' ? '严重' : '警告'}</small></td>
@@ -351,8 +388,9 @@ export function ObservabilityPage() {
               </div></td>
             </tr>)}</tbody>
           </table>
-          {!alertLifecycles.data?.length && <div className="admin-table-empty">当前筛选条件下没有通用告警生命周期。</div>}
+          {!lifecycleRows.length && <div className="admin-table-empty">当前筛选条件下没有通用告警生命周期。</div>}
         </div>
+        {alertLifecycles.hasNextPage && <div className="table-pagination"><button className="secondary-button" disabled={alertLifecycles.isFetchingNextPage} onClick={() => void alertLifecycles.fetchNextPage()}><ChevronDown size={14} />{alertLifecycles.isFetchingNextPage ? '正在加载' : '加载更多生命周期'}</button></div>}
       </section>
 
       {historyLifecycle && <section className="panel alert-history-panel" aria-label="通用告警处置历史">
@@ -362,6 +400,33 @@ export function ObservabilityPage() {
         {!dispositionHistory.isLoading && !dispositionHistory.data?.length && <div className="empty-state">该生命周期尚无处置记录。</div>}
         {!!dispositionHistory.data?.length && <ol className="alert-history-timeline">{dispositionHistory.data.map((event) => <li key={event.id}><span className={`entity-status disposition-${event.action}`}>{event.action === 'acknowledged' ? '已确认' : event.action === 'suppressed' ? '已抑制' : '已解除'}</span><div><strong>{event.reason}</strong><small>{new Date(event.occurred_at).toLocaleString('zh-CN')} · 操作者 {event.actor_id.slice(0, 8)}</small>{event.expires_at && <small>抑制到期 {new Date(event.expires_at).toLocaleString('zh-CN')}</small>}</div></li>)}</ol>}
       </section>}
+
+      <section className="replay-review-section" aria-label="通知重放复核运营">
+        <div className="panel-heading channel-operation-heading"><div><p className="eyebrow">安全审计 · 最近 24 小时</p><h2>通知重放复核运营</h2></div><label className="status-filter"><span>结论</span><select value={replayDecision} onChange={(event) => setReplayDecision(event.target.value as typeof replayDecision)}><option value="">全部结论</option><option value="allowed">允许重放</option><option value="blocked">阻止重放</option></select></label></div>
+        <div className="metric-grid replay-review-metrics">
+          <article className="metric-card"><div className="metric-icon"><History size={18} /></div><p>复核总数</p><strong>{replay?.total ?? '—'}</strong><span>当前来源筛选窗口</span></article>
+          <article className="metric-card"><div className="metric-icon"><ShieldCheck size={18} /></div><p>允许重放</p><strong>{replay?.allowed ?? '—'}</strong><span>{replay ? `${replay.allowed_rate_percent.toFixed(2)}% 允许率` : '等待统计'}</span></article>
+          <article className="metric-card"><div className="metric-icon"><ShieldAlert size={18} /></div><p>阻止重放</p><strong>{replay?.blocked ?? '—'}</strong><span>不会创建新任务</span></article>
+          <article className="metric-card"><div className="metric-icon"><BellRing size={18} /></div><p>涉及来源</p><strong>{replay?.sources.length ?? '—'}</strong><span>按安全来源键聚合</span></article>
+        </div>
+        <div className="replay-review-summary-grid">
+          <section className="panel">
+            <div className="panel-heading"><div><p className="eyebrow">稳定原因码</p><h2>复核原因分布</h2></div></div>
+            {!replay?.reasons.length && <div className="empty-state">当前窗口暂无复核结果。</div>}
+            {!!replay?.reasons.length && <dl className="settings-list">{replay.reasons.map((item) => <div key={item.reason_code}><dt>{displayLabel(observabilityReplayReasonLabels, item.reason_code)}</dt><dd>{item.count} 次</dd></div>)}</dl>}
+          </section>
+          <section className="panel">
+            <div className="panel-heading"><div><p className="eyebrow">允许 / 阻止</p><h2>复核来源分布</h2></div></div>
+            {!replay?.sources.length && <div className="empty-state">当前窗口暂无来源数据。</div>}
+            {!!replay?.sources.length && <div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>来源</th><th>总数</th><th>允许</th><th>阻止</th></tr></thead><tbody>{replay.sources.map((item) => <tr key={item.source_type ?? 'unknown'}><td>{item.source_type ? displayLabel(observabilityAlertSourceTypeLabels, item.source_type) : '来源缺失'}</td><td>{item.total}</td><td>{item.allowed}</td><td>{item.blocked}</td></tr>)}</tbody></table></div>}
+          </section>
+        </div>
+        <section className="panel table-panel replay-review-table">
+          <div className="admin-table-toolbar"><div><p className="eyebrow">追加式安全记录</p><h2>近期复核事件</h2></div><span className="subtle">已加载 {replayRows.length} 条</span></div>
+          <div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>结论</th><th>原因</th><th>来源</th><th>源任务</th><th>操作者</th><th>复核时间</th></tr></thead><tbody>{replayRows.map((item) => <tr key={item.id}><td><span className={`entity-status replay-${item.decision}`}>{displayLabel(observabilityReplayDecisionLabels, item.decision)}</span></td><td className="table-primary"><strong>{displayLabel(observabilityReplayReasonLabels, item.reason_code)}</strong>{item.suppression_expires_at && <small>抑制到期 {new Date(item.suppression_expires_at).toLocaleString('zh-CN')}</small>}</td><td className="table-primary"><strong>{item.source_type ? displayLabel(observabilityAlertSourceTypeLabels, item.source_type) : '来源缺失'}</strong><code>{item.source_key ?? '—'}</code></td><td><code>{item.source_job_id?.slice(0, 8) ?? '已归档'}</code></td><td><code>{item.actor_id.slice(0, 8)}</code></td><td>{new Date(item.reviewed_at).toLocaleString('zh-CN')}</td></tr>)}</tbody></table>{!replayRows.length && <div className="admin-table-empty">当前筛选条件下没有重放复核事件。</div>}</div>
+          {replayReviews.hasNextPage && <div className="table-pagination"><button className="secondary-button" disabled={replayReviews.isFetchingNextPage} onClick={() => void replayReviews.fetchNextPage()}><ChevronDown size={14} />{replayReviews.isFetchingNextPage ? '正在加载' : '加载更多复核记录'}</button></div>}
+        </section>
+      </section>
 
       <div className="observability-grid">
         <section className="panel alert-panel">

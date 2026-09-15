@@ -51,7 +51,10 @@ from cnb_contracts import (
     ObservabilityAlertDispositionEventResponse,
     ObservabilityAlertDispositionResponse,
     ObservabilityAlertLifecycleMetricsResponse,
+    ObservabilityAlertLifecyclePageResponse,
     ObservabilityAlertLifecycleResponse,
+    ObservabilityAlertReplayMetricsResponse,
+    ObservabilityAlertReplayReviewPageResponse,
     ObservabilityDashboardResponse,
     SystemOverviewResponse,
     TaskStatusResponse,
@@ -67,6 +70,9 @@ from cnb_domain import (
     DevelopmentIdentity,
     JsonValue,
     ManagedAdminSession,
+    ObservabilityAlertReplayDecision,
+    ObservabilityAlertReplayReason,
+    ObservabilityAlertReplayReview,
 )
 from cnb_infrastructure import (
     InMemoryMemoryRepository,
@@ -175,6 +181,21 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
         if item.source_key == own_alert.alert_key
     )
     lifecycle_ids = tuple(item.id for item in own_reconciliation.active_lifecycles)
+    await repository.record_observability_alert_replay_review(
+        ObservabilityAlertReplayReview(
+            id=uuid4(),
+            tenant_id=identity.tenant_id,
+            agent_id=identity.agent_id,
+            source_job_id=uuid4(),
+            source_type="model_runtime",
+            source_key=own_alert.alert_key,
+            decision=ObservabilityAlertReplayDecision.BLOCKED,
+            reason_code=ObservabilityAlertReplayReason.BLOCKED_ACTIVE_SUPPRESSION,
+            actor_id=identity.user_id,
+            suppression_expires_at=now + timedelta(hours=1),
+            reviewed_at=now,
+        )
+    )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         filtered_response = await client.get(
@@ -195,6 +216,25 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
                 "source_type": "model_runtime",
                 "severity": "critical",
             },
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        page_response = await client.get(
+            "/api/v1/observability/alert-lifecycles/page",
+            params={"source_type": "model_runtime", "limit": 1},
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        invalid_page_response = await client.get(
+            "/api/v1/observability/alert-lifecycles/page",
+            params={"cursor": "invalid"},
+        )
+        replay_metrics_response = await client.get(
+            "/api/v1/observability/alert-replay-reviews/metrics",
+            params={"source_type": "model_runtime"},
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        replay_reviews_response = await client.get(
+            "/api/v1/observability/alert-replay-reviews",
+            params={"decision": "blocked", "limit": 1},
             headers={"X-CNB-Development-Role": "viewer"},
         )
         viewer_response = await client.post(
@@ -268,6 +308,13 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
         for item in filtered_response.json()
     )
     metrics = ObservabilityAlertLifecycleMetricsResponse.model_validate(metrics_response.json())
+    page = ObservabilityAlertLifecyclePageResponse.model_validate(page_response.json())
+    replay_metrics = ObservabilityAlertReplayMetricsResponse.model_validate(
+        replay_metrics_response.json()
+    )
+    replay_reviews = ObservabilityAlertReplayReviewPageResponse.model_validate(
+        replay_reviews_response.json()
+    )
     acknowledged = ObservabilityAlertDispositionResponse.model_validate(
         acknowledged_response.json()
     )
@@ -288,6 +335,16 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
     assert (metrics.active, metrics.opened, metrics.resolved, metrics.escalated) == (1, 1, 0, 0)
     assert [item.source_type for item in metrics.sources] == ["model_runtime"]
     assert len(metrics.trend) == 24
+    assert page_response.status_code == 200
+    assert [item.id for item in page.items] == [lifecycle_id]
+    assert page.next_cursor is None
+    assert invalid_page_response.status_code == 422
+    assert replay_metrics_response.status_code == 200
+    assert (replay_metrics.total, replay_metrics.allowed, replay_metrics.blocked) == (1, 0, 1)
+    assert replay_metrics.allowed_rate_percent == 0
+    assert replay_reviews_response.status_code == 200
+    assert len(replay_reviews.items) == 1
+    assert replay_reviews.items[0].reason_code == "blocked_active_suppression"
     assert viewer_response.status_code == 403
     assert unconfirmed_response.status_code == 422
     assert acknowledged.status == "acknowledged"

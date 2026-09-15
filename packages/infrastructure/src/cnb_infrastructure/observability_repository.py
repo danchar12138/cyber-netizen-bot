@@ -7,12 +7,16 @@ from math import ceil
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased
 
-from cnb_application import ApiRequestObservation, ObservabilityAlertLifecycleReconciliation
+from cnb_application import (
+    ApiRequestObservation,
+    EntityCursor,
+    ObservabilityAlertLifecycleReconciliation,
+)
 from cnb_domain import (
     ActiveAlert,
     AgentRunSloMetrics,
@@ -28,6 +32,12 @@ from cnb_domain import (
     ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycle,
     ObservabilityAlertLifecycleStatus,
+    ObservabilityAlertReplayDecision,
+    ObservabilityAlertReplayMetrics,
+    ObservabilityAlertReplayReason,
+    ObservabilityAlertReplayReasonMetrics,
+    ObservabilityAlertReplayReview,
+    ObservabilityAlertReplaySourceMetrics,
     ObservabilityMetrics,
     QueueMetrics,
 )
@@ -43,6 +53,7 @@ from cnb_infrastructure.models import (
     ObservabilityAlertDispositionEventModel,
     ObservabilityAlertDispositionModel,
     ObservabilityAlertLifecycleModel,
+    ObservabilityAlertReplayReviewModel,
 )
 
 
@@ -54,6 +65,7 @@ class MemoryObservabilityRepository:
         self._lifecycles: dict[UUID, ObservabilityAlertLifecycle] = {}
         self._dispositions: dict[tuple[UUID, UUID, str, str], ObservabilityAlertDisposition] = {}
         self._disposition_events: list[ObservabilityAlertDispositionEvent] = []
+        self._replay_reviews: list[ObservabilityAlertReplayReview] = []
         self._lock = asyncio.Lock()
 
     async def record_api_request(self, observation: ApiRequestObservation) -> None:
@@ -205,6 +217,7 @@ class MemoryObservabilityRepository:
         severity: AlertSeverity | None = None,
         minimum_duration_minutes: int | None = None,
         evaluated_at: datetime | None = None,
+        cursor: EntityCursor | None = None,
         limit: int = 100,
     ) -> tuple[ObservabilityAlertLifecycle, ...]:
         checked_at = evaluated_at or datetime.now(UTC)
@@ -224,8 +237,20 @@ class MemoryObservabilityRepository:
                     )
                     >= minimum_duration_minutes * 60
                 )
+                and (
+                    cursor is None
+                    or item.updated_at < cursor.occurred_at
+                    or (
+                        item.updated_at == cursor.occurred_at
+                        and str(item.id) < str(cursor.entity_id)
+                    )
+                )
             ]
-            return tuple(sorted(values, key=lambda item: item.updated_at, reverse=True)[:limit])
+            return tuple(
+                sorted(values, key=lambda item: (item.updated_at, str(item.id)), reverse=True)[
+                    :limit
+                ]
+            )
 
     async def list_observability_alert_lifecycles_in_window(
         self,
@@ -471,6 +496,101 @@ class MemoryObservabilityRepository:
             ]
             values.sort(key=lambda item: (item.occurred_at, str(item.id)), reverse=True)
             return tuple(values[:limit])
+
+    async def record_observability_alert_replay_review(
+        self, review: ObservabilityAlertReplayReview
+    ) -> ObservabilityAlertReplayReview:
+        async with self._lock:
+            self._replay_reviews.append(review)
+            return review
+
+    async def list_observability_alert_replay_reviews(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        decision: ObservabilityAlertReplayDecision | None = None,
+        reason_code: ObservabilityAlertReplayReason | None = None,
+        source_type: str | None = None,
+        cursor: EntityCursor | None = None,
+        limit: int = 100,
+    ) -> tuple[ObservabilityAlertReplayReview, ...]:
+        async with self._lock:
+            values = [
+                item
+                for item in self._replay_reviews
+                if item.tenant_id == tenant_id
+                and item.agent_id == agent_id
+                and (decision is None or item.decision is decision)
+                and (reason_code is None or item.reason_code is reason_code)
+                and (source_type is None or item.source_type == source_type)
+                and (
+                    cursor is None
+                    or item.reviewed_at < cursor.occurred_at
+                    or (
+                        item.reviewed_at == cursor.occurred_at
+                        and str(item.id) < str(cursor.entity_id)
+                    )
+                )
+            ]
+            values.sort(key=lambda item: (item.reviewed_at, str(item.id)), reverse=True)
+            return tuple(values[:limit])
+
+    async def get_observability_alert_replay_metrics(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+        source_type: str | None = None,
+    ) -> ObservabilityAlertReplayMetrics:
+        async with self._lock:
+            values = tuple(
+                item
+                for item in self._replay_reviews
+                if item.tenant_id == tenant_id
+                and item.agent_id == agent_id
+                and window_started_at <= item.reviewed_at <= window_ended_at
+                and (source_type is None or item.source_type == source_type)
+            )
+        reason_counts = {
+            reason: sum(item.reason_code is reason for item in values)
+            for reason in ObservabilityAlertReplayReason
+        }
+        sources = sorted({item.source_type for item in values}, key=lambda item: item or "")
+        return ObservabilityAlertReplayMetrics(
+            window_started_at=window_started_at,
+            window_ended_at=window_ended_at,
+            total=len(values),
+            allowed=sum(
+                item.decision is ObservabilityAlertReplayDecision.ALLOWED for item in values
+            ),
+            blocked=sum(
+                item.decision is ObservabilityAlertReplayDecision.BLOCKED for item in values
+            ),
+            reasons=tuple(
+                ObservabilityAlertReplayReasonMetrics(reason_code=reason, count=count)
+                for reason, count in reason_counts.items()
+                if count
+            ),
+            sources=tuple(
+                ObservabilityAlertReplaySourceMetrics(
+                    source_type=source,
+                    total=len(source_values),
+                    allowed=sum(
+                        item.decision is ObservabilityAlertReplayDecision.ALLOWED
+                        for item in source_values
+                    ),
+                    blocked=sum(
+                        item.decision is ObservabilityAlertReplayDecision.BLOCKED
+                        for item in source_values
+                    ),
+                )
+                for source in sources
+                if (source_values := tuple(item for item in values if item.source_type == source))
+            ),
+        )
 
     def _find_active_lifecycle(
         self,
@@ -764,6 +884,7 @@ class SqlAlchemyObservabilityRepository:
         severity: AlertSeverity | None = None,
         minimum_duration_minutes: int | None = None,
         evaluated_at: datetime | None = None,
+        cursor: EntityCursor | None = None,
         limit: int = 100,
     ) -> tuple[ObservabilityAlertLifecycle, ...]:
         statement = (
@@ -772,7 +893,10 @@ class SqlAlchemyObservabilityRepository:
                 ObservabilityAlertLifecycleModel.tenant_id == tenant_id,
                 ObservabilityAlertLifecycleModel.agent_id == agent_id,
             )
-            .order_by(ObservabilityAlertLifecycleModel.updated_at.desc())
+            .order_by(
+                ObservabilityAlertLifecycleModel.updated_at.desc(),
+                ObservabilityAlertLifecycleModel.id.desc(),
+            )
             .limit(limit)
         )
         if status is not None:
@@ -789,6 +913,16 @@ class SqlAlchemyObservabilityRepository:
                 )
                 - ObservabilityAlertLifecycleModel.first_occurred_at
                 >= timedelta(minutes=minimum_duration_minutes)
+            )
+        if cursor is not None:
+            statement = statement.where(
+                or_(
+                    ObservabilityAlertLifecycleModel.updated_at < cursor.occurred_at,
+                    and_(
+                        ObservabilityAlertLifecycleModel.updated_at == cursor.occurred_at,
+                        ObservabilityAlertLifecycleModel.id < cursor.entity_id,
+                    ),
+                )
             )
         async with self._session_factory() as session:
             rows = (await session.scalars(statement)).all()
@@ -1324,6 +1458,182 @@ class SqlAlchemyObservabilityRepository:
             rows = (await session.scalars(statement)).all()
         return tuple(self._observability_disposition_event(row) for row in rows)
 
+    async def record_observability_alert_replay_review(
+        self, review: ObservabilityAlertReplayReview
+    ) -> ObservabilityAlertReplayReview:
+        async with self._session_factory.begin() as session:
+            session.add(
+                ObservabilityAlertReplayReviewModel(
+                    id=review.id,
+                    tenant_id=review.tenant_id,
+                    agent_id=review.agent_id,
+                    source_job_id=review.source_job_id,
+                    source_type=review.source_type,
+                    source_key=review.source_key,
+                    decision=review.decision.value,
+                    reason_code=review.reason_code.value,
+                    actor_id=review.actor_id,
+                    suppression_expires_at=review.suppression_expires_at,
+                    reviewed_at=review.reviewed_at,
+                )
+            )
+            session.add(
+                AuditLog(
+                    tenant_id=review.tenant_id,
+                    actor_id=review.actor_id,
+                    action=f"observability_alert.replay_review_{review.decision.value}",
+                    resource_type="observability_alert_replay_review",
+                    resource_id=str(review.source_job_id or review.id),
+                    detail={
+                        "agent_id": str(review.agent_id) if review.agent_id is not None else None,
+                        "source_type": review.source_type,
+                        "source_key": review.source_key,
+                        "decision": review.decision.value,
+                        "reason_code": review.reason_code.value,
+                        "suppression_expires_at": (
+                            review.suppression_expires_at.isoformat()
+                            if review.suppression_expires_at is not None
+                            else None
+                        ),
+                    },
+                )
+            )
+        return review
+
+    async def list_observability_alert_replay_reviews(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        decision: ObservabilityAlertReplayDecision | None = None,
+        reason_code: ObservabilityAlertReplayReason | None = None,
+        source_type: str | None = None,
+        cursor: EntityCursor | None = None,
+        limit: int = 100,
+    ) -> tuple[ObservabilityAlertReplayReview, ...]:
+        statement = select(ObservabilityAlertReplayReviewModel).where(
+            ObservabilityAlertReplayReviewModel.tenant_id == tenant_id,
+            ObservabilityAlertReplayReviewModel.agent_id == agent_id,
+        )
+        if decision is not None:
+            statement = statement.where(
+                ObservabilityAlertReplayReviewModel.decision == decision.value
+            )
+        if reason_code is not None:
+            statement = statement.where(
+                ObservabilityAlertReplayReviewModel.reason_code == reason_code.value
+            )
+        if source_type is not None:
+            statement = statement.where(
+                ObservabilityAlertReplayReviewModel.source_type == source_type
+            )
+        if cursor is not None:
+            statement = statement.where(
+                or_(
+                    ObservabilityAlertReplayReviewModel.reviewed_at < cursor.occurred_at,
+                    and_(
+                        ObservabilityAlertReplayReviewModel.reviewed_at == cursor.occurred_at,
+                        ObservabilityAlertReplayReviewModel.id < cursor.entity_id,
+                    ),
+                )
+            )
+        statement = statement.order_by(
+            ObservabilityAlertReplayReviewModel.reviewed_at.desc(),
+            ObservabilityAlertReplayReviewModel.id.desc(),
+        ).limit(limit)
+        async with self._session_factory() as session:
+            rows = (await session.scalars(statement)).all()
+        return tuple(self._observability_replay_review(row) for row in rows)
+
+    async def get_observability_alert_replay_metrics(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+        source_type: str | None = None,
+    ) -> ObservabilityAlertReplayMetrics:
+        filters = (
+            ObservabilityAlertReplayReviewModel.tenant_id == tenant_id,
+            ObservabilityAlertReplayReviewModel.agent_id == agent_id,
+            ObservabilityAlertReplayReviewModel.reviewed_at >= window_started_at,
+            ObservabilityAlertReplayReviewModel.reviewed_at <= window_ended_at,
+            *(
+                ()
+                if source_type is None
+                else (ObservabilityAlertReplayReviewModel.source_type == source_type,)
+            ),
+        )
+        async with self._session_factory() as session:
+            total_row = (
+                await session.execute(
+                    select(
+                        func.count(ObservabilityAlertReplayReviewModel.id),
+                        func.count(ObservabilityAlertReplayReviewModel.id).filter(
+                            ObservabilityAlertReplayReviewModel.decision
+                            == ObservabilityAlertReplayDecision.ALLOWED.value
+                        ),
+                        func.count(ObservabilityAlertReplayReviewModel.id).filter(
+                            ObservabilityAlertReplayReviewModel.decision
+                            == ObservabilityAlertReplayDecision.BLOCKED.value
+                        ),
+                    ).where(*filters)
+                )
+            ).one()
+            reason_rows = (
+                await session.execute(
+                    select(
+                        ObservabilityAlertReplayReviewModel.reason_code,
+                        func.count(ObservabilityAlertReplayReviewModel.id),
+                    )
+                    .where(*filters)
+                    .group_by(ObservabilityAlertReplayReviewModel.reason_code)
+                    .order_by(ObservabilityAlertReplayReviewModel.reason_code)
+                )
+            ).all()
+            source_rows = (
+                await session.execute(
+                    select(
+                        ObservabilityAlertReplayReviewModel.source_type,
+                        func.count(ObservabilityAlertReplayReviewModel.id),
+                        func.count(ObservabilityAlertReplayReviewModel.id).filter(
+                            ObservabilityAlertReplayReviewModel.decision
+                            == ObservabilityAlertReplayDecision.ALLOWED.value
+                        ),
+                        func.count(ObservabilityAlertReplayReviewModel.id).filter(
+                            ObservabilityAlertReplayReviewModel.decision
+                            == ObservabilityAlertReplayDecision.BLOCKED.value
+                        ),
+                    )
+                    .where(*filters)
+                    .group_by(ObservabilityAlertReplayReviewModel.source_type)
+                    .order_by(ObservabilityAlertReplayReviewModel.source_type)
+                )
+            ).all()
+        return ObservabilityAlertReplayMetrics(
+            window_started_at=window_started_at,
+            window_ended_at=window_ended_at,
+            total=int(total_row[0]),
+            allowed=int(total_row[1]),
+            blocked=int(total_row[2]),
+            reasons=tuple(
+                ObservabilityAlertReplayReasonMetrics(
+                    reason_code=ObservabilityAlertReplayReason(row[0]), count=int(row[1])
+                )
+                for row in reason_rows
+            ),
+            sources=tuple(
+                ObservabilityAlertReplaySourceMetrics(
+                    source_type=row[0],
+                    total=int(row[1]),
+                    allowed=int(row[2]),
+                    blocked=int(row[3]),
+                )
+                for row in source_rows
+            ),
+        )
+
     async def mark_observability_alert_lifecycles_escalated(
         self,
         *,
@@ -1434,6 +1744,24 @@ class SqlAlchemyObservabilityRepository:
             actor_id=row.actor_id,
             expires_at=row.expires_at,
             occurred_at=row.occurred_at,
+        )
+
+    @staticmethod
+    def _observability_replay_review(
+        row: ObservabilityAlertReplayReviewModel,
+    ) -> ObservabilityAlertReplayReview:
+        return ObservabilityAlertReplayReview(
+            id=row.id,
+            tenant_id=row.tenant_id,
+            agent_id=row.agent_id,
+            source_job_id=row.source_job_id,
+            source_type=row.source_type,
+            source_key=row.source_key,
+            decision=ObservabilityAlertReplayDecision(row.decision),
+            reason_code=ObservabilityAlertReplayReason(row.reason_code),
+            actor_id=row.actor_id,
+            suppression_expires_at=row.suppression_expires_at,
+            reviewed_at=row.reviewed_at,
         )
 
     @staticmethod

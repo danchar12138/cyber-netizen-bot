@@ -155,6 +155,24 @@ class ObservabilityAlertDispositionAction(StrEnum):
     CLEARED = "cleared"
 
 
+class ObservabilityAlertReplayDecision(StrEnum):
+    """通用告警通知重放复核结论。"""
+
+    ALLOWED = "allowed"
+    BLOCKED = "blocked"
+
+
+class ObservabilityAlertReplayReason(StrEnum):
+    """不暴露任务载荷的稳定重放复核原因码。"""
+
+    ALLOWED_NO_SUPPRESSION = "allowed_no_suppression"
+    ALLOWED_SUPPRESSION_EXPIRED = "allowed_suppression_expired"
+    BLOCKED_ACTIVE_SUPPRESSION = "blocked_active_suppression"
+    BLOCKED_MISSING_SOURCE = "blocked_missing_source"
+    BLOCKED_INVALID_AGENT = "blocked_invalid_agent"
+    BLOCKED_AGENT_MISMATCH = "blocked_agent_mismatch"
+
+
 @dataclass(frozen=True, slots=True)
 class ObservabilityAlertLifecycle:
     """不含业务正文的通用可观测告警事件生命周期。"""
@@ -230,6 +248,58 @@ class ObservabilityAlertDispositionEvent:
     actor_id: UUID
     expires_at: datetime | None
     occurred_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertReplayReview:
+    """追加式重放复核事件，只保存告警来源和操作元数据。"""
+
+    id: UUID
+    tenant_id: UUID
+    agent_id: UUID | None
+    source_job_id: UUID | None
+    source_type: str | None
+    source_key: str | None
+    decision: ObservabilityAlertReplayDecision
+    reason_code: ObservabilityAlertReplayReason
+    actor_id: UUID
+    suppression_expires_at: datetime | None
+    reviewed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertReplayReasonMetrics:
+    """单一重放复核原因的窗口计数。"""
+
+    reason_code: ObservabilityAlertReplayReason
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertReplaySourceMetrics:
+    """单一告警来源的重放复核窗口计数。"""
+
+    source_type: str | None
+    total: int
+    allowed: int
+    blocked: int
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertReplayMetrics:
+    """通用告警通知重放复核的安全运营聚合。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    total: int
+    allowed: int
+    blocked: int
+    reasons: tuple[ObservabilityAlertReplayReasonMetrics, ...]
+    sources: tuple[ObservabilityAlertReplaySourceMetrics, ...]
+
+    @property
+    def allowed_rate_percent(self) -> float:
+        return round(self.allowed * 100 / self.total, 4) if self.total else 0.0
 
 
 @dataclass(frozen=True, slots=True)

@@ -30,6 +30,8 @@ from cnb_domain import (
     DevelopmentIdentity,
     JsonValue,
     ObservabilityAlertDispositionStatus,
+    ObservabilityAlertReplayDecision,
+    ObservabilityAlertReplayReason,
     OutboxEventStatus,
     ScheduledAction,
     ScheduledActionKind,
@@ -299,7 +301,7 @@ async def test_observability_notification_replay_rechecks_current_suppression() 
             reason="尝试重放",
         )
     assert len(task_repository.jobs) == 1
-    await replay_guard.check(job=queued.job, now=now + timedelta(hours=2))
+    await replay_guard.check(job=queued.job, actor_id=actor_id, now=now + timedelta(hours=2))
 
     await observability_service.clear_alert_disposition(
         tenant_id=tenant_id,
@@ -316,6 +318,82 @@ async def test_observability_notification_replay_rechecks_current_suppression() 
         reason="抑制已解除",
     )
     assert replayed.replayed_from_id == queued.job.id
+    reviews = await observability_repository.list_observability_alert_replay_reviews(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+    )
+    assert [item.decision for item in reviews].count(ObservabilityAlertReplayDecision.BLOCKED) == 1
+    assert [item.decision for item in reviews].count(ObservabilityAlertReplayDecision.ALLOWED) == 2
+    assert {item.reason_code for item in reviews} == {
+        ObservabilityAlertReplayReason.BLOCKED_ACTIVE_SUPPRESSION,
+        ObservabilityAlertReplayReason.ALLOWED_SUPPRESSION_EXPIRED,
+        ObservabilityAlertReplayReason.ALLOWED_NO_SUPPRESSION,
+    }
+    assert all(item.actor_id == actor_id for item in reviews)
+
+
+async def test_observability_replay_guard_records_malformed_notification_reviews() -> None:
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
+    observability_repository = MemoryObservabilityRepository()
+    task_repository = InMemoryTaskRepository()
+    task_service = BackgroundTaskService(
+        task_repository,
+        replay_guard=ObservabilityNotificationReplayGuard(observability_repository),
+    )
+    payloads: tuple[dict[str, JsonValue], ...] = (
+        {
+            "agent_id": str(agent_id),
+            "delivery_payload": {"event": "observability.alerts.active"},
+        },
+        {
+            "agent_id": "invalid-agent",
+            "delivery_payload": {
+                "event": "observability.alerts.active",
+                "source_type": "api",
+                "source_key": "api_error_rate",
+            },
+        },
+        {
+            "agent_id": str(uuid4()),
+            "delivery_payload": {
+                "event": "observability.alerts.active",
+                "source_type": "api",
+                "source_key": "api_error_rate",
+            },
+        },
+    )
+    for index, payload in enumerate(payloads):
+        queued = await task_service.enqueue(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            kind=BackgroundJobKind.NOTIFICATION_DELIVERY,
+            payload=payload,
+            deduplication_key=f"notification:malformed-review:{index}",
+            created_by=actor_id,
+        )
+        task_repository.jobs[queued.job.id] = replace(
+            queued.job, status=BackgroundJobStatus.DEAD_LETTER
+        )
+        with pytest.raises(TaskConflictError):
+            await task_service.replay(
+                tenant_id=tenant_id,
+                job_id=queued.job.id,
+                actor_id=actor_id,
+                confirmed=True,
+                reason="验证安全复核",
+            )
+
+    reviews = await observability_repository.list_observability_alert_replay_reviews(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+    )
+    assert len(task_repository.jobs) == 3
+    assert {item.reason_code for item in reviews} == {
+        ObservabilityAlertReplayReason.BLOCKED_MISSING_SOURCE,
+        ObservabilityAlertReplayReason.BLOCKED_INVALID_AGENT,
+        ObservabilityAlertReplayReason.BLOCKED_AGENT_MISMATCH,
+    }
+    assert all(item.decision is ObservabilityAlertReplayDecision.BLOCKED for item in reviews)
 
 
 async def test_replay_chain_returns_oldest_source_first() -> None:

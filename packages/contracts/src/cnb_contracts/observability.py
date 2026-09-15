@@ -11,6 +11,8 @@ from cnb_domain import (
     ObservabilityAlertDispositionAction,
     ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycleStatus,
+    ObservabilityAlertReplayDecision,
+    ObservabilityAlertReplayReason,
 )
 
 
@@ -125,6 +127,13 @@ class ObservabilityAlertLifecycleResponse(BaseModel):
     disposition_expires_at: datetime | None = None
 
 
+class ObservabilityAlertLifecyclePageResponse(BaseModel):
+    """通用告警生命周期键集分页。"""
+
+    items: tuple[ObservabilityAlertLifecycleResponse, ...]
+    next_cursor: str | None = None
+
+
 class ObservabilityAlertLifecycleTrendPointResponse(BaseModel):
     """一个固定时间桶内的通用告警生命周期变化。"""
 
@@ -222,6 +231,57 @@ class ObservabilityAlertDispositionEventResponse(BaseModel):
     actor_id: UUID
     expires_at: datetime | None
     occurred_at: datetime
+
+
+class ObservabilityAlertReplayReviewResponse(BaseModel):
+    """不含任务载荷、通知目标或 Secret 的重放复核事件。"""
+
+    id: UUID
+    agent_id: UUID | None
+    source_job_id: UUID | None
+    source_type: str | None = Field(default=None, max_length=80)
+    source_key: str | None = Field(default=None, max_length=255)
+    decision: ObservabilityAlertReplayDecision
+    reason_code: ObservabilityAlertReplayReason
+    actor_id: UUID
+    suppression_expires_at: datetime | None
+    reviewed_at: datetime
+
+
+class ObservabilityAlertReplayReviewPageResponse(BaseModel):
+    """重放复核事件键集分页。"""
+
+    items: tuple[ObservabilityAlertReplayReviewResponse, ...]
+    next_cursor: str | None = None
+
+
+class ObservabilityAlertReplayReasonMetricsResponse(BaseModel):
+    """单一重放复核原因的窗口计数。"""
+
+    reason_code: ObservabilityAlertReplayReason
+    count: int = Field(ge=0)
+
+
+class ObservabilityAlertReplaySourceMetricsResponse(BaseModel):
+    """单一告警来源的重放复核窗口计数。"""
+
+    source_type: str | None = Field(default=None, max_length=80)
+    total: int = Field(ge=0)
+    allowed: int = Field(ge=0)
+    blocked: int = Field(ge=0)
+
+
+class ObservabilityAlertReplayMetricsResponse(BaseModel):
+    """通用告警通知重放复核的窗口聚合。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    total: int = Field(ge=0)
+    allowed: int = Field(ge=0)
+    blocked: int = Field(ge=0)
+    allowed_rate_percent: float = Field(ge=0, le=100)
+    reasons: tuple[ObservabilityAlertReplayReasonMetricsResponse, ...]
+    sources: tuple[ObservabilityAlertReplaySourceMetricsResponse, ...]
 
 
 class ObservabilityDashboardResponse(BaseModel):

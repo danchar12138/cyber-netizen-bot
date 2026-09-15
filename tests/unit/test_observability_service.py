@@ -25,6 +25,9 @@ from cnb_domain import (
     ObservabilityAlertDispositionAction,
     ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycleStatus,
+    ObservabilityAlertReplayDecision,
+    ObservabilityAlertReplayReason,
+    ObservabilityAlertReplayReview,
     ObservabilityMetrics,
     QueueMetrics,
 )
@@ -738,3 +741,124 @@ async def test_observability_lifecycle_metrics_use_independent_source_and_trend_
             window_minutes=60,
             bucket_minutes=120,
         )
+
+
+async def test_lifecycle_and_replay_review_pages_use_stable_scoped_cursors() -> None:
+    tenant_id, agent_id, actor_id = uuid4(), uuid4(), uuid4()
+    repository = MemoryObservabilityRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+    now = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    alerts = tuple(
+        ActiveAlert(
+            code=f"api_test_{index}",
+            severity=AlertSeverity.WARNING,
+            title="分页测试",
+            summary="安全摘要",
+            current_value=index + 1,
+            threshold_value=1,
+            unit="count",
+            source_type="api",
+            source_key=f"api_test_{index}",
+        )
+        for index in range(3)
+    )
+    await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=alerts,
+        observed_at=now,
+    )
+
+    first = await service.alert_lifecycle_page(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        source_type=" api ",
+        limit=2,
+        now=now,
+    )
+    second = await service.alert_lifecycle_page(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        source_type="api",
+        cursor=first.next_cursor,
+        limit=2,
+        now=now,
+    )
+
+    assert len(first.items) == 2
+    assert first.next_cursor is not None
+    assert len(second.items) == 1
+    assert second.next_cursor is None
+    assert {item.id for item in first.items}.isdisjoint(item.id for item in second.items)
+    assert await service.alert_lifecycle_page(
+        tenant_id=tenant_id,
+        agent_id=uuid4(),
+        limit=2,
+        now=now,
+    ) == type(first)(items=(), next_cursor=None)
+    with pytest.raises(ObservabilityValidationError, match="分页游标无效"):
+        await service.alert_lifecycle_page(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            cursor="not-a-cursor",
+        )
+
+    for index, (decision, reason) in enumerate(
+        (
+            (
+                ObservabilityAlertReplayDecision.ALLOWED,
+                ObservabilityAlertReplayReason.ALLOWED_NO_SUPPRESSION,
+            ),
+            (
+                ObservabilityAlertReplayDecision.BLOCKED,
+                ObservabilityAlertReplayReason.BLOCKED_ACTIVE_SUPPRESSION,
+            ),
+            (
+                ObservabilityAlertReplayDecision.ALLOWED,
+                ObservabilityAlertReplayReason.ALLOWED_SUPPRESSION_EXPIRED,
+            ),
+        )
+    ):
+        await repository.record_observability_alert_replay_review(
+            ObservabilityAlertReplayReview(
+                id=uuid4(),
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                source_job_id=uuid4(),
+                source_type="api",
+                source_key=f"api_test_{index}",
+                decision=decision,
+                reason_code=reason,
+                actor_id=actor_id,
+                suppression_expires_at=None,
+                reviewed_at=now,
+            )
+        )
+    review_first = await service.alert_replay_reviews(
+        tenant_id=tenant_id, agent_id=agent_id, limit=2
+    )
+    review_second = await service.alert_replay_reviews(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        cursor=review_first.next_cursor,
+        limit=2,
+    )
+    metrics = await service.alert_replay_metrics(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        window_minutes=60,
+        now=now + timedelta(minutes=1),
+    )
+
+    assert len(review_first.items) == 2
+    assert len(review_second.items) == 1
+    assert {item.id for item in review_first.items}.isdisjoint(
+        item.id for item in review_second.items
+    )
+    assert (metrics.total, metrics.allowed, metrics.blocked) == (3, 2, 1)
+    assert metrics.allowed_rate_percent == pytest.approx(66.6667)
+    assert sum(item.count for item in metrics.reasons) == metrics.total
+    assert [(item.source_type, item.total) for item in metrics.sources] == [("api", 3)]

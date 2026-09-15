@@ -11,6 +11,9 @@ import {
   getObservabilityAlertLifecycles,
   getObservabilityAlertDispositionEvents,
   getObservabilityAlertLifecycleMetrics,
+  getObservabilityAlertLifecyclePage,
+  getObservabilityAlertReplayMetrics,
+  getObservabilityAlertReplayReviews,
   importConfigPackage,
   setApiAccessToken,
   suppressObservabilityAlert,
@@ -67,6 +70,55 @@ describe('通用告警客户端', () => {
       severity: 'critical',
       minimum_duration_minutes: '30',
       limit: '100',
+    })
+  })
+
+  it('通过生成客户端传递生命周期和复核历史游标', async () => {
+    const fetchMock = vi.fn().mockImplementation((request: Request) => {
+      const pathname = new URL(request.url).pathname
+      const body = pathname.endsWith('/metrics')
+        ? {
+            window_started_at: '2026-09-14T12:00:00Z',
+            window_ended_at: '2026-09-15T12:00:00Z',
+            total: 0,
+            allowed: 0,
+            blocked: 0,
+            allowed_rate_percent: 0,
+            reasons: [],
+            sources: [],
+          }
+        : { items: [], next_cursor: null }
+      return Promise.resolve(new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getObservabilityAlertLifecyclePage({ source_type: 'api', cursor: 'next-life', limit: 25 })
+    await getObservabilityAlertReplayReviews({
+      decision: 'blocked',
+      reason_code: 'blocked_active_suppression',
+      cursor: 'next-review',
+      limit: 20,
+    })
+    await getObservabilityAlertReplayMetrics({ window_minutes: 720, source_type: 'api' })
+
+    const urls = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url))
+    expect(urls[0]!.pathname).toBe('/api/v1/observability/alert-lifecycles/page')
+    expect(Object.fromEntries(urls[0]!.searchParams)).toEqual({
+      source_type: 'api', cursor: 'next-life', limit: '25',
+    })
+    expect(urls[1]!.pathname).toBe('/api/v1/observability/alert-replay-reviews')
+    expect(Object.fromEntries(urls[1]!.searchParams)).toEqual({
+      decision: 'blocked',
+      reason_code: 'blocked_active_suppression',
+      cursor: 'next-review',
+      limit: '20',
+    })
+    expect(urls[2]!.pathname).toBe('/api/v1/observability/alert-replay-reviews/metrics')
+    expect(Object.fromEntries(urls[2]!.searchParams)).toEqual({
+      window_minutes: '720', source_type: 'api',
     })
   })
 

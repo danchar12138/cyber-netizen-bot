@@ -6372,6 +6372,22 @@ export type ObservabilityAlertLifecycleMetricsResponse = {
 };
 
 /**
+ * ObservabilityAlertLifecyclePageResponse
+ *
+ * 通用告警生命周期键集分页。
+ */
+export type ObservabilityAlertLifecyclePageResponse = {
+    /**
+     * Items
+     */
+    items: Array<ObservabilityAlertLifecycleResponse>;
+    /**
+     * Next Cursor
+     */
+    next_cursor?: string | null;
+};
+
+/**
  * ObservabilityAlertLifecycleResponse
  *
  * 通用可观测告警生命周期，不含通知目标或 Secret。
@@ -6487,6 +6503,155 @@ export type ObservabilityAlertLifecycleTrendPointResponse = {
      * Resolved
      */
     resolved: number;
+};
+
+/**
+ * ObservabilityAlertReplayDecision
+ *
+ * 通用告警通知重放复核结论。
+ */
+export type ObservabilityAlertReplayDecision = 'allowed' | 'blocked';
+
+/**
+ * ObservabilityAlertReplayMetricsResponse
+ *
+ * 通用告警通知重放复核的窗口聚合。
+ */
+export type ObservabilityAlertReplayMetricsResponse = {
+    /**
+     * Allowed
+     */
+    allowed: number;
+    /**
+     * Allowed Rate Percent
+     */
+    allowed_rate_percent: number;
+    /**
+     * Blocked
+     */
+    blocked: number;
+    /**
+     * Reasons
+     */
+    reasons: Array<ObservabilityAlertReplayReasonMetricsResponse>;
+    /**
+     * Sources
+     */
+    sources: Array<ObservabilityAlertReplaySourceMetricsResponse>;
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Window Ended At
+     */
+    window_ended_at: string;
+    /**
+     * Window Started At
+     */
+    window_started_at: string;
+};
+
+/**
+ * ObservabilityAlertReplayReason
+ *
+ * 不暴露任务载荷的稳定重放复核原因码。
+ */
+export type ObservabilityAlertReplayReason = 'allowed_no_suppression' | 'allowed_suppression_expired' | 'blocked_active_suppression' | 'blocked_missing_source' | 'blocked_invalid_agent' | 'blocked_agent_mismatch';
+
+/**
+ * ObservabilityAlertReplayReasonMetricsResponse
+ *
+ * 单一重放复核原因的窗口计数。
+ */
+export type ObservabilityAlertReplayReasonMetricsResponse = {
+    /**
+     * Count
+     */
+    count: number;
+    reason_code: ObservabilityAlertReplayReason;
+};
+
+/**
+ * ObservabilityAlertReplayReviewPageResponse
+ *
+ * 重放复核事件键集分页。
+ */
+export type ObservabilityAlertReplayReviewPageResponse = {
+    /**
+     * Items
+     */
+    items: Array<ObservabilityAlertReplayReviewResponse>;
+    /**
+     * Next Cursor
+     */
+    next_cursor?: string | null;
+};
+
+/**
+ * ObservabilityAlertReplayReviewResponse
+ *
+ * 不含任务载荷、通知目标或 Secret 的重放复核事件。
+ */
+export type ObservabilityAlertReplayReviewResponse = {
+    /**
+     * Actor Id
+     */
+    actor_id: string;
+    /**
+     * Agent Id
+     */
+    agent_id: string | null;
+    decision: ObservabilityAlertReplayDecision;
+    /**
+     * Id
+     */
+    id: string;
+    reason_code: ObservabilityAlertReplayReason;
+    /**
+     * Reviewed At
+     */
+    reviewed_at: string;
+    /**
+     * Source Job Id
+     */
+    source_job_id: string | null;
+    /**
+     * Source Key
+     */
+    source_key?: string | null;
+    /**
+     * Source Type
+     */
+    source_type?: string | null;
+    /**
+     * Suppression Expires At
+     */
+    suppression_expires_at: string | null;
+};
+
+/**
+ * ObservabilityAlertReplaySourceMetricsResponse
+ *
+ * 单一告警来源的重放复核窗口计数。
+ */
+export type ObservabilityAlertReplaySourceMetricsResponse = {
+    /**
+     * Allowed
+     */
+    allowed: number;
+    /**
+     * Blocked
+     */
+    blocked: number;
+    /**
+     * Source Type
+     */
+    source_type?: string | null;
+    /**
+     * Total
+     */
+    total: number;
 };
 
 /**
@@ -15965,6 +16130,88 @@ export type GetApiV1ObservabilityAlertLifecyclesMetricsResponses = {
 
 export type GetApiV1ObservabilityAlertLifecyclesMetricsResponse = GetApiV1ObservabilityAlertLifecyclesMetricsResponses[keyof GetApiV1ObservabilityAlertLifecyclesMetricsResponses];
 
+export type GetApiV1ObservabilityAlertLifecyclesPageData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Status
+         */
+        status?: ObservabilityAlertLifecycleStatus | null;
+        /**
+         * Source Type
+         */
+        source_type?: string | null;
+        /**
+         * Severity
+         */
+        severity?: AlertSeverity | null;
+        /**
+         * Minimum Duration Minutes
+         */
+        minimum_duration_minutes?: number | null;
+        /**
+         * Cursor
+         */
+        cursor?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/observability/alert-lifecycles/page';
+};
+
+export type GetApiV1ObservabilityAlertLifecyclesPageErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ObservabilityAlertLifecyclesPageError = GetApiV1ObservabilityAlertLifecyclesPageErrors[keyof GetApiV1ObservabilityAlertLifecyclesPageErrors];
+
+export type GetApiV1ObservabilityAlertLifecyclesPageResponses = {
+    /**
+     * 请求成功
+     */
+    200: ObservabilityAlertLifecyclePageResponse;
+};
+
+export type GetApiV1ObservabilityAlertLifecyclesPageResponse = GetApiV1ObservabilityAlertLifecyclesPageResponses[keyof GetApiV1ObservabilityAlertLifecyclesPageResponses];
+
 export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdAcknowledgeData = {
     body: ObservabilityAlertDispositionCommand;
     path: {
@@ -16150,6 +16397,150 @@ export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressResponses 
 };
 
 export type PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressResponse = PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressResponses[keyof PostApiV1ObservabilityAlertLifecyclesByLifecycleIdSuppressResponses];
+
+export type GetApiV1ObservabilityAlertReplayReviewsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Decision
+         */
+        decision?: ObservabilityAlertReplayDecision | null;
+        /**
+         * Reason Code
+         */
+        reason_code?: ObservabilityAlertReplayReason | null;
+        /**
+         * Source Type
+         */
+        source_type?: string | null;
+        /**
+         * Cursor
+         */
+        cursor?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/observability/alert-replay-reviews';
+};
+
+export type GetApiV1ObservabilityAlertReplayReviewsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ObservabilityAlertReplayReviewsError = GetApiV1ObservabilityAlertReplayReviewsErrors[keyof GetApiV1ObservabilityAlertReplayReviewsErrors];
+
+export type GetApiV1ObservabilityAlertReplayReviewsResponses = {
+    /**
+     * 请求成功
+     */
+    200: ObservabilityAlertReplayReviewPageResponse;
+};
+
+export type GetApiV1ObservabilityAlertReplayReviewsResponse = GetApiV1ObservabilityAlertReplayReviewsResponses[keyof GetApiV1ObservabilityAlertReplayReviewsResponses];
+
+export type GetApiV1ObservabilityAlertReplayReviewsMetricsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Window Minutes
+         */
+        window_minutes?: number;
+        /**
+         * Source Type
+         */
+        source_type?: string | null;
+    };
+    url: '/api/v1/observability/alert-replay-reviews/metrics';
+};
+
+export type GetApiV1ObservabilityAlertReplayReviewsMetricsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ObservabilityAlertReplayReviewsMetricsError = GetApiV1ObservabilityAlertReplayReviewsMetricsErrors[keyof GetApiV1ObservabilityAlertReplayReviewsMetricsErrors];
+
+export type GetApiV1ObservabilityAlertReplayReviewsMetricsResponses = {
+    /**
+     * 请求成功
+     */
+    200: ObservabilityAlertReplayMetricsResponse;
+};
+
+export type GetApiV1ObservabilityAlertReplayReviewsMetricsResponse = GetApiV1ObservabilityAlertReplayReviewsMetricsResponses[keyof GetApiV1ObservabilityAlertReplayReviewsMetricsResponses];
 
 export type GetApiV1ObservabilityDashboardData = {
     body?: never;

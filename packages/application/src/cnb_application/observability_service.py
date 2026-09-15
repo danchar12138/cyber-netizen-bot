@@ -7,6 +7,12 @@ from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
 from cnb_application.configuration_service import ConfigurationService
+from cnb_application.pagination import (
+    EntityCursor,
+    InvalidCursorError,
+    decode_cursor,
+    encode_cursor,
+)
 from cnb_domain import (
     ActiveAlert,
     AlertSeverity,
@@ -17,6 +23,10 @@ from cnb_domain import (
     ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycle,
     ObservabilityAlertLifecycleStatus,
+    ObservabilityAlertReplayDecision,
+    ObservabilityAlertReplayMetrics,
+    ObservabilityAlertReplayReason,
+    ObservabilityAlertReplayReview,
     ObservabilityDashboard,
     ObservabilityMetrics,
 )
@@ -91,6 +101,14 @@ class ObservabilityAlertDispositionResult:
     disposition: ObservabilityAlertDisposition
 
 
+@dataclass(frozen=True, slots=True)
+class ObservabilityCursorPage[T]:
+    """可观测运营资源的稳定键集分页。"""
+
+    items: tuple[T, ...]
+    next_cursor: str | None
+
+
 class ObservabilityValidationError(ValueError):
     """通用告警查询或处置参数不合法。"""
 
@@ -132,6 +150,7 @@ class ObservabilityRepository(Protocol):
         severity: AlertSeverity | None = None,
         minimum_duration_minutes: int | None = None,
         evaluated_at: datetime | None = None,
+        cursor: EntityCursor | None = None,
         limit: int = 100,
     ) -> tuple[ObservabilityAlertLifecycle, ...]: ...
 
@@ -214,6 +233,32 @@ class ObservabilityRepository(Protocol):
         occurred_before: datetime | None = None,
         limit: int = 100,
     ) -> tuple[ObservabilityAlertDispositionEvent, ...]: ...
+
+    async def record_observability_alert_replay_review(
+        self, review: ObservabilityAlertReplayReview
+    ) -> ObservabilityAlertReplayReview: ...
+
+    async def list_observability_alert_replay_reviews(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        decision: ObservabilityAlertReplayDecision | None = None,
+        reason_code: ObservabilityAlertReplayReason | None = None,
+        source_type: str | None = None,
+        cursor: EntityCursor | None = None,
+        limit: int = 100,
+    ) -> tuple[ObservabilityAlertReplayReview, ...]: ...
+
+    async def get_observability_alert_replay_metrics(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+        source_type: str | None = None,
+    ) -> ObservabilityAlertReplayMetrics: ...
 
     async def mark_observability_alert_lifecycles_escalated(
         self,
@@ -421,6 +466,59 @@ class ObservabilityService:
             tenant_id=tenant_id, agent_id=agent_id
         )
         return self._attach_dispositions(rows, dispositions, evaluated_at)
+
+    async def alert_lifecycle_page(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        status: ObservabilityAlertLifecycleStatus | None = None,
+        source_type: str | None = None,
+        severity: AlertSeverity | None = None,
+        minimum_duration_minutes: int | None = None,
+        cursor: str | None = None,
+        limit: int = 50,
+        now: datetime | None = None,
+    ) -> ObservabilityCursorPage[ObservabilityAlertLifecycle]:
+        """按更新时间与 UUID 稳定下钻通用告警生命周期。"""
+        if not 1 <= limit <= 100:
+            raise ObservabilityValidationError("通用告警生命周期分页数量必须位于 1 到 100 之间")
+        normalized_source = source_type.strip() if source_type is not None else None
+        if source_type is not None and not normalized_source:
+            raise ObservabilityValidationError("通用告警来源类型不能为空")
+        if normalized_source is not None and len(normalized_source) > 80:
+            raise ObservabilityValidationError("通用告警来源类型不能超过 80 个字符")
+        if minimum_duration_minutes is not None and not 0 <= minimum_duration_minutes <= 525_600:
+            raise ObservabilityValidationError("最短持续时间必须位于 0 到 525600 分钟之间")
+        try:
+            parsed_cursor = decode_cursor(cursor)
+        except InvalidCursorError as error:
+            raise ObservabilityValidationError("通用告警生命周期分页游标无效") from error
+        evaluated_at = (now or datetime.now(UTC)).astimezone(UTC)
+        rows = await self._repository.list_observability_alert_lifecycles(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            status=status,
+            source_type=normalized_source,
+            severity=severity,
+            minimum_duration_minutes=minimum_duration_minutes,
+            evaluated_at=evaluated_at,
+            cursor=parsed_cursor,
+            limit=limit + 1,
+        )
+        visible = rows[:limit]
+        dispositions = await self._repository.list_observability_alert_dispositions(
+            tenant_id=tenant_id, agent_id=agent_id
+        )
+        next_cursor = (
+            encode_cursor(EntityCursor(visible[-1].updated_at, visible[-1].id))
+            if len(rows) > limit and visible
+            else None
+        )
+        return ObservabilityCursorPage(
+            items=self._attach_dispositions(visible, dispositions, evaluated_at),
+            next_cursor=next_cursor,
+        )
 
     async def alert_lifecycle_metrics(
         self,
@@ -735,6 +833,72 @@ class ObservabilityService:
             occurred_after=occurred_after,
             occurred_before=occurred_before,
             limit=limit,
+        )
+
+    async def alert_replay_reviews(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        decision: ObservabilityAlertReplayDecision | None = None,
+        reason_code: ObservabilityAlertReplayReason | None = None,
+        source_type: str | None = None,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> ObservabilityCursorPage[ObservabilityAlertReplayReview]:
+        """分页查询当前 Agent 的通用告警通知重放复核事件。"""
+        if not 1 <= limit <= 100:
+            raise ObservabilityValidationError("重放复核分页数量必须位于 1 到 100 之间")
+        normalized_source = source_type.strip() if source_type is not None else None
+        if source_type is not None and not normalized_source:
+            raise ObservabilityValidationError("重放复核来源类型不能为空")
+        if normalized_source is not None and len(normalized_source) > 80:
+            raise ObservabilityValidationError("重放复核来源类型不能超过 80 个字符")
+        try:
+            parsed_cursor = decode_cursor(cursor)
+        except InvalidCursorError as error:
+            raise ObservabilityValidationError("重放复核分页游标无效") from error
+        rows = await self._repository.list_observability_alert_replay_reviews(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            decision=decision,
+            reason_code=reason_code,
+            source_type=normalized_source,
+            cursor=parsed_cursor,
+            limit=limit + 1,
+        )
+        visible = rows[:limit]
+        next_cursor = (
+            encode_cursor(EntityCursor(visible[-1].reviewed_at, visible[-1].id))
+            if len(rows) > limit and visible
+            else None
+        )
+        return ObservabilityCursorPage(items=visible, next_cursor=next_cursor)
+
+    async def alert_replay_metrics(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_minutes: int = 1_440,
+        source_type: str | None = None,
+        now: datetime | None = None,
+    ) -> ObservabilityAlertReplayMetrics:
+        """聚合当前 Agent 的通用告警通知重放复核结果。"""
+        if not 5 <= window_minutes <= 10_080:
+            raise ObservabilityValidationError("重放复核统计窗口必须位于 5 到 10080 分钟之间")
+        normalized_source = source_type.strip() if source_type is not None else None
+        if source_type is not None and not normalized_source:
+            raise ObservabilityValidationError("重放复核来源类型不能为空")
+        if normalized_source is not None and len(normalized_source) > 80:
+            raise ObservabilityValidationError("重放复核来源类型不能超过 80 个字符")
+        ended_at = (now or datetime.now(UTC)).astimezone(UTC)
+        return await self._repository.get_observability_alert_replay_metrics(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            window_started_at=ended_at - timedelta(minutes=window_minutes),
+            window_ended_at=ended_at,
+            source_type=normalized_source,
         )
 
     async def suppress_alert(

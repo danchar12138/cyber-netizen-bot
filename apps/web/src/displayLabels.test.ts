@@ -23,6 +23,8 @@ import {
   notificationDeliveryEventLabels,
   observabilityAlertCodeLabels,
   observabilityAlertSourceTypeLabels,
+  observabilityReplayDecisionLabels,
+  observabilityReplayReasonLabels,
   observabilityUnitLabel,
   permissionLabels,
   relationshipStageLabels,
@@ -43,7 +45,9 @@ describe('管理后台中文显示文案', () => {
     expect(auditResourceLabels.prompt).toBe('提示词版本')
     expect(permissionLabels['observability_alert:manage']).toBe('处置通用告警')
     expect(auditActionLabels['observability_alert.suppressed']).toBe('抑制通用告警')
+    expect(auditActionLabels['observability_alert.replay_review_blocked']).toBe('阻止通用告警通知重放')
     expect(auditResourceLabels.observability_alert_disposition).toBe('通用告警处置')
+    expect(auditResourceLabels.observability_alert_replay_review).toBe('通用告警通知重放复核')
   })
 
   it('覆盖拟人认知与长期记忆协议值', () => {
@@ -65,6 +69,8 @@ describe('管理后台中文显示文案', () => {
     expect(channelAlertLifecycleStatusLabels.resolved).toBe('已恢复')
     expect(observabilityAlertSourceTypeLabels.model_runtime).toBe('模型运行')
     expect(observabilityAlertCodeLabels.model_cost_budget).toBe('模型成本超出窗口预算')
+    expect(observabilityReplayDecisionLabels.blocked).toBe('阻止重放')
+    expect(observabilityReplayReasonLabels.blocked_active_suppression).toBe('告警仍在抑制期')
     expect(observabilityUnitLabel('jobs')).toBe('项')
   })
 

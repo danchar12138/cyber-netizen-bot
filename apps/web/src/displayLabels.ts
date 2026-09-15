@@ -222,6 +222,20 @@ export const observabilityAlertCodeLabels: Readonly<Record<string, string>> = {
   channel_delivery_failure_rate: '渠道出站失败率超标',
 }
 
+export const observabilityReplayDecisionLabels = {
+  allowed: '允许重放',
+  blocked: '阻止重放',
+} as const
+
+export const observabilityReplayReasonLabels = {
+  allowed_no_suppression: '当前无有效抑制',
+  allowed_suppression_expired: '抑制已过期',
+  blocked_active_suppression: '告警仍在抑制期',
+  blocked_missing_source: '通知缺少告警来源',
+  blocked_invalid_agent: '通知缺少有效 Agent 归属',
+  blocked_agent_mismatch: '任务与通知 Agent 归属冲突',
+} as const
+
 const observabilityUnitLabels: Readonly<Record<string, string>> = {
   '%': '%',
   ms: '毫秒',
@@ -474,6 +488,8 @@ export const auditActionLabels: Readonly<Record<string, string>> = {
   'observability_alert.acknowledged': '确认通用告警',
   'observability_alert.suppressed': '抑制通用告警',
   'observability_alert.disposition_cleared': '解除通用告警处置',
+  'observability_alert.replay_review_allowed': '允许通用告警通知重放',
+  'observability_alert.replay_review_blocked': '阻止通用告警通知重放',
   'scheduled_action.created': '创建定时行为',
   'scheduled_action.canceled': '取消定时行为',
   'episode.created': '创建情景记录',
@@ -511,6 +527,7 @@ export const auditResourceLabels: Readonly<Record<string, string>> = {
   relationship: '关系状态',
   memory_index_job: '向量索引任务',
   observability_alert_disposition: '通用告警处置',
+  observability_alert_replay_review: '通用告警通知重放复核',
 }
 
 export const metadataKeyLabels: Readonly<Record<string, string>> = {
@@ -521,6 +538,11 @@ export const metadataKeyLabels: Readonly<Record<string, string>> = {
   previous_status: '原状态',
   source_agent_id: '来源智能体 ID',
   agent_id: '智能体 ID',
+  source_type: '告警来源类型',
+  source_key: '告警来源键',
+  decision: '复核结论',
+  reason_code: '复核原因',
+  suppression_expires_at: '抑制到期时间',
   channel_id: '渠道实例 ID',
   user_id: '用户 ID',
   conversation_id: '会话 ID',
@@ -661,6 +683,9 @@ const commonValueLabels: Readonly<Record<string, string>> = {
   ...adminRoleLabels,
   ...memoryKindLabels,
   ...memorySensitivityLabels,
+  ...observabilityAlertSourceTypeLabels,
+  ...observabilityReplayDecisionLabels,
+  ...observabilityReplayReasonLabels,
   ...relationshipStageLabels,
 }
 
