@@ -290,6 +290,7 @@ class ObservabilityAlertRecommendationFeedbackCommand(BaseModel):
 
     decision: ObservabilityAlertRecommendationFeedbackDecision
     confirmed: bool = False
+    alternative_action: ObservabilityAlertRecommendationAction | None = None
 
 
 class ObservabilityAlertRecommendationFeedbackResponse(BaseModel):
@@ -308,6 +309,7 @@ class ObservabilityAlertRecommendationFeedbackResponse(BaseModel):
     decision: ObservabilityAlertRecommendationFeedbackDecision
     actor_id: UUID
     feedback_at: datetime
+    alternative_action: ObservabilityAlertRecommendationAction | None = None
 
 
 class ObservabilityAlertRecommendationActionMetricsResponse(BaseModel):
@@ -394,6 +396,45 @@ class ObservabilityAlertCalibrationDraftCommand(BaseModel):
 
     configuration_version: int = Field(ge=0)
     confirmed: bool = False
+
+
+class ObservabilityAlertReplayActionMetricsResponse(BaseModel):
+    """候选阈值保留样本中的人工动作计数。"""
+
+    action: ObservabilityAlertRecommendationAction
+    total: int = Field(ge=0)
+
+
+class ObservabilityAlertCalibrationReplayProposalResponse(BaseModel):
+    """基于生命周期聚合事实的候选阈值场景回放结果。"""
+
+    rule: ObservabilityAlertCalibrationRule
+    configuration_key: str = Field(min_length=1, max_length=255)
+    current_value: int = Field(ge=0)
+    candidate_value: int = Field(ge=0)
+    sample_size: int = Field(ge=0)
+    lifecycle_facts: int = Field(ge=0)
+    missing_lifecycle_facts: int = Field(ge=0)
+    current_triggered: int = Field(ge=0)
+    candidate_triggered: int = Field(ge=0)
+    avoided: int = Field(ge=0)
+    retained: int = Field(ge=0)
+    retained_accepted: int = Field(ge=0)
+    retained_rejected: int = Field(ge=0)
+    alternative_actions: tuple[ObservabilityAlertReplayActionMetricsResponse, ...]
+
+
+class ObservabilityAlertCalibrationReplayAnalysisResponse(BaseModel):
+    """不证明因果关系的有界候选阈值场景模拟。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    configuration_version: int = Field(ge=0)
+    total_feedback: int = Field(ge=0)
+    eligible_feedback: int = Field(ge=0)
+    proposals: tuple[ObservabilityAlertCalibrationReplayProposalResponse, ...]
+    scenario_only: bool
+    automatic_tuning_allowed: bool
 
 
 class ObservabilityAlertDispositionCommand(BaseModel):

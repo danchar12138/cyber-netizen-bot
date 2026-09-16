@@ -447,6 +447,7 @@ class ObservabilityAlertRecommendationFeedbackModel(Base):
     priority: Mapped[str] = mapped_column(String(16), nullable=False)
     reason_codes: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    alternative_action: Mapped[str | None] = mapped_column(String(24), nullable=True)
     actor_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
@@ -464,6 +465,11 @@ class ObservabilityAlertRecommendationFeedbackModel(Base):
         CheckConstraint(
             "decision IN ('accepted', 'rejected')",
             name="ck_observability_alert_recommendation_feedback_decision",
+        ),
+        CheckConstraint(
+            "alternative_action IS NULL OR alternative_action IN "
+            "('acknowledge', 'suppress', 'observe')",
+            name="ck_observability_alert_recommendation_feedback_alternative_action",
         ),
         UniqueConstraint(
             "tenant_id",

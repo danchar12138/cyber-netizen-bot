@@ -1756,6 +1756,11 @@ class SqlAlchemyObservabilityRepository:
             "priority": feedback.priority.value,
             "reason_codes": [item.value for item in feedback.reason_codes],
             "decision": feedback.decision.value,
+            "alternative_action": (
+                feedback.alternative_action.value
+                if feedback.alternative_action is not None
+                else None
+            ),
             "actor_id": feedback.actor_id,
             "feedback_at": feedback.feedback_at,
         }
@@ -1797,6 +1802,11 @@ class SqlAlchemyObservabilityRepository:
                         "priority": feedback.priority.value,
                         "reason_codes": [item.value for item in feedback.reason_codes],
                         "decision": feedback.decision.value,
+                        "alternative_action": (
+                            feedback.alternative_action.value
+                            if feedback.alternative_action is not None
+                            else None
+                        ),
                     },
                 )
             )
@@ -2342,6 +2352,11 @@ class SqlAlchemyObservabilityRepository:
             decision=ObservabilityAlertRecommendationFeedbackDecision(row.decision),
             actor_id=row.actor_id,
             feedback_at=row.feedback_at,
+            alternative_action=(
+                ObservabilityAlertRecommendationAction(row.alternative_action)
+                if row.alternative_action is not None
+                else None
+            ),
         )
 
     @staticmethod

@@ -151,6 +151,39 @@ test('管理员可以反馈建议、查看质量事实并创建校准草稿', as
       automatic_tuning_allowed: false,
     } })
   })
+  await page.route('**/api/v1/observability/alert-recommendations/calibration/replay', async (route) => {
+    await route.fulfill({ json: {
+      window_started_at: '2026-08-16T08:00:00Z',
+      window_ended_at: timestamp,
+      configuration_version: 7,
+      total_feedback: 30,
+      eligible_feedback: 25,
+      proposals: [
+        {
+          rule: 'long_running',
+          configuration_key: 'alerts.recommendation.long_running_minutes',
+          current_value: 120,
+          candidate_value: 150,
+          sample_size: 25,
+          lifecycle_facts: 23,
+          missing_lifecycle_facts: 2,
+          current_triggered: 12,
+          candidate_triggered: 8,
+          avoided: 4,
+          retained: 8,
+          retained_accepted: 6,
+          retained_rejected: 2,
+          alternative_actions: [
+            { action: 'acknowledge', total: 1 },
+            { action: 'suppress', total: 0 },
+            { action: 'observe', total: 1 },
+          ],
+        },
+      ],
+      scenario_only: true,
+      automatic_tuning_allowed: false,
+    } })
+  })
   await page.route('**/api/v1/observability/alert-recommendations/calibration/drafts', async (route) => {
     calibrationDraftBody = route.request().postDataJSON() as Record<string, unknown>
     await route.fulfill({ status: 201, json: {
@@ -308,6 +341,10 @@ test('管理员可以反馈建议、查看质量事实并创建校准草稿', as
   await expect(page.getByRole('heading', { name: '阈值校准分析' })).toBeVisible()
   await expect(page.getByText('25 / 20.00%', { exact: true })).toBeVisible()
   await expect(page.getByText('建议收紧', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '候选阈值回放' })).toBeVisible()
+  await expect(page.getByText('12', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('4 / 8', { exact: true })).toBeVisible()
+  await expect(page.getByText('确认并调查 1 · 继续观察 1', { exact: true })).toBeVisible()
   page.once('dialog', async (dialog) => {
     expect(dialog.type()).toBe('confirm')
     expect(dialog.message()).toContain('建议不会自动执行')

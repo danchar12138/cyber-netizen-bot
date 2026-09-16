@@ -825,6 +825,11 @@ class DataLifecycleService:
                         "priority": item.priority.value,
                         "reason_codes": [reason.value for reason in item.reason_codes],
                         "decision": item.decision.value,
+                        "alternative_action": (
+                            item.alternative_action.value
+                            if item.alternative_action is not None
+                            else None
+                        ),
                         "actor_id": str(item.actor_id),
                         "feedback_at": item.feedback_at.isoformat(),
                     }

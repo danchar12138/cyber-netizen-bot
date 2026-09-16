@@ -38,6 +38,7 @@ import type {
   NotificationDeliveryTimelineResponse,
   ObservabilityAlertBatchDispositionCommand,
   ObservabilityAlertCalibrationAnalysisResponse,
+  ObservabilityAlertCalibrationReplayAnalysisResponse,
   ObservabilityAlertDispositionClearCommand,
   ObservabilityAlertDispositionCommand,
   ObservabilityAlertDispositionEventResponse,
@@ -47,7 +48,7 @@ import type {
   ObservabilityAlertLifecycleStatus,
   ObservabilityAlertLifecyclePageResponse,
   ObservabilityAlertOperationsSummaryResponse,
-  ObservabilityAlertRecommendationAction,
+  ObservabilityAlertRecommendationAction as ObservabilityAlertRecommendationActionResponse,
   ObservabilityAlertRecommendationFeedbackDecision,
   ObservabilityAlertRecommendationFeedbackResponse,
   ObservabilityAlertRecommendationQualityMetricsResponse,
@@ -1727,9 +1728,11 @@ export type ObservabilityAlertLifecycleMetrics = ObservabilityAlertLifecycleMetr
 export type ObservabilityAlertLifecyclePage = ObservabilityAlertLifecyclePageResponse
 export type ObservabilityAlertOperationsSummary = ObservabilityAlertOperationsSummaryResponse
 export type ObservabilityAlertRecommendation = ObservabilityAlertRecommendationResponse
+export type ObservabilityAlertRecommendationAction = ObservabilityAlertRecommendationActionResponse
 export type ObservabilityAlertRecommendationFeedback = ObservabilityAlertRecommendationFeedbackResponse
 export type ObservabilityAlertRecommendationQuality = ObservabilityAlertRecommendationQualityMetricsResponse
 export type ObservabilityAlertCalibrationAnalysis = ObservabilityAlertCalibrationAnalysisResponse
+export type ObservabilityAlertCalibrationReplayAnalysis = ObservabilityAlertCalibrationReplayAnalysisResponse
 export type ObservabilityAlertReplayReview = ObservabilityAlertReplayReviewResponse
 export type ObservabilityAlertReplayReviewPage = ObservabilityAlertReplayReviewPageResponse
 export type ObservabilityAlertReplayMetrics = ObservabilityAlertReplayMetricsResponse
@@ -1776,7 +1779,7 @@ export const getObservabilityAlertOperationsSummary = () =>
 export const getObservabilityAlertRecommendations = (filters: {
   source_type?: string
   severity?: AlertSeverity
-  action?: ObservabilityAlertRecommendationAction
+  action?: ObservabilityAlertRecommendationActionResponse
   limit?: number
 } = {}) => apiSdk.getApiV1ObservabilityAlertRecommendations({
   query: { ...filters, limit: filters.limit ?? 50 },
@@ -1795,6 +1798,9 @@ export const getObservabilityAlertRecommendationQuality = (filters: {
 export const getObservabilityAlertRecommendationCalibration = () =>
   apiSdk.getApiV1ObservabilityAlertRecommendationsCalibration()
 
+export const getObservabilityAlertRecommendationCalibrationReplay = () =>
+  apiSdk.getApiV1ObservabilityAlertRecommendationsCalibrationReplay()
+
 export const createObservabilityAlertRecommendationCalibrationDraft = (
   configurationVersion: number,
 ) => apiSdk.postApiV1ObservabilityAlertRecommendationsCalibrationDrafts({
@@ -1804,9 +1810,10 @@ export const createObservabilityAlertRecommendationCalibrationDraft = (
 export const submitObservabilityAlertRecommendationFeedback = (
   lifecycleId: string,
   decision: ObservabilityAlertRecommendationFeedbackDecision,
+  alternativeAction?: ObservabilityAlertRecommendationActionResponse,
 ) => apiSdk.postApiV1ObservabilityAlertRecommendationsByLifecycleIdFeedback({
   path: { lifecycle_id: lifecycleId },
-  body: { decision, confirmed: true },
+  body: { decision, confirmed: true, alternative_action: alternativeAction },
 })
 
 export const getObservabilityAlertDispositionEvents = (filters: {

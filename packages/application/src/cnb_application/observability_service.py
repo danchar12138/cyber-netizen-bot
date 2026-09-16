@@ -26,6 +26,8 @@ from cnb_domain import (
     ObservabilityAlertCalibrationAnalysis,
     ObservabilityAlertCalibrationGroup,
     ObservabilityAlertCalibrationProposal,
+    ObservabilityAlertCalibrationReplayAnalysis,
+    ObservabilityAlertCalibrationReplayProposal,
     ObservabilityAlertCalibrationRule,
     ObservabilityAlertCalibrationStatus,
     ObservabilityAlertDisposition,
@@ -43,6 +45,7 @@ from cnb_domain import (
     ObservabilityAlertRecommendationQualityMetrics,
     ObservabilityAlertRecommendationReason,
     ObservabilityAlertRecommendationSourceMetrics,
+    ObservabilityAlertReplayActionMetrics,
     ObservabilityAlertReplayDecision,
     ObservabilityAlertReplayMetrics,
     ObservabilityAlertReplayReason,
@@ -1021,6 +1024,7 @@ class ObservabilityService:
         decision: ObservabilityAlertRecommendationFeedbackDecision,
         actor_id: UUID,
         confirmed: bool,
+        alternative_action: ObservabilityAlertRecommendationAction | None = None,
         now: datetime | None = None,
     ) -> ObservabilityAlertRecommendationFeedback:
         """校验当前建议与人工处置事实后追加反馈。"""
@@ -1074,6 +1078,13 @@ class ObservabilityService:
                 "alerts.recommendation.minimum_repeated_occurrences",
             ),
         )
+        if (
+            decision is ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED
+            and alternative_action is not None
+        ):
+            raise ObservabilityValidationError("采纳建议不能同时提交替代动作")
+        if alternative_action is recommendation.action:
+            raise ObservabilityValidationError("替代动作必须与服务端建议不同")
         if decision is ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED:
             await self._validate_accepted_recommendation(
                 tenant_id=tenant_id,
@@ -1096,6 +1107,7 @@ class ObservabilityService:
             decision=decision,
             actor_id=actor_id,
             feedback_at=evaluated_at,
+            alternative_action=alternative_action,
         )
         try:
             return await self._repository.save_observability_alert_recommendation_feedback(feedback)
@@ -1345,6 +1357,127 @@ class ObservabilityService:
             )
         except ConfigurationConflictError as error:
             raise ObservabilityConflictError(str(error)) from error
+
+    async def alert_recommendation_calibration_replay(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        now: datetime | None = None,
+    ) -> ObservabilityAlertCalibrationReplayAnalysis:
+        """基于生命周期聚合事实生成不证明因果关系的候选阈值场景回放。"""
+        analysis = await self.alert_recommendation_calibration_analysis(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            now=now,
+        )
+        lifecycles = await self._repository.list_observability_alert_lifecycles_in_window(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            window_started_at=analysis.window_started_at,
+            window_ended_at=analysis.window_ended_at,
+            limit=ALERT_RECOMMENDATION_QUALITY_MAX_RECORDS + 1,
+        )
+        if len(lifecycles) > ALERT_RECOMMENDATION_QUALITY_MAX_RECORDS:
+            raise ObservabilityValidationError(
+                "告警阈值场景回放超过 10000 条生命周期安全上限，请缩短分析窗口"
+            )
+        feedback = await self._repository.list_observability_alert_recommendation_feedback(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            window_started_at=analysis.window_started_at,
+            window_ended_at=analysis.window_ended_at,
+            limit=ALERT_RECOMMENDATION_QUALITY_MAX_RECORDS + 1,
+        )
+        if len(feedback) > ALERT_RECOMMENDATION_QUALITY_MAX_RECORDS:
+            raise ObservabilityValidationError(
+                "告警阈值场景回放超过 10000 条反馈安全上限，请缩短分析窗口"
+            )
+        lifecycle_by_id = {item.id: item for item in lifecycles}
+        eligible = tuple(
+            (item, rule)
+            for item in feedback
+            for rule in (self._calibration_rule(item),)
+            if rule is not None
+        )
+        replay_proposals: list[ObservabilityAlertCalibrationReplayProposal] = []
+        for proposal in analysis.proposals:
+            values = tuple(item for item, rule in eligible if rule is proposal.rule)
+            current_triggered = candidate_triggered = avoided = retained = 0
+            retained_accepted = retained_rejected = missing = 0
+            action_counts = {action: 0 for action in ObservabilityAlertRecommendationAction}
+            for item in values:
+                lifecycle = lifecycle_by_id.get(item.lifecycle_id)
+                if lifecycle is None:
+                    missing += 1
+                    continue
+                observed_value = self._replay_observed_value(
+                    proposal.rule, lifecycle, analysis.window_ended_at
+                )
+                current_hit = observed_value >= proposal.current_value
+                candidate_hit = observed_value >= proposal.proposed_value
+                current_triggered += current_hit
+                candidate_triggered += candidate_hit
+                avoided += current_hit and not candidate_hit
+                retained += candidate_hit
+                if candidate_hit:
+                    accepted = (
+                        item.decision is ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED
+                    )
+                    rejected = (
+                        item.decision is ObservabilityAlertRecommendationFeedbackDecision.REJECTED
+                    )
+                    retained_accepted += accepted
+                    retained_rejected += rejected
+                    if item.alternative_action is not None:
+                        action_counts[item.alternative_action] += 1
+            replay_proposals.append(
+                ObservabilityAlertCalibrationReplayProposal(
+                    rule=proposal.rule,
+                    configuration_key=proposal.configuration_key,
+                    current_value=proposal.current_value,
+                    candidate_value=proposal.proposed_value,
+                    sample_size=len(values),
+                    lifecycle_facts=len(values) - missing,
+                    missing_lifecycle_facts=missing,
+                    current_triggered=current_triggered,
+                    candidate_triggered=candidate_triggered,
+                    avoided=avoided,
+                    retained=retained,
+                    retained_accepted=retained_accepted,
+                    retained_rejected=retained_rejected,
+                    alternative_actions=tuple(
+                        ObservabilityAlertReplayActionMetrics(
+                            action=action, total=action_counts[action]
+                        )
+                        for action in ObservabilityAlertRecommendationAction
+                    ),
+                )
+            )
+        return ObservabilityAlertCalibrationReplayAnalysis(
+            window_started_at=analysis.window_started_at,
+            window_ended_at=analysis.window_ended_at,
+            configuration_version=analysis.configuration_version,
+            total_feedback=analysis.total_feedback,
+            eligible_feedback=analysis.eligible_feedback,
+            proposals=tuple(replay_proposals),
+        )
+
+    @staticmethod
+    def _replay_observed_value(
+        rule: ObservabilityAlertCalibrationRule,
+        lifecycle: ObservabilityAlertLifecycle,
+        ended_at: datetime,
+    ) -> int:
+        if rule is ObservabilityAlertCalibrationRule.REPEATED_WARNING:
+            return lifecycle.occurrences
+        return max(
+            0,
+            int(
+                ((lifecycle.resolved_at or ended_at) - lifecycle.first_occurred_at).total_seconds()
+                // 60
+            ),
+        )
 
     async def acknowledge_alert(
         self,

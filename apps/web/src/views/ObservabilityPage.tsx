@@ -14,6 +14,7 @@ import {
   getObservabilityAlertLifecyclePage,
   getObservabilityAlertOperationsSummary,
   getObservabilityAlertRecommendationCalibration,
+  getObservabilityAlertRecommendationCalibrationReplay,
   getObservabilityAlertRecommendationQuality,
   getObservabilityAlertRecommendations,
   getObservabilityAlertReplayMetrics,
@@ -22,6 +23,7 @@ import {
   submitObservabilityAlertRecommendationFeedback,
   suppressObservabilityAlert,
   type ObservabilityAlertLifecycle,
+  type ObservabilityAlertRecommendationAction,
   type ObservabilityAlertRecommendation,
 } from '../api'
 import { useSelectedAgentId } from '../agentSelection'
@@ -76,6 +78,7 @@ export function ObservabilityPage() {
   const [dispositionFeedback, setDispositionFeedback] = useState<string | null>(null)
   const [recommendationFeedback, setRecommendationFeedback] = useState<string | null>(null)
   const [calibrationFeedback, setCalibrationFeedback] = useState<string | null>(null)
+  const [alternativeActions, setAlternativeActions] = useState<Record<string, ObservabilityAlertRecommendationAction | ''>>({})
   const [selectedLifecycleIds, setSelectedLifecycleIds] = useState<Set<string>>(new Set())
   const [historyLifecycle, setHistoryLifecycle] = useState<ObservabilityAlertLifecycle | null>(null)
   const recommendationDispositionCompleted = useRef(new Set<string>())
@@ -144,6 +147,12 @@ export function ObservabilityPage() {
     enabled: canReadTrace,
     refetchInterval: 30_000,
   })
+  const recommendationCalibrationReplay = useQuery({
+    queryKey: ['observability-alert-recommendation-calibration-replay', selectedAgentId],
+    queryFn: getObservabilityAlertRecommendationCalibrationReplay,
+    enabled: canReadTrace,
+    refetchInterval: 30_000,
+  })
   const alertLifecycles = useInfiniteQuery({
     queryKey: [
       'observability-alert-lifecycles',
@@ -204,6 +213,7 @@ export function ObservabilityPage() {
       invalidateAcrossTabs(queryClient, ['observability-alert-recommendations']),
       invalidateAcrossTabs(queryClient, ['observability-alert-recommendation-quality']),
       invalidateAcrossTabs(queryClient, ['observability-alert-recommendation-calibration']),
+      invalidateAcrossTabs(queryClient, ['observability-alert-recommendation-calibration-replay']),
       invalidateAcrossTabs(queryClient, ['observability-alert-replay-metrics']),
       invalidateAcrossTabs(queryClient, ['observability-alert-replay-reviews']),
       invalidateAcrossTabs(queryClient, ['audit-records']),
@@ -295,6 +305,9 @@ export function ObservabilityPage() {
       return submitObservabilityAlertRecommendationFeedback(
         recommendation.lifecycle_id,
         decision,
+        decision === 'rejected'
+          ? (alternativeActions[recommendation.lifecycle_id] || undefined)
+          : undefined,
       )
     },
     onSuccess: async (result) => {
@@ -331,6 +344,7 @@ export function ObservabilityPage() {
   )
   const quality = recommendationQuality.data
   const calibration = recommendationCalibration.data
+  const calibrationReplay = recommendationCalibrationReplay.data
   const calibrationChanges = useMemo(
     () => calibration?.proposals.filter((item) => item.status === 'tighten') ?? [],
     [calibration],
@@ -524,7 +538,7 @@ export function ObservabilityPage() {
           <div className="recommendation-reasons"><strong>{displayLabel(observabilityRecommendationActionLabels, item.action)}</strong><span>{item.reason_codes.map((reason) => displayLabel(observabilityRecommendationReasonLabels, reason)).join(' · ')}</span><small>{item.guardrail_codes.map((guardrail) => displayLabel(observabilityRecommendationGuardrailLabels, guardrail)).join(' · ')}</small></div>
           <div className="recommendation-actions">{!canManageAlerts
             ? <span className="subtle">当前角色只读</span>
-            : <><button className="secondary-button" disabled={recommendationFeedbackMutation.isPending} onClick={() => submitRecommendationFeedback(item, 'accepted')}><CheckCircle2 size={14} />{item.action === 'suppress' ? `确认抑制 ${item.suggested_suppression_minutes} 分钟` : item.action === 'observe' ? '采纳继续观察' : '确认并接手调查'}</button><button disabled={recommendationFeedbackMutation.isPending} onClick={() => submitRecommendationFeedback(item, 'rejected')}><X size={14} />驳回建议</button></>}</div>
+            : <><button className="secondary-button" disabled={recommendationFeedbackMutation.isPending} onClick={() => submitRecommendationFeedback(item, 'accepted')}><CheckCircle2 size={14} />{item.action === 'suppress' ? `确认抑制 ${item.suggested_suppression_minutes} 分钟` : item.action === 'observe' ? '采纳继续观察' : '确认并接手调查'}</button><label className="status-filter"><span>替代动作</span><select aria-label="驳回后的替代动作" value={alternativeActions[item.lifecycle_id] ?? ''} onChange={(event) => setAlternativeActions((current) => ({ ...current, [item.lifecycle_id]: event.target.value as ObservabilityAlertRecommendationAction | '' }))}><option value="">未标注</option><option value="acknowledge">确认</option><option value="suppress">抑制</option><option value="observe">观察</option></select></label><button disabled={recommendationFeedbackMutation.isPending} onClick={() => submitRecommendationFeedback(item, 'rejected')}><X size={14} />驳回建议</button></>}</div>
         </article>)}</div>
       </section>
 
@@ -553,6 +567,13 @@ export function ObservabilityPage() {
         {!calibration?.proposals.length && !recommendationCalibration.isLoading && <div className="empty-state">当前窗口没有可评估的阈值规则。</div>}
         {!!calibration?.proposals.length && <div className="admin-table-scroll recommendation-calibration-table"><table className="admin-table"><thead><tr><th>规则</th><th>当前值</th><th>建议值</th><th>样本 / 采纳率</th><th>95% 区间</th><th>结论</th></tr></thead><tbody>{calibration.proposals.map((item) => <tr key={item.rule}><td className="table-primary"><strong>{displayLabel(observabilityCalibrationRuleLabels, item.rule)}</strong><small><code>{item.configuration_key}</code></small></td><td>{item.current_value}</td><td>{item.proposed_value}</td><td>{item.sample_size} / {item.acceptance_rate_percent.toFixed(2)}%</td><td>{item.confidence_lower_percent.toFixed(2)}% - {item.confidence_upper_percent.toFixed(2)}%</td><td><span className={`entity-status calibration-${item.status}`}>{displayLabel(observabilityCalibrationStatusLabels, item.status)}</span></td></tr>)}</tbody></table></div>}
         {!!calibration?.groups.length && <div className="panel recommendation-calibration-groups"><div className="panel-heading"><div><p className="eyebrow">按来源拆分</p><h2>反馈分组</h2></div><span className="subtle">最小样本 {calibration.minimum_samples_per_group}</span></div><div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>规则</th><th>来源</th><th>样本</th><th>采纳率</th><th>95% 区间</th></tr></thead><tbody>{calibration.groups.map((item) => <tr key={`${item.rule}-${item.source_type}`}><td>{displayLabel(observabilityCalibrationRuleLabels, item.rule)}</td><td>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)}</td><td>{item.total}（采纳 {item.accepted} / 驳回 {item.rejected}）</td><td>{item.acceptance_rate_percent.toFixed(2)}%</td><td>{item.confidence_lower_percent.toFixed(2)}% - {item.confidence_upper_percent.toFixed(2)}%</td></tr>)}</tbody></table></div></div>}
+      </section>
+
+      <section className="recommendation-replay-section" aria-label="告警建议候选阈值场景回放">
+        <div className="panel-heading channel-operation-heading"><div><p className="eyebrow">聚合事实 · 场景模拟</p><h2>候选阈值回放</h2></div><span className="subtle">不证明因果关系 · 禁止自动调参</span></div>
+        <div className="notice info"><SlidersHorizontal size={17} /><div><strong>回放口径</strong><span>仅使用冻结反馈与告警生命周期的持续时间、出现次数等聚合事实；缺失事实不会被猜测。</span></div></div>
+        {!calibrationReplay?.proposals.length && !recommendationCalibrationReplay.isLoading && <div className="empty-state">当前窗口暂无可回放的候选阈值。</div>}
+        {!!calibrationReplay?.proposals.length && <div className="admin-table-scroll recommendation-calibration-table"><table className="admin-table"><thead><tr><th>规则</th><th>当前 → 候选</th><th>样本</th><th>当前触发</th><th>候选触发</th><th>避免 / 保留</th><th>保留反馈</th><th>替代动作</th></tr></thead><tbody>{calibrationReplay.proposals.map((item) => <tr key={item.rule}><td className="table-primary"><strong>{displayLabel(observabilityCalibrationRuleLabels, item.rule)}</strong><small><code>{item.configuration_key}</code></small></td><td>{item.current_value} → {item.candidate_value}</td><td>{item.sample_size}<small>事实 {item.lifecycle_facts} · 缺失 {item.missing_lifecycle_facts}</small></td><td>{item.current_triggered}</td><td>{item.candidate_triggered}</td><td>{item.avoided} / {item.retained}</td><td>采纳 {item.retained_accepted} · 驳回 {item.retained_rejected}</td><td>{item.alternative_actions.filter((action) => action.total > 0).map((action) => `${displayLabel(observabilityRecommendationActionLabels, action.action)} ${action.total}`).join(' · ') || '无显式标签'}</td></tr>)}</tbody></table></div>}
       </section>
 
       <section className="channel-lifecycle-observability" aria-label="通用告警生命周期指标">

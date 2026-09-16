@@ -30,6 +30,7 @@ from cnb_contracts import (
     ObservabilityAlertBatchDispositionResponse,
     ObservabilityAlertCalibrationAnalysisResponse,
     ObservabilityAlertCalibrationDraftCommand,
+    ObservabilityAlertCalibrationReplayAnalysisResponse,
     ObservabilityAlertDispositionClearCommand,
     ObservabilityAlertDispositionCommand,
     ObservabilityAlertDispositionEventResponse,
@@ -284,6 +285,32 @@ async def alert_recommendation_calibration(
     )
 
 
+@router.get(
+    "/alert-recommendations/calibration/replay",
+    response_model=ObservabilityAlertCalibrationReplayAnalysisResponse,
+    dependencies=[Depends(require_permission(AdminPermission.TRACE_READ))],
+)
+async def alert_recommendation_calibration_replay(
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ObservabilityService, Depends(get_observability_service)],
+) -> ObservabilityAlertCalibrationReplayAnalysisResponse:
+    """返回基于聚合生命周期事实的候选阈值场景回放，不执行配置变更。"""
+    try:
+        replay = await service.alert_recommendation_calibration_replay(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+        )
+    except ObservabilityValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(error),
+        ) from error
+    return ObservabilityAlertCalibrationReplayAnalysisResponse.model_validate(
+        replay, from_attributes=True
+    )
+
+
 @router.post(
     "/alert-recommendations/calibration/drafts",
     response_model=ConfigVersionResponse,
@@ -338,6 +365,7 @@ async def submit_alert_recommendation_feedback(
             decision=command.decision,
             actor_id=principal.user_id,
             confirmed=command.confirmed,
+            alternative_action=command.alternative_action,
         )
     except ObservabilityNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error

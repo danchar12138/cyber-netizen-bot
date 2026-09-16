@@ -343,6 +343,7 @@ class ObservabilityAlertRecommendationFeedback:
     decision: ObservabilityAlertRecommendationFeedbackDecision
     actor_id: UUID
     feedback_at: datetime
+    alternative_action: ObservabilityAlertRecommendationAction | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -427,6 +428,48 @@ class ObservabilityAlertCalibrationAnalysis:
     eligible_feedback: int
     groups: tuple[ObservabilityAlertCalibrationGroup, ...]
     proposals: tuple[ObservabilityAlertCalibrationProposal, ...]
+    automatic_tuning_allowed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertReplayActionMetrics:
+    """候选阈值保留样本中的人工动作计数。"""
+
+    action: ObservabilityAlertRecommendationAction
+    total: int
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertCalibrationReplayProposal:
+    """基于生命周期聚合事实的候选阈值场景回放结果。"""
+
+    rule: ObservabilityAlertCalibrationRule
+    configuration_key: str
+    current_value: int
+    candidate_value: int
+    sample_size: int
+    lifecycle_facts: int
+    missing_lifecycle_facts: int
+    current_triggered: int
+    candidate_triggered: int
+    avoided: int
+    retained: int
+    retained_accepted: int
+    retained_rejected: int
+    alternative_actions: tuple[ObservabilityAlertReplayActionMetrics, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertCalibrationReplayAnalysis:
+    """不证明因果关系的有界候选阈值场景模拟。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    configuration_version: int
+    total_feedback: int
+    eligible_feedback: int
+    proposals: tuple[ObservabilityAlertCalibrationReplayProposal, ...]
+    scenario_only: bool = True
     automatic_tuning_allowed: bool = False
 
 

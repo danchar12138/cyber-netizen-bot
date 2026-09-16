@@ -1819,3 +1819,90 @@ async def test_lifecycle_and_replay_review_pages_use_stable_scoped_cursors() -> 
     assert metrics.allowed_rate_percent == pytest.approx(66.6667)
     assert sum(item.count for item in metrics.reasons) == metrics.total
     assert [(item.source_type, item.total) for item in metrics.sources] == [("api", 3)]
+
+
+async def test_alert_recommendation_calibration_replay_is_bounded_and_counts_alternatives() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    now = datetime(2026, 9, 16, 12, tzinfo=UTC)
+    repository = MemoryObservabilityRepository()
+    configuration_repository = MemoryConfigurationRepository()
+    configuration = ConfigurationService(build_default_registry(), configuration_repository)
+    baseline = await configuration.create_draft(
+        note="回放测试基线",
+        values=(
+            ConfigEntry(
+                key="alerts.recommendation.calibration.minimum_samples_per_group",
+                scope_type=ConfigScope.SYSTEM,
+                value=5,
+            ),
+            ConfigEntry(
+                key="alerts.recommendation.calibration.target_acceptance_rate_percent",
+                scope_type=ConfigScope.SYSTEM,
+                value=99.0,
+            ),
+            ConfigEntry(
+                key="alerts.recommendation.long_running_minutes",
+                scope_type=ConfigScope.AGENT,
+                scope_id=agent_id,
+                value=60,
+            ),
+        ),
+    )
+    published = await configuration.publish(baseline.id)
+    alerts = tuple(
+        ActiveAlert(
+            code="api_error_rate",
+            severity=AlertSeverity.WARNING,
+            title="API 错误率",
+            summary="聚合事实",
+            current_value=2,
+            threshold_value=1,
+            unit="%",
+            source_type="api",
+            source_key=f"replay-{index}",
+            first_occurred_at=now - timedelta(minutes=80),
+            last_occurred_at=now,
+        )
+        for index in range(5)
+    )
+    reconciliation = await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=alerts,
+        observed_at=now,
+    )
+    for lifecycle in reconciliation.active_lifecycles:
+        await repository.save_observability_alert_recommendation_feedback(
+            ObservabilityAlertRecommendationFeedback(
+                id=uuid4(),
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                lifecycle_id=lifecycle.id,
+                source_type="api",
+                source_key=lifecycle.source_key,
+                code="api_error_rate",
+                recommendation_action=ObservabilityAlertRecommendationAction.ACKNOWLEDGE,
+                priority=ObservabilityAlertRecommendationPriority.NORMAL,
+                reason_codes=(ObservabilityAlertRecommendationReason.LONG_RUNNING,),
+                decision=ObservabilityAlertRecommendationFeedbackDecision.REJECTED,
+                actor_id=uuid4(),
+                feedback_at=now,
+                alternative_action=ObservabilityAlertRecommendationAction.SUPPRESS,
+            )
+        )
+    service = ObservabilityService(repository, configuration)
+    replay = await service.alert_recommendation_calibration_replay(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=now,
+    )
+    proposal = next(
+        item
+        for item in replay.proposals
+        if item.rule is ObservabilityAlertCalibrationRule.LONG_RUNNING
+    )
+    assert replay.configuration_version == published.version
+    assert (proposal.current_triggered, proposal.candidate_triggered) == (5, 5)
+    assert (proposal.avoided, proposal.retained) == (0, 5)
+    assert proposal.lifecycle_facts == 5
+    assert proposal.alternative_actions[1].total == 5

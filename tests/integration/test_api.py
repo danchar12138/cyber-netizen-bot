@@ -55,6 +55,7 @@ from cnb_contracts import (
     MessageSearchResponse,
     ObservabilityAlertBatchDispositionResponse,
     ObservabilityAlertCalibrationAnalysisResponse,
+    ObservabilityAlertCalibrationReplayAnalysisResponse,
     ObservabilityAlertDispositionEventResponse,
     ObservabilityAlertDispositionResponse,
     ObservabilityAlertLifecycleMetricsResponse,
@@ -606,6 +607,10 @@ async def test_observability_alert_calibration_api_is_guarded_and_returns_a_draf
             "/api/v1/observability/alert-recommendations/calibration",
             headers={"X-CNB-Development-Role": "viewer"},
         )
+        replay_response = await client.get(
+            "/api/v1/observability/alert-recommendations/calibration/replay",
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
         viewer_response = await client.post(
             "/api/v1/observability/alert-recommendations/calibration/drafts",
             json={"configuration_version": published.version, "confirmed": True},
@@ -630,8 +635,13 @@ async def test_observability_alert_calibration_api_is_guarded_and_returns_a_draf
     analysis = ObservabilityAlertCalibrationAnalysisResponse.model_validate(
         analysis_response.json()
     )
+    replay = ObservabilityAlertCalibrationReplayAnalysisResponse.model_validate(
+        replay_response.json()
+    )
     draft = ConfigVersionResponse.model_validate(draft_response.json())
     assert analysis_response.status_code == 200
+    assert replay_response.status_code == 200
+    assert replay.proposals[0].missing_lifecycle_facts == 5
     assert (analysis.total_feedback, analysis.eligible_feedback) == (5, 5)
     assert analysis.proposals[0].status == "tighten"
     assert analysis.automatic_tuning_allowed is False

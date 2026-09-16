@@ -6428,6 +6428,107 @@ export type ObservabilityAlertCalibrationProposalResponse = {
 };
 
 /**
+ * ObservabilityAlertCalibrationReplayAnalysisResponse
+ *
+ * 不证明因果关系的有界候选阈值场景模拟。
+ */
+export type ObservabilityAlertCalibrationReplayAnalysisResponse = {
+    /**
+     * Automatic Tuning Allowed
+     */
+    automatic_tuning_allowed: boolean;
+    /**
+     * Configuration Version
+     */
+    configuration_version: number;
+    /**
+     * Eligible Feedback
+     */
+    eligible_feedback: number;
+    /**
+     * Proposals
+     */
+    proposals: Array<ObservabilityAlertCalibrationReplayProposalResponse>;
+    /**
+     * Scenario Only
+     */
+    scenario_only: boolean;
+    /**
+     * Total Feedback
+     */
+    total_feedback: number;
+    /**
+     * Window Ended At
+     */
+    window_ended_at: string;
+    /**
+     * Window Started At
+     */
+    window_started_at: string;
+};
+
+/**
+ * ObservabilityAlertCalibrationReplayProposalResponse
+ *
+ * 基于生命周期聚合事实的候选阈值场景回放结果。
+ */
+export type ObservabilityAlertCalibrationReplayProposalResponse = {
+    /**
+     * Alternative Actions
+     */
+    alternative_actions: Array<ObservabilityAlertReplayActionMetricsResponse>;
+    /**
+     * Avoided
+     */
+    avoided: number;
+    /**
+     * Candidate Triggered
+     */
+    candidate_triggered: number;
+    /**
+     * Candidate Value
+     */
+    candidate_value: number;
+    /**
+     * Configuration Key
+     */
+    configuration_key: string;
+    /**
+     * Current Triggered
+     */
+    current_triggered: number;
+    /**
+     * Current Value
+     */
+    current_value: number;
+    /**
+     * Lifecycle Facts
+     */
+    lifecycle_facts: number;
+    /**
+     * Missing Lifecycle Facts
+     */
+    missing_lifecycle_facts: number;
+    /**
+     * Retained
+     */
+    retained: number;
+    /**
+     * Retained Accepted
+     */
+    retained_accepted: number;
+    /**
+     * Retained Rejected
+     */
+    retained_rejected: number;
+    rule: ObservabilityAlertCalibrationRule;
+    /**
+     * Sample Size
+     */
+    sample_size: number;
+};
+
+/**
  * ObservabilityAlertCalibrationRule
  *
  * 可以用冻结反馈单独评估的建议阈值规则。
@@ -6948,6 +7049,7 @@ export type ObservabilityAlertRecommendationActionMetricsResponse = {
  * 仅提交人工结论，建议快照由服务端重算。
  */
 export type ObservabilityAlertRecommendationFeedbackCommand = {
+    alternative_action?: ObservabilityAlertRecommendationAction | null;
     /**
      * Confirmed
      */
@@ -6972,6 +7074,7 @@ export type ObservabilityAlertRecommendationFeedbackResponse = {
      * Actor Id
      */
     actor_id: string;
+    alternative_action?: ObservabilityAlertRecommendationAction | null;
     /**
      * Code
      */
@@ -7175,6 +7278,19 @@ export type ObservabilityAlertRecommendationSourceMetricsResponse = {
      * Source Type
      */
     source_type: string;
+    /**
+     * Total
+     */
+    total: number;
+};
+
+/**
+ * ObservabilityAlertReplayActionMetricsResponse
+ *
+ * 候选阈值保留样本中的人工动作计数。
+ */
+export type ObservabilityAlertReplayActionMetricsResponse = {
+    action: ObservabilityAlertRecommendationAction;
     /**
      * Total
      */
@@ -17375,6 +17491,63 @@ export type PostApiV1ObservabilityAlertRecommendationsCalibrationDraftsResponses
 };
 
 export type PostApiV1ObservabilityAlertRecommendationsCalibrationDraftsResponse = PostApiV1ObservabilityAlertRecommendationsCalibrationDraftsResponses[keyof PostApiV1ObservabilityAlertRecommendationsCalibrationDraftsResponses];
+
+export type GetApiV1ObservabilityAlertRecommendationsCalibrationReplayData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/observability/alert-recommendations/calibration/replay';
+};
+
+export type GetApiV1ObservabilityAlertRecommendationsCalibrationReplayErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ObservabilityAlertRecommendationsCalibrationReplayError = GetApiV1ObservabilityAlertRecommendationsCalibrationReplayErrors[keyof GetApiV1ObservabilityAlertRecommendationsCalibrationReplayErrors];
+
+export type GetApiV1ObservabilityAlertRecommendationsCalibrationReplayResponses = {
+    /**
+     * 请求成功
+     */
+    200: ObservabilityAlertCalibrationReplayAnalysisResponse;
+};
+
+export type GetApiV1ObservabilityAlertRecommendationsCalibrationReplayResponse = GetApiV1ObservabilityAlertRecommendationsCalibrationReplayResponses[keyof GetApiV1ObservabilityAlertRecommendationsCalibrationReplayResponses];
 
 export type GetApiV1ObservabilityAlertRecommendationsQualityData = {
     body?: never;

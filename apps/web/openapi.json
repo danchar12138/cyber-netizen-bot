@@ -10804,6 +10804,157 @@
         "title": "ObservabilityAlertCalibrationProposalResponse",
         "type": "object"
       },
+      "ObservabilityAlertCalibrationReplayAnalysisResponse": {
+        "description": "不证明因果关系的有界候选阈值场景模拟。",
+        "properties": {
+          "automatic_tuning_allowed": {
+            "title": "Automatic Tuning Allowed",
+            "type": "boolean"
+          },
+          "configuration_version": {
+            "minimum": 0.0,
+            "title": "Configuration Version",
+            "type": "integer"
+          },
+          "eligible_feedback": {
+            "minimum": 0.0,
+            "title": "Eligible Feedback",
+            "type": "integer"
+          },
+          "proposals": {
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityAlertCalibrationReplayProposalResponse"
+            },
+            "title": "Proposals",
+            "type": "array"
+          },
+          "scenario_only": {
+            "title": "Scenario Only",
+            "type": "boolean"
+          },
+          "total_feedback": {
+            "minimum": 0.0,
+            "title": "Total Feedback",
+            "type": "integer"
+          },
+          "window_ended_at": {
+            "format": "date-time",
+            "title": "Window Ended At",
+            "type": "string"
+          },
+          "window_started_at": {
+            "format": "date-time",
+            "title": "Window Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_started_at",
+          "window_ended_at",
+          "configuration_version",
+          "total_feedback",
+          "eligible_feedback",
+          "proposals",
+          "scenario_only",
+          "automatic_tuning_allowed"
+        ],
+        "title": "ObservabilityAlertCalibrationReplayAnalysisResponse",
+        "type": "object"
+      },
+      "ObservabilityAlertCalibrationReplayProposalResponse": {
+        "description": "基于生命周期聚合事实的候选阈值场景回放结果。",
+        "properties": {
+          "alternative_actions": {
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityAlertReplayActionMetricsResponse"
+            },
+            "title": "Alternative Actions",
+            "type": "array"
+          },
+          "avoided": {
+            "minimum": 0.0,
+            "title": "Avoided",
+            "type": "integer"
+          },
+          "candidate_triggered": {
+            "minimum": 0.0,
+            "title": "Candidate Triggered",
+            "type": "integer"
+          },
+          "candidate_value": {
+            "minimum": 0.0,
+            "title": "Candidate Value",
+            "type": "integer"
+          },
+          "configuration_key": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Configuration Key",
+            "type": "string"
+          },
+          "current_triggered": {
+            "minimum": 0.0,
+            "title": "Current Triggered",
+            "type": "integer"
+          },
+          "current_value": {
+            "minimum": 0.0,
+            "title": "Current Value",
+            "type": "integer"
+          },
+          "lifecycle_facts": {
+            "minimum": 0.0,
+            "title": "Lifecycle Facts",
+            "type": "integer"
+          },
+          "missing_lifecycle_facts": {
+            "minimum": 0.0,
+            "title": "Missing Lifecycle Facts",
+            "type": "integer"
+          },
+          "retained": {
+            "minimum": 0.0,
+            "title": "Retained",
+            "type": "integer"
+          },
+          "retained_accepted": {
+            "minimum": 0.0,
+            "title": "Retained Accepted",
+            "type": "integer"
+          },
+          "retained_rejected": {
+            "minimum": 0.0,
+            "title": "Retained Rejected",
+            "type": "integer"
+          },
+          "rule": {
+            "$ref": "#/components/schemas/ObservabilityAlertCalibrationRule"
+          },
+          "sample_size": {
+            "minimum": 0.0,
+            "title": "Sample Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rule",
+          "configuration_key",
+          "current_value",
+          "candidate_value",
+          "sample_size",
+          "lifecycle_facts",
+          "missing_lifecycle_facts",
+          "current_triggered",
+          "candidate_triggered",
+          "avoided",
+          "retained",
+          "retained_accepted",
+          "retained_rejected",
+          "alternative_actions"
+        ],
+        "title": "ObservabilityAlertCalibrationReplayProposalResponse",
+        "type": "object"
+      },
       "ObservabilityAlertCalibrationRule": {
         "description": "可以用冻结反馈单独评估的建议阈值规则。",
         "enum": [
@@ -11647,6 +11798,16 @@
       "ObservabilityAlertRecommendationFeedbackCommand": {
         "description": "仅提交人工结论，建议快照由服务端重算。",
         "properties": {
+          "alternative_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObservabilityAlertRecommendationAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "confirmed": {
             "default": false,
             "title": "Confirmed",
@@ -11678,6 +11839,16 @@
             "format": "uuid",
             "title": "Actor Id",
             "type": "string"
+          },
+          "alternative_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObservabilityAlertRecommendationAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "code": {
             "maxLength": 120,
@@ -12026,6 +12197,25 @@
           "rejected"
         ],
         "title": "ObservabilityAlertRecommendationSourceMetricsResponse",
+        "type": "object"
+      },
+      "ObservabilityAlertReplayActionMetricsResponse": {
+        "description": "候选阈值保留样本中的人工动作计数。",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ObservabilityAlertRecommendationAction"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action",
+          "total"
+        ],
+        "title": "ObservabilityAlertReplayActionMetricsResponse",
         "type": "object"
       },
       "ObservabilityAlertReplayDecision": {
@@ -33066,6 +33256,118 @@
           }
         },
         "summary": "重算校准结果并创建仍需人工校验与发布的配置草稿",
+        "tags": [
+          "可观测性"
+        ]
+      }
+    },
+    "/api/v1/observability/alert-recommendations/calibration/replay": {
+      "get": {
+        "description": "返回基于聚合生命周期事实的候选阈值场景回放，不执行配置变更。",
+        "operationId": "get_api_v1_observability_alert_recommendations_calibration_replay",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservabilityAlertCalibrationReplayAnalysisResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "返回基于聚合生命周期事实的候选阈值场景回放，不执行配置变更",
         "tags": [
           "可观测性"
         ]

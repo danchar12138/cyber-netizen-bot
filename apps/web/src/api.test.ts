@@ -16,6 +16,7 @@ import {
   getObservabilityAlertLifecyclePage,
   getObservabilityAlertOperationsSummary,
   getObservabilityAlertRecommendationCalibration,
+  getObservabilityAlertRecommendationCalibrationReplay,
   getObservabilityAlertRecommendationQuality,
   getObservabilityAlertRecommendations,
   getObservabilityAlertReplayMetrics,
@@ -163,6 +164,7 @@ describe('通用告警客户端', () => {
       source_type: 'api',
     })
     await submitObservabilityAlertRecommendationFeedback(lifecycleId, 'accepted')
+    await submitObservabilityAlertRecommendationFeedback(lifecycleId, 'rejected', 'observe')
 
     const qualityRequest = fetchMock.mock.calls[0]?.[0] as Request
     const qualityUrl = new URL(qualityRequest.url)
@@ -179,6 +181,17 @@ describe('通用告警客户端', () => {
     )
     expect(feedbackRequest.method).toBe('POST')
     expect(await feedbackRequest.json()).toEqual({ decision: 'accepted', confirmed: true })
+
+    const alternativeFeedbackRequest = fetchMock.mock.calls[2]?.[0] as Request
+    expect(new URL(alternativeFeedbackRequest.url).pathname).toBe(
+      `/api/v1/observability/alert-recommendations/${lifecycleId}/feedback`,
+    )
+    expect(alternativeFeedbackRequest.method).toBe('POST')
+    expect(await alternativeFeedbackRequest.json()).toEqual({
+      decision: 'rejected',
+      confirmed: true,
+      alternative_action: 'observe',
+    })
   })
 
   it('读取服务端校准结果并只提交版本与显式确认创建草稿', async () => {
@@ -227,6 +240,31 @@ describe('通用告警客户端', () => {
     )
     expect(draftRequest.method).toBe('POST')
     expect(await draftRequest.json()).toEqual({ configuration_version: 7, confirmed: true })
+  })
+
+  it('读取候选阈值场景回放结果并使用默认窗口', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      window_started_at: '2026-08-16T12:00:00Z',
+      window_ended_at: '2026-09-15T12:00:00Z',
+      configuration_version: 7,
+      total_feedback: 20,
+      eligible_feedback: 20,
+      proposals: [],
+      scenario_only: true,
+      automatic_tuning_allowed: false,
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getObservabilityAlertRecommendationCalibrationReplay()
+
+    const request = fetchMock.mock.calls[0]?.[0] as Request
+    expect(new URL(request.url).pathname).toBe(
+      '/api/v1/observability/alert-recommendations/calibration/replay',
+    )
+    expect(request.method).toBe('GET')
   })
 
   it('完整传递生命周期组合筛选参数', async () => {
