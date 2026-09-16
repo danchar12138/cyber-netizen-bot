@@ -15053,7 +15053,7 @@
     },
     "/api/v1/administration/audit": {
       "get": {
-        "description": "查询当前租户和系统级只追加审计记录。",
+        "description": "查询当前租户和系统级只追加审计记录，支持资源精确过滤。",
         "operationId": "get_api_v1_administration_audit",
         "parameters": [
           {
@@ -15088,6 +15088,40 @@
                 }
               ],
               "title": "Action"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resource Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resource Id"
             }
           },
           {
@@ -15221,7 +15255,7 @@
             "description": "依赖服务暂时不可用"
           }
         },
-        "summary": "查询当前租户和系统级只追加审计记录",
+        "summary": "查询当前租户和系统级只追加审计记录，支持资源精确过滤",
         "tags": [
           "管理与权限"
         ]

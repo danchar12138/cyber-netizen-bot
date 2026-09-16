@@ -87,6 +87,42 @@ async def test_management_lists_seed_identity_and_audits_bulk_status_change() ->
     assert audit.items[0].detail["status"] == "disabled"
 
 
+async def test_audit_listing_supports_exact_resource_filters() -> None:
+    identity = _identity()
+    repository = MemoryAdministrationRepository(identity)
+    service = _service(repository)
+    draft_id = str(uuid4())
+    await repository.record_audit(
+        tenant_id=identity.tenant_id,
+        actor_id=identity.user_id,
+        action="observability.alert_calibration_draft_created",
+        resource_type="configuration_version",
+        resource_id=draft_id,
+        detail={"configuration_version": 3},
+    )
+    await repository.record_audit(
+        tenant_id=identity.tenant_id,
+        actor_id=identity.user_id,
+        action="configuration.published",
+        resource_type="configuration_version",
+        resource_id=str(uuid4()),
+        detail={"version": 3},
+    )
+
+    page = await service.list_audit_records(
+        tenant_id=identity.tenant_id,
+        search=None,
+        action="observability.alert_calibration_draft_created",
+        resource_type="configuration_version",
+        resource_id=draft_id,
+        limit=20,
+        cursor=None,
+    )
+
+    assert len(page.items) == 1
+    assert page.items[0].resource_id == draft_id
+
+
 async def test_bulk_status_change_requires_explicit_confirmation() -> None:
     identity = _identity()
     service = _service(MemoryAdministrationRepository(identity))

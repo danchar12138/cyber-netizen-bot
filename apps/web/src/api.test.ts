@@ -10,6 +10,7 @@ import {
   exportConfigPackage,
   formatConfigValue,
   formatConfigVersionStatus,
+  getAuditRecords,
   getObservabilityAlertLifecycles,
   getObservabilityAlertDispositionEvents,
   getObservabilityAlertLifecycleMetrics,
@@ -470,6 +471,33 @@ describe('通用告警客户端', () => {
       action: 'clear',
       reason: '维护窗口已结束',
       confirmed: true,
+    })
+  })
+})
+
+describe('审计客户端', () => {
+  it('传递资源类型和资源 ID 的精确筛选', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [], next_cursor: null }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getAuditRecords(
+      '',
+      'observability.alert_calibration_draft_created',
+      'configuration_version',
+      'draft-123',
+    )
+
+    const request = fetchMock.mock.calls[0]?.[0] as Request
+    const url = new URL(request.url)
+    expect(url.pathname).toBe('/api/v1/administration/audit')
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      limit: '100',
+      action: 'observability.alert_calibration_draft_created',
+      resource_type: 'configuration_version',
+      resource_id: 'draft-123',
     })
   })
 })

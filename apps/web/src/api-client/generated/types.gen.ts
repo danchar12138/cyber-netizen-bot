@@ -8938,6 +8938,14 @@ export type GetApiV1AdministrationAuditData = {
          */
         action?: string | null;
         /**
+         * Resource Type
+         */
+        resource_type?: string | null;
+        /**
+         * Resource Id
+         */
+        resource_id?: string | null;
+        /**
          * Limit
          */
         limit?: number;

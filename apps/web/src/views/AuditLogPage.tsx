@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { ScrollText } from 'lucide-react'
-import { useCallback, useMemo } from 'react'
+import { Search, ScrollText, X } from 'lucide-react'
+import { useCallback, useMemo, useState, type FormEvent } from 'react'
 
 import { type AuditRecord, getAuditRecords } from '../api'
 import { AdminDataTable, type AdminTableColumn } from '../components/AdminDataTable'
@@ -12,7 +12,28 @@ import {
 } from '../displayLabels'
 
 export function AuditLogPage() {
-  const audit = useQuery({ queryKey: ['audit-records'], queryFn: () => getAuditRecords() })
+  const [actionInput, setActionInput] = useState('')
+  const [resourceTypeInput, setResourceTypeInput] = useState('')
+  const [resourceIdInput, setResourceIdInput] = useState('')
+  const [filters, setFilters] = useState({ action: '', resourceType: '', resourceId: '' })
+  const audit = useQuery({
+    queryKey: ['audit-records', filters],
+    queryFn: () => getAuditRecords('', filters.action, filters.resourceType, filters.resourceId),
+  })
+  const submitFilters = useCallback((event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setFilters({
+      action: actionInput.trim(),
+      resourceType: resourceTypeInput.trim(),
+      resourceId: resourceIdInput.trim(),
+    })
+  }, [actionInput, resourceIdInput, resourceTypeInput])
+  const clearFilters = useCallback(() => {
+    setActionInput('')
+    setResourceTypeInput('')
+    setResourceIdInput('')
+    setFilters({ action: '', resourceType: '', resourceId: '' })
+  }, [])
   const columns = useMemo<Array<AdminTableColumn<AuditRecord>>>(() => [
     {
       key: 'action',
@@ -47,6 +68,12 @@ export function AuditLogPage() {
         <div><strong>只追加审计</strong><span>当前展示当前租户和允许查看的系统级操作，按最新时间排序。</span></div>
       </div>
       <section className="panel table-panel">
+        <form className="admin-table-toolbar audit-filter-toolbar" onSubmit={submitFilters}>
+          <label className="status-filter"><span>操作</span><input value={actionInput} onChange={(event) => setActionInput(event.target.value)} placeholder="如 configuration.published" maxLength={120} /></label>
+          <label className="status-filter"><span>资源类型</span><input value={resourceTypeInput} onChange={(event) => setResourceTypeInput(event.target.value)} placeholder="如 configuration_version" maxLength={120} /></label>
+          <label className="status-filter"><span>资源 ID</span><input value={resourceIdInput} onChange={(event) => setResourceIdInput(event.target.value)} placeholder="精确匹配资源 ID" maxLength={255} /></label>
+          <div className="table-actions"><button className="secondary-button" type="submit"><Search size={14} />查询</button><button className="icon-button" type="button" title="清除审计筛选" aria-label="清除审计筛选" onClick={clearFilters}><X size={14} /></button></div>
+        </form>
         <AdminDataTable
           rows={audit.data?.items ?? []}
           columns={columns}

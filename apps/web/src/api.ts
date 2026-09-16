@@ -1678,12 +1678,19 @@ export const updateManagedUserStatus = (
   status: 'active' | 'disabled',
 ) => apiSdk.postApiV1AdministrationUsersStatus({ body: { ids, status, confirmed: true } })
 
-export const getAuditRecords = (search = '', action = '') => {
+export const getAuditRecords = (
+  search = '',
+  action = '',
+  resourceType = '',
+  resourceId = '',
+) => {
   return apiSdk.getApiV1AdministrationAudit({
     query: {
       limit: 100,
       search: search.trim() || undefined,
       action: action.trim() || undefined,
+      resource_type: resourceType.trim() || undefined,
+      resource_id: resourceId.trim() || undefined,
     },
   })
 }

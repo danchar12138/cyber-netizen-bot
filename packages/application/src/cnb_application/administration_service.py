@@ -240,6 +240,8 @@ class AdministrationRepository(Protocol):
         tenant_id: UUID,
         search: str | None,
         action: str | None,
+        resource_type: str | None,
+        resource_id: str | None,
         limit: int,
         cursor: AuditCursor | None,
     ) -> tuple[AuditRecord, ...]: ...
@@ -608,6 +610,8 @@ class AdministrationService:
         tenant_id: UUID,
         search: str | None,
         action: str | None,
+        resource_type: str | None = None,
+        resource_id: str | None = None,
         limit: int,
         cursor: str | None,
     ) -> ManagementPage[AuditRecord]:
@@ -615,6 +619,8 @@ class AdministrationService:
             tenant_id=tenant_id,
             search=self._normalize_search(search),
             action=self._normalize_search(action),
+            resource_type=self._normalize_search(resource_type),
+            resource_id=self._normalize_search(resource_id),
             limit=limit + 1,
             cursor=decode_audit_cursor(cursor),
         )

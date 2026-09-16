@@ -131,9 +131,9 @@ export const getApiV1AdministrationAgentsByAgentIdImpact = <ThrowOnError extends
 });
 
 /**
- * 查询当前租户和系统级只追加审计记录
+ * 查询当前租户和系统级只追加审计记录，支持资源精确过滤
  *
- * 查询当前租户和系统级只追加审计记录。
+ * 查询当前租户和系统级只追加审计记录，支持资源精确过滤。
  */
 export const getApiV1AdministrationAudit = <ThrowOnError extends boolean = true>(options?: Options<GetApiV1AdministrationAuditData, ThrowOnError>): RequestResult<GetApiV1AdministrationAuditResponses, GetApiV1AdministrationAuditErrors, ThrowOnError, 'data'> => (options?.client ?? client).get<GetApiV1AdministrationAuditResponses, GetApiV1AdministrationAuditErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',

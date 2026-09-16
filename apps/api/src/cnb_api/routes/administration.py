@@ -568,15 +568,19 @@ async def list_audit_records(
     service: Annotated[AdministrationService, Depends(get_administration_service)],
     search: Annotated[str | None, Query(max_length=200)] = None,
     action: Annotated[str | None, Query(max_length=120)] = None,
+    resource_type: Annotated[str | None, Query(max_length=120)] = None,
+    resource_id: Annotated[str | None, Query(max_length=255)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: str | None = None,
 ) -> AuditRecordListResponse:
-    """查询当前租户和系统级只追加审计记录。"""
+    """查询当前租户和系统级只追加审计记录，支持资源精确过滤。"""
     try:
         page = await service.list_audit_records(
             tenant_id=principal.tenant_id,
             search=search,
             action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
             limit=limit,
             cursor=cursor,
         )

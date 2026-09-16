@@ -725,6 +725,8 @@ class MemoryAdministrationRepository:
         tenant_id: UUID,
         search: str | None,
         action: str | None,
+        resource_type: str | None = None,
+        resource_id: str | None = None,
         limit: int,
         cursor: AuditCursor | None,
     ) -> tuple[AuditRecord, ...]:
@@ -734,6 +736,8 @@ class MemoryAdministrationRepository:
                 item
                 for item in self._audit_records
                 if (action is None or item.action == action)
+                and (resource_type is None or item.resource_type == resource_type)
+                and (resource_id is None or item.resource_id == resource_id)
                 and (
                     query is None
                     or query in item.action.casefold()
@@ -1724,6 +1728,8 @@ class SqlAlchemyAdministrationRepository:
         tenant_id: UUID,
         search: str | None,
         action: str | None,
+        resource_type: str | None = None,
+        resource_id: str | None = None,
         limit: int,
         cursor: AuditCursor | None,
     ) -> tuple[AuditRecord, ...]:
@@ -1741,6 +1747,10 @@ class SqlAlchemyAdministrationRepository:
             )
         if action is not None:
             statement = statement.where(AuditLog.action == action)
+        if resource_type is not None:
+            statement = statement.where(AuditLog.resource_type == resource_type)
+        if resource_id is not None:
+            statement = statement.where(AuditLog.resource_id == resource_id)
         if cursor is not None:
             statement = statement.where(
                 or_(

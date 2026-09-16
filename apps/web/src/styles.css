@@ -289,6 +289,9 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .conversation-detail-list small { display: inline-flex; align-items: center; gap: 5px; margin: 8px 6px 0 0; color: #8dcfad; font-size: 9px; }
 .status-filter { display: flex; align-items: center; gap: 8px; color: #648378; font-size: 9px; }
 .status-filter select { padding: 7px 28px 7px 9px; color: #a8c3b8; border: 1px solid #294a3f; background: #0b1b16; border-radius: 7px; }
+.status-filter input { width: 170px; padding: 7px 9px; color: #a8c3b8; border: 1px solid #294a3f; background: #0b1b16; border-radius: 7px; }
+.audit-filter-toolbar { flex-wrap: wrap; justify-content: flex-start; }
+.audit-filter-toolbar .table-actions { margin-left: auto; }
 .entity-status { display: inline-flex; padding: 3px 7px; border: 1px solid #3a4f47; border-radius: 999px; font-size: 8px; }
 .entity-status.active { color: #77dca0; border-color: #2b6748; background: #113020; }
 .entity-status.disabled { color: #a99477; border-color: #574936; background: #211c14; }
