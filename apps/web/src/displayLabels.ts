@@ -514,6 +514,7 @@ export const auditActionLabels: Readonly<Record<string, string>> = {
   'admin_session.revoked': '撤销管理会话',
   'user.data_forgotten': '永久遗忘用户数据',
   'configuration.draft_created': '创建配置草稿',
+  'observability.alert_calibration_draft_created': '创建告警校准草稿',
   'configuration.published': '发布配置版本',
   'configuration.rolled_back': '回滚配置版本',
   'secret.created': '写入密钥',

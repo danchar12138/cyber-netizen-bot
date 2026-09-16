@@ -108,6 +108,21 @@ test('可以创建、复制、切换并批量停用智能体', async ({ page }) 
     await route.fulfill({
       json: {
         items: [{
+          id: 2,
+          actor_id: userId,
+          action: 'observability.alert_calibration_draft_created',
+          resource_type: 'configuration_version',
+          resource_id: '88888888-8888-4888-8888-888888888888',
+          detail: {
+            configuration_version: 7,
+            replay_window_started_at: '2026-09-08T08:00:00Z',
+            replay_window_ended_at: timestamp,
+            replay_fingerprint: 'a'.repeat(64),
+            proposal_count: 1,
+            eligible_feedback: 25,
+          },
+          created_at: timestamp,
+        }, {
           id: 1,
           actor_id: userId,
           action: 'agent.status_updated',
@@ -140,6 +155,7 @@ test('可以创建、复制、切换并批量停用智能体', async ({ page }) 
 
   await page.goto('/audit')
   await expect(page.getByText('更新智能体状态')).toBeVisible()
+  await expect(page.getByText('创建告警校准草稿')).toBeVisible()
   await expect(page.getByText(/状态：已停用/)).toBeVisible()
 })
 

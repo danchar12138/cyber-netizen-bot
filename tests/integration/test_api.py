@@ -657,6 +657,11 @@ async def test_observability_alert_calibration_api_is_guarded_and_returns_a_draf
             },
             headers={"X-CNB-Development-Role": "operator"},
         )
+        audit_response = await client.get(
+            "/api/v1/administration/audit",
+            params={"action": "observability.alert_calibration_draft_created"},
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
 
     analysis = ObservabilityAlertCalibrationAnalysisResponse.model_validate(
         analysis_response.json()
@@ -676,6 +681,18 @@ async def test_observability_alert_calibration_api_is_guarded_and_returns_a_draf
     assert unconfirmed_response.status_code == 422
     assert stale_response.status_code == 409
     assert draft_response.status_code == 201
+    assert audit_response.status_code == 200
+    audit_items = audit_response.json()["items"]
+    assert len(audit_items) == 1
+    assert audit_items[0]["resource_id"] == str(draft.id)
+    assert audit_items[0]["detail"] == {
+        "configuration_version": published.version,
+        "replay_window_started_at": replay.window_started_at.isoformat(),
+        "replay_window_ended_at": replay.window_ended_at.isoformat(),
+        "replay_fingerprint": replay.replay_fingerprint,
+        "proposal_count": 1,
+        "eligible_feedback": analysis.eligible_feedback,
+    }
     assert draft.status == "draft"
     assert ("memory.recall.limit", "system", None, 12) in {
         (item.key, item.scope_type, item.scope_id, item.value) for item in draft.values

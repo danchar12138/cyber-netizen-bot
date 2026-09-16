@@ -1,5 +1,6 @@
 """可观测聚合与告警领域边界测试。"""
 
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -24,6 +25,7 @@ from cnb_domain import (
     ConfigEntry,
     ConfigScope,
     ConfigVersionStatus,
+    JsonValue,
     LatencyPercentiles,
     ModelUsageMetrics,
     NotificationDeliveryMetrics,
@@ -162,6 +164,26 @@ def _calibration_feedback(
         actor_id=uuid4(),
         feedback_at=feedback_at,
     )
+
+
+class RecordingAuditRecorder:
+    """记录校准草稿安全审计字段的内存替身。"""
+
+    def __init__(self) -> None:
+        self.calls: list[Mapping[str, JsonValue]] = []
+
+    async def record_audit(
+        self,
+        *,
+        tenant_id: UUID,
+        actor_id: UUID,
+        action: str,
+        resource_type: str,
+        resource_id: str | None,
+        detail: Mapping[str, JsonValue],
+    ) -> None:
+        del tenant_id, actor_id, action, resource_type, resource_id
+        self.calls.append(dict(detail))
 
 
 async def test_dashboard_calculates_all_default_threshold_alerts() -> None:
@@ -1292,7 +1314,8 @@ async def test_alert_recommendation_calibration_is_scoped_grouped_and_conservati
     repository = MemoryObservabilityRepository()
     configuration_repository = MemoryConfigurationRepository()
     configuration = ConfigurationService(build_default_registry(), configuration_repository)
-    service = ObservabilityService(repository, configuration)
+    audit_recorder = RecordingAuditRecorder()
+    service = ObservabilityService(repository, configuration, audit_recorder=audit_recorder)
     now = datetime(2026, 9, 15, 12, tzinfo=UTC)
     baseline = await configuration.create_draft(
         note="校准测试基线",
@@ -1445,6 +1468,16 @@ async def test_alert_recommendation_calibration_is_scoped_grouped_and_conservati
         agent_id,
         150,
     ) in {(item.key, item.scope_type, item.scope_id, item.value) for item in draft.values}
+    assert audit_recorder.calls == [
+        {
+            "configuration_version": published.version,
+            "replay_window_started_at": replay.window_started_at.isoformat(),
+            "replay_window_ended_at": replay.window_ended_at.isoformat(),
+            "replay_fingerprint": replay.replay_fingerprint,
+            "proposal_count": 1,
+            "eligible_feedback": analysis.eligible_feedback,
+        }
+    ]
 
     await repository.save_observability_alert_recommendation_feedback(
         _calibration_feedback(

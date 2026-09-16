@@ -279,6 +279,21 @@ class ObservabilityConflictError(RuntimeError):
     """建议反馈与已有事实冲突。"""
 
 
+class ObservabilityAuditRecorder(Protocol):
+    """记录不含原始反馈和敏感材料的可观测审计事件。"""
+
+    async def record_audit(
+        self,
+        *,
+        tenant_id: UUID,
+        actor_id: UUID,
+        action: str,
+        resource_type: str,
+        resource_id: str | None,
+        detail: Mapping[str, JsonValue],
+    ) -> None: ...
+
+
 class ObservabilityRepository(ObservabilityHistoryRepository, Protocol):
     """请求指标写入及租户隔离聚合边界。"""
 
@@ -516,9 +531,11 @@ class ObservabilityService:
         self,
         repository: ObservabilityRepository,
         configuration_service: ConfigurationService,
+        audit_recorder: ObservabilityAuditRecorder | None = None,
     ) -> None:
         self._repository = repository
         self._configuration_service = configuration_service
+        self._audit_recorder = audit_recorder
 
     async def dashboard(
         self,
@@ -1357,7 +1374,7 @@ class ObservabilityService:
         if not changes:
             raise ObservabilityValidationError("当前反馈证据没有可创建的阈值变更草稿")
         try:
-            return await self._configuration_service.create_derived_draft(
+            draft = await self._configuration_service.create_derived_draft(
                 expected_base_version=configuration_version,
                 note=f"告警建议离线校准：基于 {analysis.eligible_feedback} 条合格人工反馈",
                 overrides=tuple(
@@ -1373,6 +1390,23 @@ class ObservabilityService:
             )
         except ConfigurationConflictError as error:
             raise ObservabilityConflictError(str(error)) from error
+        if self._audit_recorder is not None:
+            await self._audit_recorder.record_audit(
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                action="observability.alert_calibration_draft_created",
+                resource_type="configuration_version",
+                resource_id=str(draft.id),
+                detail={
+                    "configuration_version": configuration_version,
+                    "replay_window_started_at": replay.window_started_at.isoformat(),
+                    "replay_window_ended_at": replay.window_ended_at.isoformat(),
+                    "replay_fingerprint": replay.replay_fingerprint,
+                    "proposal_count": len(changes),
+                    "eligible_feedback": analysis.eligible_feedback,
+                },
+            )
+        return draft
 
     async def alert_recommendation_calibration_replay(
         self,

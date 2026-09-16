@@ -475,9 +475,16 @@ def get_observability_repository(request: HTTPConnection) -> ObservabilityReposi
 def get_observability_service(
     repository: Annotated[ObservabilityRepository, Depends(get_observability_repository)],
     configuration_service: Annotated[ConfigurationService, Depends(get_configuration_service)],
+    administration_repository: Annotated[
+        AdministrationRepository, Depends(get_administration_repository)
+    ],
 ) -> ObservabilityService:
-    """构建读取已发布 SLO 与成本阈值的可观测服务。"""
-    return ObservabilityService(repository, configuration_service)
+    """构建读取阈值并记录安全审计的可观测服务。"""
+    return ObservabilityService(
+        repository,
+        configuration_service,
+        audit_recorder=administration_repository,
+    )
 
 
 def get_data_lifecycle_service(
