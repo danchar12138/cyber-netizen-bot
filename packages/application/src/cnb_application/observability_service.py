@@ -41,6 +41,7 @@ from cnb_domain import (
     ObservabilityAlertLifecycleStatus,
     ObservabilityAlertRecommendationAction,
     ObservabilityAlertRecommendationActionMetrics,
+    ObservabilityAlertRecommendationEvidence,
     ObservabilityAlertRecommendationFeedback,
     ObservabilityAlertRecommendationFeedbackDecision,
     ObservabilityAlertRecommendationGuardrail,
@@ -1034,6 +1035,114 @@ class ObservabilityService:
                     str(item.lifecycle_id),
                 ),
             )[:limit]
+        )
+
+    async def alert_recommendation_evidence(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        lifecycle_id: UUID,
+        now: datetime | None = None,
+    ) -> ObservabilityAlertRecommendationEvidence:
+        """返回当前告警建议的固定白名单证据摘要，不执行任何副作用。"""
+        lifecycle = await self._repository.get_observability_alert_lifecycle(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lifecycle_id=lifecycle_id,
+        )
+        if lifecycle is None:
+            raise ObservabilityNotFoundError("通用告警生命周期不存在")
+        if lifecycle.status is not ObservabilityAlertLifecycleStatus.ACTIVE:
+            raise ObservabilityConflictError("仅能查看活动告警的当前建议证据")
+        evaluated_at = (now or datetime.now(UTC)).astimezone(UTC)
+        summary = await self.alert_operations_summary(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            now=evaluated_at,
+        )
+        configuration = await self._configuration_service.resolve_effective(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+        )
+        baseline_signal = next(
+            (
+                signal
+                for signal in summary.baseline.signals
+                if signal.metric == "opened" and signal.source_type == lifecycle.source_type
+            ),
+            None,
+        )
+        baseline_anomalous = any(
+            signal.source_type == lifecycle.source_type and signal.anomalous
+            for signal in summary.baseline.signals
+        )
+        recommendation = self._build_alert_recommendation(
+            lifecycle=lifecycle,
+            evaluated_at=evaluated_at,
+            baseline_anomalous=baseline_anomalous,
+            long_running_minutes=self._integer(
+                configuration.values["alerts.recommendation.long_running_minutes"],
+                "alerts.recommendation.long_running_minutes",
+            ),
+            suppression_minutes=self._integer(
+                configuration.values["alerts.recommendation.suppression_minutes"],
+                "alerts.recommendation.suppression_minutes",
+            ),
+            minimum_repeated_occurrences=self._integer(
+                configuration.values["alerts.recommendation.minimum_repeated_occurrences"],
+                "alerts.recommendation.minimum_repeated_occurrences",
+            ),
+        )
+        evidence_material = {
+            "lifecycle_id": str(lifecycle.id),
+            "source_type": lifecycle.source_type,
+            "source_key": lifecycle.source_key,
+            "code": lifecycle.code,
+            "evaluated_at": evaluated_at.isoformat(),
+            "current_value": lifecycle.current_value,
+            "threshold_value": lifecycle.threshold_value,
+            "unit": lifecycle.unit,
+            "active_minutes": recommendation.active_minutes,
+            "occurrences": lifecycle.occurrences,
+            "escalation_level": lifecycle.escalation_level,
+            "baseline_anomalous": baseline_anomalous,
+            "baseline_median": baseline_signal.baseline_median if baseline_signal else None,
+            "baseline_mad": baseline_signal.baseline_mad if baseline_signal else None,
+            "baseline_threshold": baseline_signal.threshold_value if baseline_signal else None,
+            "baseline_samples": list(baseline_signal.samples) if baseline_signal else [],
+            "action": recommendation.action.value,
+            "priority": recommendation.priority.value,
+            "confidence": recommendation.confidence,
+            "reason_codes": [item.value for item in recommendation.reason_codes],
+            "guardrail_codes": [item.value for item in recommendation.guardrail_codes],
+        }
+        fingerprint = hashlib.sha256(
+            json.dumps(evidence_material, separators=(",", ":"), sort_keys=True).encode()
+        ).hexdigest()
+        return ObservabilityAlertRecommendationEvidence(
+            lifecycle_id=lifecycle.id,
+            source_type=lifecycle.source_type,
+            source_key=lifecycle.source_key,
+            code=lifecycle.code,
+            evaluated_at=evaluated_at,
+            current_value=lifecycle.current_value,
+            threshold_value=lifecycle.threshold_value,
+            unit=lifecycle.unit,
+            active_minutes=recommendation.active_minutes,
+            occurrences=lifecycle.occurrences,
+            escalation_level=lifecycle.escalation_level,
+            baseline_anomalous=baseline_anomalous,
+            baseline_median=baseline_signal.baseline_median if baseline_signal else None,
+            baseline_mad=baseline_signal.baseline_mad if baseline_signal else None,
+            baseline_threshold=baseline_signal.threshold_value if baseline_signal else None,
+            baseline_samples=baseline_signal.samples if baseline_signal else (),
+            action=recommendation.action,
+            priority=recommendation.priority,
+            confidence=recommendation.confidence,
+            reason_codes=recommendation.reason_codes,
+            guardrail_codes=recommendation.guardrail_codes,
+            evidence_fingerprint=fingerprint,
         )
 
     async def submit_alert_recommendation_feedback(

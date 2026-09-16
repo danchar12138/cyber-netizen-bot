@@ -252,6 +252,32 @@ test('管理员可以反馈建议、查看质量事实并创建校准草稿', as
     }
     await route.fulfill({ json: recommendations })
   })
+  await page.route(`**/api/v1/observability/alert-recommendations/${acknowledgeLifecycleId}/evidence`, async (route) => {
+    await route.fulfill({ json: {
+      lifecycle_id: acknowledgeLifecycleId,
+      source_type: 'agent_runtime',
+      source_key: 'agent_p95_latency',
+      code: 'agent_p95_latency',
+      evaluated_at: timestamp,
+      current_value: 2400,
+      threshold_value: 1200,
+      unit: 'ms',
+      active_minutes: 90,
+      occurrences: 4,
+      escalation_level: 1,
+      baseline_anomalous: true,
+      baseline_median: 1,
+      baseline_mad: 0,
+      baseline_threshold: 3,
+      baseline_samples: [0, 1, 0, 1, 0, 0, 1],
+      action: 'acknowledge',
+      priority: 'urgent',
+      confidence: 0.9,
+      reason_codes: ['critical', 'escalated'],
+      guardrail_codes: ['manual_confirmation_required', 'automatic_execution_forbidden', 'current_scope_only'],
+      evidence_fingerprint: 'b'.repeat(64),
+    } })
+  })
   await page.route('**/api/v1/observability/alert-lifecycles/metrics?*', async (route) => {
     await route.fulfill({ json: {
       window_started_at: timestamp,
@@ -338,6 +364,10 @@ test('管理员可以反馈建议、查看质量事实并创建校准草稿', as
   await expect(page.getByText(/禁止自动执行/).first()).toBeVisible()
   await expect(page.getByText('智能体运行耗时偏高', { exact: true })).toBeVisible()
   await expect(page.getByText('严重告警 · 已经升级', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '查看 智能体运行耗时偏高 建议依据' }).click()
+  await expect(page.getByText('安全证据摘要', { exact: true })).toBeVisible()
+  await expect(page.getByText('2400 / 1200 ms', { exact: true })).toBeVisible()
+  await expect(page.getByText('检测到异常 · 中位数 1 · MAD 0', { exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '建议质量概览' })).toBeVisible()
   await expect(page.getByText('75.00%', { exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '阈值校准分析' })).toBeVisible()

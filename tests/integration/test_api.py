@@ -62,6 +62,7 @@ from cnb_contracts import (
     ObservabilityAlertLifecyclePageResponse,
     ObservabilityAlertLifecycleResponse,
     ObservabilityAlertOperationsSummaryResponse,
+    ObservabilityAlertRecommendationEvidenceResponse,
     ObservabilityAlertRecommendationFeedbackResponse,
     ObservabilityAlertRecommendationQualityMetricsResponse,
     ObservabilityAlertRecommendationResponse,
@@ -306,6 +307,10 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
             params={"source_type": "model_runtime", "action": "acknowledge"},
             headers={"X-CNB-Development-Role": "viewer"},
         )
+        evidence_response = await client.get(
+            f"/api/v1/observability/alert-recommendations/{lifecycle_id}/evidence",
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
         page_response = await client.get(
             "/api/v1/observability/alert-lifecycles/page",
             params={"source_type": "model_runtime", "limit": 1},
@@ -455,6 +460,9 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
         ObservabilityAlertRecommendationResponse.model_validate(item)
         for item in recommendations_response.json()
     )
+    evidence = ObservabilityAlertRecommendationEvidenceResponse.model_validate(
+        evidence_response.json()
+    )
     other_agent_summary = ObservabilityAlertOperationsSummaryResponse.model_validate(
         other_agent_summary_response.json()
     )
@@ -508,6 +516,11 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
     assert recommendations[0].automation_allowed is False
     assert "manual_confirmation_required" in recommendations[0].guardrail_codes
     assert "仅用于 API 契约测试的安全摘要" not in recommendations_response.text
+    assert evidence_response.status_code == 200
+    assert evidence.lifecycle_id == lifecycle_id
+    assert evidence.current_value == 12
+    assert len(evidence.evidence_fingerprint) == 64
+    assert "仅用于 API 契约测试的安全摘要" not in evidence_response.text
     assert other_agent_summary.handoff.active == 0
     assert other_agent_summary.handoff.priority_items == ()
     assert all(item.current_value == 0 for item in other_agent_summary.baseline.signals)

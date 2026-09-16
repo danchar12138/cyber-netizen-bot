@@ -11813,6 +11813,175 @@
         "title": "ObservabilityAlertRecommendationActionMetricsResponse",
         "type": "object"
       },
+      "ObservabilityAlertRecommendationEvidenceResponse": {
+        "description": "告警建议的固定白名单证据摘要。",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ObservabilityAlertRecommendationAction"
+          },
+          "active_minutes": {
+            "minimum": 0.0,
+            "title": "Active Minutes",
+            "type": "integer"
+          },
+          "baseline_anomalous": {
+            "title": "Baseline Anomalous",
+            "type": "boolean"
+          },
+          "baseline_mad": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Mad"
+          },
+          "baseline_median": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Median"
+          },
+          "baseline_samples": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 30,
+            "title": "Baseline Samples",
+            "type": "array"
+          },
+          "baseline_threshold": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Threshold"
+          },
+          "code": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "current_value": {
+            "title": "Current Value",
+            "type": "number"
+          },
+          "escalation_level": {
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Escalation Level",
+            "type": "integer"
+          },
+          "evaluated_at": {
+            "format": "date-time",
+            "title": "Evaluated At",
+            "type": "string"
+          },
+          "evidence_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Evidence Fingerprint",
+            "type": "string"
+          },
+          "guardrail_codes": {
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityAlertRecommendationGuardrail"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Guardrail Codes",
+            "type": "array"
+          },
+          "lifecycle_id": {
+            "format": "uuid",
+            "title": "Lifecycle Id",
+            "type": "string"
+          },
+          "occurrences": {
+            "minimum": 1.0,
+            "title": "Occurrences",
+            "type": "integer"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/ObservabilityAlertRecommendationPriority"
+          },
+          "reason_codes": {
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityAlertRecommendationReason"
+            },
+            "maxItems": 6,
+            "minItems": 1,
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "source_key": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Source Key",
+            "type": "string"
+          },
+          "source_type": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Source Type",
+            "type": "string"
+          },
+          "threshold_value": {
+            "title": "Threshold Value",
+            "type": "number"
+          },
+          "unit": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lifecycle_id",
+          "source_type",
+          "source_key",
+          "code",
+          "evaluated_at",
+          "current_value",
+          "threshold_value",
+          "unit",
+          "active_minutes",
+          "occurrences",
+          "escalation_level",
+          "baseline_anomalous",
+          "baseline_samples",
+          "action",
+          "priority",
+          "confidence",
+          "reason_codes",
+          "guardrail_codes",
+          "evidence_fingerprint"
+        ],
+        "title": "ObservabilityAlertRecommendationEvidenceResponse",
+        "type": "object"
+      },
       "ObservabilityAlertRecommendationFeedbackCommand": {
         "description": "仅提交人工结论，建议快照由服务端重算。",
         "properties": {
@@ -33564,6 +33733,130 @@
           }
         },
         "summary": "返回当前 Agent 的建议反馈与复核质量概览",
+        "tags": [
+          "可观测性"
+        ]
+      }
+    },
+    "/api/v1/observability/alert-recommendations/{lifecycle_id}/evidence": {
+      "get": {
+        "description": "返回当前告警建议的安全证据摘要，不执行任何处置动作。",
+        "operationId": "get_api_v1_observability_alert_recommendations_by_lifecycle_id_evidence",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lifecycle_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lifecycle Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservabilityAlertRecommendationEvidenceResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "返回当前告警建议的安全证据摘要，不执行任何处置动作",
         "tags": [
           "可观测性"
         ]

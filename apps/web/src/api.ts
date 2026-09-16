@@ -51,6 +51,7 @@ import type {
   ObservabilityAlertRecommendationAction as ObservabilityAlertRecommendationActionResponse,
   ObservabilityAlertRecommendationFeedbackDecision,
   ObservabilityAlertRecommendationFeedbackResponse,
+  ObservabilityAlertRecommendationEvidenceResponse,
   ObservabilityAlertRecommendationQualityMetricsResponse,
   ObservabilityAlertRecommendationResponse,
   ObservabilityAlertReplayDecision,
@@ -1735,6 +1736,7 @@ export type ObservabilityAlertLifecycleMetrics = ObservabilityAlertLifecycleMetr
 export type ObservabilityAlertLifecyclePage = ObservabilityAlertLifecyclePageResponse
 export type ObservabilityAlertOperationsSummary = ObservabilityAlertOperationsSummaryResponse
 export type ObservabilityAlertRecommendation = ObservabilityAlertRecommendationResponse
+export type ObservabilityAlertRecommendationEvidence = ObservabilityAlertRecommendationEvidenceResponse
 export type ObservabilityAlertRecommendationAction = ObservabilityAlertRecommendationActionResponse
 export type ObservabilityAlertRecommendationFeedback = ObservabilityAlertRecommendationFeedbackResponse
 export type ObservabilityAlertRecommendationQuality = ObservabilityAlertRecommendationQualityMetricsResponse
@@ -1791,6 +1793,11 @@ export const getObservabilityAlertRecommendations = (filters: {
 } = {}) => apiSdk.getApiV1ObservabilityAlertRecommendations({
   query: { ...filters, limit: filters.limit ?? 50 },
 })
+
+export const getObservabilityAlertRecommendationEvidence = (lifecycleId: string) =>
+  apiSdk.getApiV1ObservabilityAlertRecommendationsByLifecycleIdEvidence({
+    path: { lifecycle_id: lifecycleId },
+  })
 
 export const getObservabilityAlertRecommendationQuality = (filters: {
   window_minutes?: number

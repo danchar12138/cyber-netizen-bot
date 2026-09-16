@@ -18,6 +18,7 @@ import {
   getObservabilityAlertOperationsSummary,
   getObservabilityAlertRecommendationCalibration,
   getObservabilityAlertRecommendationCalibrationReplay,
+  getObservabilityAlertRecommendationEvidence,
   getObservabilityAlertRecommendationQuality,
   getObservabilityAlertRecommendations,
   getObservabilityAlertReplayMetrics,
@@ -117,6 +118,43 @@ describe('通用告警客户端', () => {
       action: 'acknowledge',
       limit: '20',
     })
+    expect(request.method).toBe('GET')
+  })
+
+  it('查询单条告警建议的安全证据摘要', async () => {
+    const lifecycleId = '11111111-1111-4111-8111-111111111111'
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      lifecycle_id: lifecycleId,
+      source_type: 'api',
+      source_key: 'global',
+      code: 'api_error_rate',
+      evaluated_at: '2026-09-15T12:00:00Z',
+      current_value: 20,
+      threshold_value: 10,
+      unit: '%',
+      active_minutes: 30,
+      occurrences: 2,
+      escalation_level: 1,
+      baseline_anomalous: true,
+      baseline_median: 1,
+      baseline_mad: 0,
+      baseline_threshold: 3,
+      baseline_samples: [0, 1, 0],
+      action: 'acknowledge',
+      priority: 'urgent',
+      confidence: 0.9,
+      reason_codes: ['critical'],
+      guardrail_codes: ['manual_confirmation_required', 'automatic_execution_forbidden', 'current_scope_only'],
+      evidence_fingerprint: 'a'.repeat(64),
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getObservabilityAlertRecommendationEvidence(lifecycleId)
+
+    const request = fetchMock.mock.calls[0]?.[0] as Request
+    expect(new URL(request.url).pathname).toBe(
+      `/api/v1/observability/alert-recommendations/${lifecycleId}/evidence`,
+    )
     expect(request.method).toBe('GET')
   })
 

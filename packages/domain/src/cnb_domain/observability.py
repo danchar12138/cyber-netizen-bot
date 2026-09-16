@@ -347,6 +347,34 @@ class ObservabilityAlertRecommendationFeedback:
 
 
 @dataclass(frozen=True, slots=True)
+class ObservabilityAlertRecommendationEvidence:
+    """告警建议的固定白名单证据摘要，不含正文或隐藏推理。"""
+
+    lifecycle_id: UUID
+    source_type: str
+    source_key: str
+    code: str
+    evaluated_at: datetime
+    current_value: float
+    threshold_value: float
+    unit: str
+    active_minutes: int
+    occurrences: int
+    escalation_level: int
+    baseline_anomalous: bool
+    baseline_median: float | None
+    baseline_mad: float | None
+    baseline_threshold: float | None
+    baseline_samples: tuple[int, ...]
+    action: ObservabilityAlertRecommendationAction
+    priority: ObservabilityAlertRecommendationPriority
+    confidence: float
+    reason_codes: tuple[ObservabilityAlertRecommendationReason, ...]
+    guardrail_codes: tuple[ObservabilityAlertRecommendationGuardrail, ...]
+    evidence_fingerprint: str
+
+
+@dataclass(frozen=True, slots=True)
 class ObservabilityAlertRecommendationActionMetrics:
     """单一建议动作的反馈计数。"""
 

@@ -7056,6 +7056,100 @@ export type ObservabilityAlertRecommendationActionMetricsResponse = {
 };
 
 /**
+ * ObservabilityAlertRecommendationEvidenceResponse
+ *
+ * 告警建议的固定白名单证据摘要。
+ */
+export type ObservabilityAlertRecommendationEvidenceResponse = {
+    action: ObservabilityAlertRecommendationAction;
+    /**
+     * Active Minutes
+     */
+    active_minutes: number;
+    /**
+     * Baseline Anomalous
+     */
+    baseline_anomalous: boolean;
+    /**
+     * Baseline Mad
+     */
+    baseline_mad?: number | null;
+    /**
+     * Baseline Median
+     */
+    baseline_median?: number | null;
+    /**
+     * Baseline Samples
+     */
+    baseline_samples: Array<number>;
+    /**
+     * Baseline Threshold
+     */
+    baseline_threshold?: number | null;
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Confidence
+     */
+    confidence: number;
+    /**
+     * Current Value
+     */
+    current_value: number;
+    /**
+     * Escalation Level
+     */
+    escalation_level: number;
+    /**
+     * Evaluated At
+     */
+    evaluated_at: string;
+    /**
+     * Evidence Fingerprint
+     */
+    evidence_fingerprint: string;
+    /**
+     * Guardrail Codes
+     */
+    guardrail_codes: [
+        ObservabilityAlertRecommendationGuardrail,
+        ObservabilityAlertRecommendationGuardrail,
+        ObservabilityAlertRecommendationGuardrail
+    ];
+    /**
+     * Lifecycle Id
+     */
+    lifecycle_id: string;
+    /**
+     * Occurrences
+     */
+    occurrences: number;
+    priority: ObservabilityAlertRecommendationPriority;
+    /**
+     * Reason Codes
+     */
+    reason_codes: Array<ObservabilityAlertRecommendationReason>;
+    /**
+     * Source Key
+     */
+    source_key: string;
+    /**
+     * Source Type
+     */
+    source_type: string;
+    /**
+     * Threshold Value
+     */
+    threshold_value: number;
+    /**
+     * Unit
+     */
+    unit: string;
+};
+
+/**
  * ObservabilityAlertRecommendationFeedbackCommand
  *
  * 仅提交人工结论，建议快照由服务端重算。
@@ -17634,6 +17728,68 @@ export type GetApiV1ObservabilityAlertRecommendationsQualityResponses = {
 };
 
 export type GetApiV1ObservabilityAlertRecommendationsQualityResponse = GetApiV1ObservabilityAlertRecommendationsQualityResponses[keyof GetApiV1ObservabilityAlertRecommendationsQualityResponses];
+
+export type GetApiV1ObservabilityAlertRecommendationsByLifecycleIdEvidenceData = {
+    body?: never;
+    path: {
+        /**
+         * Lifecycle Id
+         */
+        lifecycle_id: string;
+    };
+    query?: never;
+    url: '/api/v1/observability/alert-recommendations/{lifecycle_id}/evidence';
+};
+
+export type GetApiV1ObservabilityAlertRecommendationsByLifecycleIdEvidenceErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ObservabilityAlertRecommendationsByLifecycleIdEvidenceError = GetApiV1ObservabilityAlertRecommendationsByLifecycleIdEvidenceErrors[keyof GetApiV1ObservabilityAlertRecommendationsByLifecycleIdEvidenceErrors];
+
+export type GetApiV1ObservabilityAlertRecommendationsByLifecycleIdEvidenceResponses = {
+    /**
+     * 请求成功
+     */
+    200: ObservabilityAlertRecommendationEvidenceResponse;
+};
+
+export type GetApiV1ObservabilityAlertRecommendationsByLifecycleIdEvidenceResponse = GetApiV1ObservabilityAlertRecommendationsByLifecycleIdEvidenceResponses[keyof GetApiV1ObservabilityAlertRecommendationsByLifecycleIdEvidenceResponses];
 
 export type PostApiV1ObservabilityAlertRecommendationsByLifecycleIdFeedbackData = {
     body: ObservabilityAlertRecommendationFeedbackCommand;

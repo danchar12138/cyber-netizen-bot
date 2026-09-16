@@ -285,6 +285,37 @@ class ObservabilityAlertRecommendationResponse(BaseModel):
     automation_allowed: bool
 
 
+class ObservabilityAlertRecommendationEvidenceResponse(BaseModel):
+    """告警建议的固定白名单证据摘要。"""
+
+    lifecycle_id: UUID
+    source_type: str = Field(min_length=1, max_length=80)
+    source_key: str = Field(min_length=1, max_length=255)
+    code: str = Field(min_length=1, max_length=100)
+    evaluated_at: datetime
+    current_value: float
+    threshold_value: float
+    unit: str = Field(min_length=1, max_length=40)
+    active_minutes: int = Field(ge=0)
+    occurrences: int = Field(ge=1)
+    escalation_level: int = Field(ge=0, le=3)
+    baseline_anomalous: bool
+    baseline_median: float | None = Field(default=None, ge=0)
+    baseline_mad: float | None = Field(default=None, ge=0)
+    baseline_threshold: float | None = Field(default=None, ge=0)
+    baseline_samples: tuple[int, ...] = Field(max_length=30)
+    action: ObservabilityAlertRecommendationAction
+    priority: ObservabilityAlertRecommendationPriority
+    confidence: float = Field(ge=0, le=1)
+    reason_codes: tuple[ObservabilityAlertRecommendationReason, ...] = Field(
+        min_length=1, max_length=6
+    )
+    guardrail_codes: tuple[ObservabilityAlertRecommendationGuardrail, ...] = Field(
+        min_length=3, max_length=3
+    )
+    evidence_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class ObservabilityAlertRecommendationFeedbackCommand(BaseModel):
     """仅提交人工结论，建议快照由服务端重算。"""
 

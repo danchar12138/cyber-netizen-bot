@@ -1102,6 +1102,77 @@ async def test_alert_recommendations_are_deterministic_scoped_and_never_execute(
     assert other_agent == ()
 
 
+async def test_alert_recommendation_evidence_is_stable_scoped_and_safe() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    repository = MemoryObservabilityRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+    now = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    alert = ActiveAlert(
+        code="api_error_rate",
+        severity=AlertSeverity.CRITICAL,
+        title="证据摘要测试",
+        summary="不得进入证据响应",
+        current_value=20,
+        threshold_value=10,
+        unit="%",
+        source_type="api",
+        source_key="evidence",
+        first_occurred_at=now - timedelta(minutes=30),
+        last_occurred_at=now,
+    )
+    reconciliation = await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(alert,),
+        observed_at=now,
+    )
+    lifecycle_id = reconciliation.active_lifecycles[0].id
+
+    evidence = await service.alert_recommendation_evidence(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=lifecycle_id,
+        now=now,
+    )
+    repeated = await service.alert_recommendation_evidence(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=lifecycle_id,
+        now=now,
+    )
+
+    assert evidence == repeated
+    assert evidence.current_value == 20
+    assert evidence.threshold_value == 10
+    assert evidence.active_minutes == 30
+    assert len(evidence.evidence_fingerprint) == 64
+    assert "不得进入证据响应" not in repr(evidence)
+    with pytest.raises(ObservabilityNotFoundError):
+        await service.alert_recommendation_evidence(
+            tenant_id=tenant_id,
+            agent_id=uuid4(),
+            lifecycle_id=lifecycle_id,
+            now=now,
+        )
+
+    await repository.reconcile_observability_alert_lifecycles(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        alerts=(),
+        observed_at=now + timedelta(minutes=1),
+    )
+    with pytest.raises(ObservabilityConflictError):
+        await service.alert_recommendation_evidence(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lifecycle_id=lifecycle_id,
+            now=now + timedelta(minutes=1),
+        )
+
+
 async def test_alert_recommendations_reject_an_unbounded_active_scan() -> None:
     tenant_id, agent_id = uuid4(), uuid4()
     now = datetime(2026, 9, 15, 12, tzinfo=UTC)

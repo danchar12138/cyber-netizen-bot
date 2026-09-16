@@ -15,6 +15,7 @@ import {
   getObservabilityAlertOperationsSummary,
   getObservabilityAlertRecommendationCalibration,
   getObservabilityAlertRecommendationCalibrationReplay,
+  getObservabilityAlertRecommendationEvidence,
   getObservabilityAlertRecommendationQuality,
   getObservabilityAlertRecommendations,
   getObservabilityAlertReplayMetrics,
@@ -25,6 +26,7 @@ import {
   type ObservabilityAlertLifecycle,
   type ObservabilityAlertRecommendationAction,
   type ObservabilityAlertRecommendation,
+  type ObservabilityAlertRecommendationEvidence,
 } from '../api'
 import { useSelectedAgentId } from '../agentSelection'
 import {
@@ -81,6 +83,7 @@ export function ObservabilityPage() {
   const [alternativeActions, setAlternativeActions] = useState<Record<string, ObservabilityAlertRecommendationAction | ''>>({})
   const [selectedLifecycleIds, setSelectedLifecycleIds] = useState<Set<string>>(new Set())
   const [historyLifecycle, setHistoryLifecycle] = useState<ObservabilityAlertLifecycle | null>(null)
+  const [evidenceLifecycleId, setEvidenceLifecycleId] = useState<string | null>(null)
   const recommendationDispositionCompleted = useRef(new Set<string>())
   const selectedAgentId = useSelectedAgentId()
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
@@ -90,6 +93,7 @@ export function ObservabilityPage() {
   useEffect(() => {
     setSelectedLifecycleIds(new Set())
     setHistoryLifecycle(null)
+    setEvidenceLifecycleId(null)
   }, [selectedAgentId, alertStatus, alertSourceType, alertSeverity, minimumDurationMinutes])
   const dashboard = useQuery({
     queryKey: ['observability-dashboard', selectedAgentId],
@@ -152,6 +156,11 @@ export function ObservabilityPage() {
     queryFn: getObservabilityAlertRecommendationCalibrationReplay,
     enabled: canReadTrace,
     refetchInterval: 30_000,
+  })
+  const recommendationEvidence = useQuery<ObservabilityAlertRecommendationEvidence>({
+    queryKey: ['observability-alert-recommendation-evidence', selectedAgentId, evidenceLifecycleId],
+    queryFn: () => getObservabilityAlertRecommendationEvidence(evidenceLifecycleId!),
+    enabled: canReadTrace && evidenceLifecycleId !== null,
   })
   const alertLifecycles = useInfiniteQuery({
     queryKey: [
@@ -548,9 +557,10 @@ export function ObservabilityPage() {
         <div className="alert-recommendation-list">{recommendations.map((item) => <article key={item.lifecycle_id} className={`recommendation-${item.priority}`}>
           <div className="recommendation-heading"><span className={`entity-status priority-${item.priority}`}>{displayLabel(observabilityRecommendationPriorityLabels, item.priority)}</span><div><strong>{displayLabel(observabilityAlertCodeLabels, item.code)}</strong><small>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)} · 持续 {formatDuration(item.active_minutes * 60)} · 出现 {item.occurrences} 次 · 置信度 {(item.confidence * 100).toFixed(0)}%</small></div></div>
           <div className="recommendation-reasons"><strong>{displayLabel(observabilityRecommendationActionLabels, item.action)}</strong><span>{item.reason_codes.map((reason) => displayLabel(observabilityRecommendationReasonLabels, reason)).join(' · ')}</span><small>{item.guardrail_codes.map((guardrail) => displayLabel(observabilityRecommendationGuardrailLabels, guardrail)).join(' · ')}</small></div>
-          <div className="recommendation-actions">{!canManageAlerts
+          <div className="recommendation-actions"><button className="icon-button" title="查看建议依据" aria-label={`查看 ${displayLabel(observabilityAlertCodeLabels, item.code)} 建议依据`} onClick={() => setEvidenceLifecycleId((current) => current === item.lifecycle_id ? null : item.lifecycle_id)}><ClipboardList size={14} /></button>{!canManageAlerts
             ? <span className="subtle">当前角色只读</span>
             : <><button className="secondary-button" disabled={recommendationFeedbackMutation.isPending} onClick={() => submitRecommendationFeedback(item, 'accepted')}><CheckCircle2 size={14} />{item.action === 'suppress' ? `确认抑制 ${item.suggested_suppression_minutes} 分钟` : item.action === 'observe' ? '采纳继续观察' : '确认并接手调查'}</button><label className="status-filter"><span>替代动作</span><select aria-label="驳回后的替代动作" value={alternativeActions[item.lifecycle_id] ?? ''} onChange={(event) => setAlternativeActions((current) => ({ ...current, [item.lifecycle_id]: event.target.value as ObservabilityAlertRecommendationAction | '' }))}><option value="">未标注</option><option value="acknowledge">确认</option><option value="suppress">抑制</option><option value="observe">观察</option></select></label><button disabled={recommendationFeedbackMutation.isPending} onClick={() => submitRecommendationFeedback(item, 'rejected')}><X size={14} />驳回建议</button></>}</div>
+          {evidenceLifecycleId === item.lifecycle_id && <div className="recommendation-evidence" aria-label="告警建议安全证据"><div className="recommendation-evidence-heading"><strong>安全证据摘要</strong><code>{recommendationEvidence.data?.evidence_fingerprint?.slice(0, 12) ?? (recommendationEvidence.isLoading ? '读取中' : '不可用')}</code></div>{recommendationEvidence.isError && <div className="notice error" role="alert">无法读取当前建议依据，建议仍不会自动执行。</div>}{recommendationEvidence.data && <dl className="settings-list"><div><dt>当前值 / 阈值</dt><dd>{recommendationEvidence.data.current_value} / {recommendationEvidence.data.threshold_value} {recommendationEvidence.data.unit}</dd></div><div><dt>生命周期</dt><dd>持续 {formatDuration(recommendationEvidence.data.active_minutes * 60)} · 出现 {recommendationEvidence.data.occurrences} 次 · 升级 L{recommendationEvidence.data.escalation_level}</dd></div><div><dt>稳健基线</dt><dd>{recommendationEvidence.data.baseline_anomalous ? '检测到异常' : '未检测到异常'} · 中位数 {recommendationEvidence.data.baseline_median ?? '—'} · MAD {recommendationEvidence.data.baseline_mad ?? '—'}</dd></div><div><dt>基线样本</dt><dd>{recommendationEvidence.data.baseline_samples.length ? recommendationEvidence.data.baseline_samples.join('、') : '暂无同来源样本'}</dd></div><div><dt>重算时间</dt><dd>{new Date(recommendationEvidence.data.evaluated_at).toLocaleString('zh-CN')}</dd></div></dl>}</div>}
         </article>)}</div>
       </section>
 
