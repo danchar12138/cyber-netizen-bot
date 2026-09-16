@@ -193,6 +193,11 @@ from cnb_domain.observability import (
     ObservabilityMetrics,
     QueueMetrics,
 )
+from cnb_domain.quality import (
+    QualityDataCoverage,
+    QualityEvaluationScope,
+    UnifiedQualityOverview,
+)
 from cnb_domain.tasks import (
     BackgroundJob,
     BackgroundJobKind,
@@ -388,6 +393,8 @@ __all__ = [
     "OutboxEventStatus",
     "PendingAgentRun",
     "PersonaStateSnapshot",
+    "QualityDataCoverage",
+    "QualityEvaluationScope",
     "QueueMetrics",
     "RawMemoryCandidate",
     "Relationship",
@@ -402,5 +409,6 @@ __all__ = [
     "SecretMetadata",
     "SocialBudgetUsage",
     "TaskCounts",
+    "UnifiedQualityOverview",
     "WorkerHeartbeat",
 ]

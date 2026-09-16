@@ -9,7 +9,7 @@ import {
   getEvaluationComparison,
   getEvaluationComparisons,
   getEvaluationComparisonTargets,
-  getEvaluationReport,
+  getUnifiedQualityOverview,
   getEvaluationRun,
   getEvaluationRuns,
   getEvaluationSuites,
@@ -60,6 +60,19 @@ function scoreLabel(value: number) {
 
 function formatCost(microusd: number) {
   return `$${(microusd / 1_000_000).toFixed(6)}`
+}
+
+const qualityCoverageLabels = {
+  complete: '证据完整',
+  evaluation_only: '仅有拟人评测',
+  operations_only: '仅有告警运营',
+  empty: '暂无质量证据',
+} as const
+
+function formatQualityWindow(minutes: number) {
+  if (minutes % 1_440 === 0) return `近 ${minutes / 1_440} 天`
+  if (minutes % 60 === 0) return `近 ${minutes / 60} 小时`
+  return `近 ${minutes} 分钟`
 }
 
 function ScoreEditor({
@@ -118,7 +131,10 @@ export function EvaluationsPage() {
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const suites = useQuery({ queryKey: ['evaluation-suites', selectedAgentId], queryFn: getEvaluationSuites })
   const runs = useQuery({ queryKey: ['evaluation-runs', selectedAgentId], queryFn: getEvaluationRuns })
-  const report = useQuery({ queryKey: ['evaluation-report', selectedAgentId], queryFn: getEvaluationReport })
+  const quality = useQuery({
+    queryKey: ['evaluation-quality-overview', selectedAgentId, 10_080],
+    queryFn: () => getUnifiedQualityOverview(10_080),
+  })
   const comparisonTargets = useQuery({
     queryKey: ['evaluation-comparison-targets', selectedAgentId],
     queryFn: getEvaluationComparisonTargets,
@@ -158,7 +174,7 @@ export function EvaluationsPage() {
 
   const refresh = async () => {
     await invalidateAcrossTabs(queryClient, ['evaluation-runs'])
-    await queryClient.invalidateQueries({ queryKey: ['evaluation-report'] })
+    await queryClient.invalidateQueries({ queryKey: ['evaluation-quality-overview'] })
   }
   const createSuite = useMutation({
     mutationFn: () => {
@@ -218,7 +234,7 @@ export function EvaluationsPage() {
     },
     onSuccess: async () => {
       setAssignment(null)
-      await queryClient.invalidateQueries({ queryKey: ['evaluation-report'] })
+      await queryClient.invalidateQueries({ queryKey: ['evaluation-quality-overview'] })
     },
   })
 
@@ -245,11 +261,25 @@ export function EvaluationsPage() {
       <div className="notice info"><Eye size={17} /><div><strong>提交前保持双盲</strong><span>人工评审任务只显示 A/B 回答，不返回候选位置、模型、版本或自动门禁结论；提交后由服务端去盲聚合。</span></div></div>
       {operationError && <div className="notice error">{operationError.message}</div>}
 
-      <section className="evaluation-metrics" aria-label="评测概览">
-        <article><span>自动回归</span><strong>{report.data?.total_runs ?? 0}</strong><small>{report.data?.gate_passed_runs ?? 0} 次通过门禁</small></article>
-        <article><span>最近通过率</span><strong>{report.data?.latest_pass_rate?.toFixed(1) ?? '—'}%</strong><small>冻结配置与模型版本</small></article>
-        <article><span>待我盲评</span><strong>{report.data?.pending_reviews ?? 0}</strong><small>已完成 {report.data?.completed_reviews ?? 0} 份</small></article>
-        <article><span>候选 / 参考均分</span><strong>{report.data?.candidate_average_score?.toFixed(2) ?? '—'} / {report.data?.reference_average_score?.toFixed(2) ?? '—'}</strong><small>候选胜 {report.data?.candidate_wins ?? 0} · 平 {report.data?.ties ?? 0} · 参考胜 {report.data?.reference_wins ?? 0}</small></article>
+      <section className="quality-overview" aria-labelledby="quality-overview-title">
+        <div className="quality-overview-heading">
+          <div>
+            <h2 id="quality-overview-title">统一质量概览</h2>
+            <span>拟人：当前 Agent 全历史 · 告警：{formatQualityWindow(quality.data?.operations_window_minutes ?? 10_080)}</span>
+          </div>
+          <small>只读质量事实，不会自动调参、发布或处置告警</small>
+        </div>
+        {quality.error && <div className="notice error">质量概览加载失败：{quality.error.message}</div>}
+        <div className="evaluation-metrics">
+          <article><span>数据覆盖</span><strong>{quality.isPending ? '加载中' : qualityCoverageLabels[quality.data?.coverage ?? 'empty']}</strong><small>两类证据保持独立统计口径</small></article>
+          <article><span>自动回归</span><strong>{quality.data?.evaluation.total_runs ?? 0}</strong><small>{quality.data?.evaluation.gate_passed_runs ?? 0} 次通过门禁</small></article>
+          <article><span>最近通过率</span><strong>{quality.data?.evaluation.latest_pass_rate?.toFixed(1) ?? '—'}%</strong><small>冻结配置与模型版本</small></article>
+          <article><span>盲评进度</span><strong>{quality.data?.evaluation.completed_reviews ?? 0}</strong><small>待我评审 {quality.data?.evaluation.pending_reviews ?? 0} 份</small></article>
+          <article><span>候选 / 参考均分</span><strong>{quality.data?.evaluation.candidate_average_score?.toFixed(2) ?? '—'} / {quality.data?.evaluation.reference_average_score?.toFixed(2) ?? '—'}</strong><small>候选胜 {quality.data?.evaluation.candidate_wins ?? 0} · 平 {quality.data?.evaluation.ties ?? 0} · 参考胜 {quality.data?.evaluation.reference_wins ?? 0}</small></article>
+          <article><span>告警建议接受率</span><strong>{quality.data?.alert_recommendations.acceptance_rate_percent.toFixed(1) ?? '—'}%</strong><small>接受 {quality.data?.alert_recommendations.accepted ?? 0} / 反馈 {quality.data?.alert_recommendations.total ?? 0}</small></article>
+          <article><span>已接受建议后状态</span><strong>{quality.data?.alert_recommendations.accepted_resolved ?? 0} / {quality.data?.alert_recommendations.accepted_active ?? 0}</strong><small>已恢复 / 仍活动，仅表示观察事实</small></article>
+          <article><span>通知重放复核</span><strong>{quality.data?.alert_recommendations.replay_allowed ?? 0} / {quality.data?.alert_recommendations.replay_blocked ?? 0}</strong><small>允许 / 阻止，共 {quality.data?.alert_recommendations.replay_total ?? 0} 次</small></article>
+        </div>
       </section>
 
       {editing && <section className="panel evaluation-editor">

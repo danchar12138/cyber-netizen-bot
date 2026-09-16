@@ -260,19 +260,41 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
     })
     await route.fulfill({ status: 201, json: comparison })
   })
-  await page.route('**/api/v1/evaluations/report', async (route) => {
+  await page.route('**/api/v1/evaluations/quality-overview?*', async (route) => {
     await route.fulfill({
       json: {
-        total_runs: 1,
-        gate_passed_runs: 1,
-        latest_pass_rate: 100,
-        pending_reviews: completedReviews ? 0 : 1,
-        completed_reviews: completedReviews,
-        candidate_wins: completedReviews,
-        reference_wins: 0,
-        ties: 0,
-        candidate_average_score: completedReviews ? 4.25 : null,
-        reference_average_score: completedReviews ? 3.25 : null,
+        generated_at: timestamp,
+        evaluation_scope: 'current_agent_all_history',
+        operations_window_minutes: 10080,
+        coverage: 'complete',
+        evaluation: {
+          total_runs: 1,
+          gate_passed_runs: 1,
+          latest_pass_rate: 100,
+          pending_reviews: completedReviews ? 0 : 1,
+          completed_reviews: completedReviews,
+          candidate_wins: completedReviews,
+          reference_wins: 0,
+          ties: 0,
+          candidate_average_score: completedReviews ? 4.25 : null,
+          reference_average_score: completedReviews ? 3.25 : null,
+        },
+        alert_recommendations: {
+          window_started_at: '2026-09-03T08:00:00Z',
+          window_ended_at: timestamp,
+          total: 4,
+          accepted: 3,
+          rejected: 1,
+          acceptance_rate_percent: 75,
+          accepted_resolved: 2,
+          accepted_active: 1,
+          replay_total: 3,
+          replay_allowed: 2,
+          replay_blocked: 1,
+          actions: [],
+          sources: [],
+        },
+        automatic_actions_allowed: false,
       },
     })
   })
@@ -302,6 +324,10 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
   })
 
   await page.goto('/evaluations')
+  await expect(page.getByText('拟人：当前 Agent 全历史 · 告警：近 7 天')).toBeVisible()
+  await expect(page.getByText('证据完整')).toBeVisible()
+  await expect(page.getByText('75.0%')).toBeVisible()
+  await expect(page.getByText('只读质量事实，不会自动调参、发布或处置告警')).toBeVisible()
   await page.getByRole('button', { name: '新建评测集' }).click()
   await page.getByRole('button', { name: '保存草稿' }).click()
   await expect(page.getByText('草稿', { exact: true })).toBeVisible()
@@ -324,7 +350,9 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
   await expect(page.locator('.blind-responses > article > strong').filter({ hasText: '回答 B' })).toBeVisible()
   await page.getByLabel('回答 A', { exact: true }).check()
   await page.getByRole('button', { name: '提交盲评' }).click()
-  await expect(page.getByText('已完成 1 份')).toBeVisible()
+  const reviewProgress = page.locator('.evaluation-metrics article').filter({ hasText: '盲评进度' })
+  await expect(reviewProgress.locator('strong')).toHaveText('1')
+  await expect(reviewProgress.locator('small')).toHaveText('待我评审 0 份')
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
 })
 

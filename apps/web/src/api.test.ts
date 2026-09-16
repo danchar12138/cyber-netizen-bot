@@ -21,6 +21,7 @@ import {
   getObservabilityAlertRecommendationEvidence,
   getObservabilityAlertRecommendationQuality,
   getObservabilityAlertRecommendations,
+  getUnifiedQualityOverview,
   getObservabilityAlertReplayMetrics,
   getObservabilityAlertReplayReviews,
   importConfigPackage,
@@ -510,6 +511,57 @@ describe('通用告警客户端', () => {
       reason: '维护窗口已结束',
       confirmed: true,
     })
+  })
+})
+
+describe('统一质量概览客户端', () => {
+  it('使用当前 Agent 和显式窗口读取统一质量事实', async () => {
+    setSelectedAgentId('33333333-3333-4333-8333-333333333333')
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      generated_at: '2026-09-16T08:30:00Z',
+      evaluation_scope: 'current_agent_all_history',
+      operations_window_minutes: 2880,
+      coverage: 'empty',
+      evaluation: {
+        total_runs: 0,
+        gate_passed_runs: 0,
+        latest_pass_rate: null,
+        pending_reviews: 0,
+        completed_reviews: 0,
+        candidate_wins: 0,
+        reference_wins: 0,
+        ties: 0,
+        candidate_average_score: null,
+        reference_average_score: null,
+      },
+      alert_recommendations: {
+        window_started_at: '2026-09-14T08:30:00Z',
+        window_ended_at: '2026-09-16T08:30:00Z',
+        total: 0,
+        accepted: 0,
+        rejected: 0,
+        acceptance_rate_percent: 0,
+        accepted_resolved: 0,
+        accepted_active: 0,
+        replay_total: 0,
+        replay_allowed: 0,
+        replay_blocked: 0,
+        actions: [],
+        sources: [],
+      },
+      automatic_actions_allowed: false,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getUnifiedQualityOverview(2_880)
+
+    const request = fetchMock.mock.calls[0]?.[0] as Request
+    const url = new URL(request.url)
+    expect(url.pathname).toBe('/api/v1/evaluations/quality-overview')
+    expect(url.searchParams.get('window_minutes')).toBe('2880')
+    expect(request.headers.get('X-CNB-Agent-ID')).toBe(
+      '33333333-3333-4333-8333-333333333333',
+    )
   })
 })
 

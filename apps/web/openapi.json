@@ -12858,6 +12858,25 @@
         "title": "PersonaStateResponse",
         "type": "object"
       },
+      "QualityDataCoverage": {
+        "description": "统一质量概览中两类证据的数据覆盖状态。",
+        "enum": [
+          "complete",
+          "evaluation_only",
+          "operations_only",
+          "empty"
+        ],
+        "title": "QualityDataCoverage",
+        "type": "string"
+      },
+      "QualityEvaluationScope": {
+        "description": "拟人评测聚合使用的稳定统计口径。",
+        "enum": [
+          "current_agent_all_history"
+        ],
+        "title": "QualityEvaluationScope",
+        "type": "string"
+      },
       "QueueMetricsResponse": {
         "description": "数据库任务队列当前积压。",
         "properties": {
@@ -13930,6 +13949,50 @@
           "checked_at"
         ],
         "title": "TelegramWebhookStatusResponse",
+        "type": "object"
+      },
+      "UnifiedQualityOverviewResponse": {
+        "description": "拟人全历史与告警有界窗口的统一只读质量概览。",
+        "properties": {
+          "alert_recommendations": {
+            "$ref": "#/components/schemas/ObservabilityAlertRecommendationQualityMetricsResponse"
+          },
+          "automatic_actions_allowed": {
+            "const": false,
+            "title": "Automatic Actions Allowed",
+            "type": "boolean"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/QualityDataCoverage"
+          },
+          "evaluation": {
+            "$ref": "#/components/schemas/EvaluationReportResponse"
+          },
+          "evaluation_scope": {
+            "$ref": "#/components/schemas/QualityEvaluationScope"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "operations_window_minutes": {
+            "maximum": 525600.0,
+            "minimum": 5.0,
+            "title": "Operations Window Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "generated_at",
+          "evaluation_scope",
+          "operations_window_minutes",
+          "coverage",
+          "evaluation",
+          "alert_recommendations",
+          "automatic_actions_allowed"
+        ],
+        "title": "UnifiedQualityOverviewResponse",
         "type": "object"
       },
       "UserAccessPolicyUpdateCommand": {
@@ -27547,6 +27610,132 @@
           }
         },
         "summary": "读取受权限保护的多模型对比及逐用例完整回答",
+        "tags": [
+          "评测实验室"
+        ]
+      }
+    },
+    "/api/v1/evaluations/quality-overview": {
+      "get": {
+        "description": "组合当前 Agent 的全历史拟人评测与有界告警运营质量事实。",
+        "operationId": "get_api_v1_evaluations_quality_overview",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window_minutes",
+            "required": false,
+            "schema": {
+              "default": 10080,
+              "maximum": 525600,
+              "minimum": 5,
+              "title": "Window Minutes",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnifiedQualityOverviewResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "组合当前 Agent 的全历史拟人评测与有界告警运营质量事实",
         "tags": [
           "评测实验室"
         ]

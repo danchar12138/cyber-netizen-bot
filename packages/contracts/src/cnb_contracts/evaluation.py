@@ -6,11 +6,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
+from cnb_contracts.observability import ObservabilityAlertRecommendationQualityMetricsResponse
 from cnb_domain import (
     BlindReviewPreference,
     EvaluationComparisonStatus,
     EvaluationRunStatus,
     EvaluationSuiteStatus,
+    QualityDataCoverage,
+    QualityEvaluationScope,
 )
 
 
@@ -320,3 +323,15 @@ class EvaluationReportResponse(BaseModel):
     ties: int
     candidate_average_score: float | None
     reference_average_score: float | None
+
+
+class UnifiedQualityOverviewResponse(BaseModel):
+    """拟人全历史与告警有界窗口的统一只读质量概览。"""
+
+    generated_at: datetime
+    evaluation_scope: QualityEvaluationScope
+    operations_window_minutes: int = Field(ge=5, le=525_600)
+    coverage: QualityDataCoverage
+    evaluation: EvaluationReportResponse
+    alert_recommendations: ObservabilityAlertRecommendationQualityMetricsResponse
+    automatic_actions_allowed: Literal[False]

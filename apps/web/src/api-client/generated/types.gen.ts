@@ -7674,6 +7674,20 @@ export type PersonaStateResponse = {
 };
 
 /**
+ * QualityDataCoverage
+ *
+ * 统一质量概览中两类证据的数据覆盖状态。
+ */
+export type QualityDataCoverage = 'complete' | 'evaluation_only' | 'operations_only' | 'empty';
+
+/**
+ * QualityEvaluationScope
+ *
+ * 拟人评测聚合使用的稳定统计口径。
+ */
+export type QualityEvaluationScope = 'current_agent_all_history';
+
+/**
  * QueueMetricsResponse
  *
  * 数据库任务队列当前积压。
@@ -8341,6 +8355,30 @@ export type TelegramWebhookStatusResponse = {
      */
     pending_update_count: number;
     status: ChannelHealthStatus;
+};
+
+/**
+ * UnifiedQualityOverviewResponse
+ *
+ * 拟人全历史与告警有界窗口的统一只读质量概览。
+ */
+export type UnifiedQualityOverviewResponse = {
+    alert_recommendations: ObservabilityAlertRecommendationQualityMetricsResponse;
+    /**
+     * Automatic Actions Allowed
+     */
+    automatic_actions_allowed: false;
+    coverage: QualityDataCoverage;
+    evaluation: EvaluationReportResponse;
+    evaluation_scope: QualityEvaluationScope;
+    /**
+     * Generated At
+     */
+    generated_at: string;
+    /**
+     * Operations Window Minutes
+     */
+    operations_window_minutes: number;
 };
 
 /**
@@ -14880,6 +14918,68 @@ export type GetApiV1EvaluationsComparisonsByComparisonIdResponses = {
 };
 
 export type GetApiV1EvaluationsComparisonsByComparisonIdResponse = GetApiV1EvaluationsComparisonsByComparisonIdResponses[keyof GetApiV1EvaluationsComparisonsByComparisonIdResponses];
+
+export type GetApiV1EvaluationsQualityOverviewData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Window Minutes
+         */
+        window_minutes?: number;
+    };
+    url: '/api/v1/evaluations/quality-overview';
+};
+
+export type GetApiV1EvaluationsQualityOverviewErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1EvaluationsQualityOverviewError = GetApiV1EvaluationsQualityOverviewErrors[keyof GetApiV1EvaluationsQualityOverviewErrors];
+
+export type GetApiV1EvaluationsQualityOverviewResponses = {
+    /**
+     * 请求成功
+     */
+    200: UnifiedQualityOverviewResponse;
+};
+
+export type GetApiV1EvaluationsQualityOverviewResponse = GetApiV1EvaluationsQualityOverviewResponses[keyof GetApiV1EvaluationsQualityOverviewResponses];
 
 export type GetApiV1EvaluationsReportData = {
     body?: never;

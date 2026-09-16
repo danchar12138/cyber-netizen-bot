@@ -484,10 +484,16 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .evaluation-list li { color: #6c8d81; font-size: 8px; }
 .evaluation-list li.passed { color: #62b982; }
 .evaluation-list li.failed { color: #d88974; }
-.evaluation-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 13px; }
+.quality-overview { margin-bottom: 13px; }
+.quality-overview-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+.quality-overview-heading > div { display: grid; min-width: 0; gap: 4px; }
+.quality-overview-heading h2 { margin: 0; color: #b8d2c7; font-size: 13px; }
+.quality-overview-heading span, .quality-overview-heading small { color: #66877b; font-size: 8px; line-height: 1.5; }
+.quality-overview-heading small { max-width: 300px; text-align: right; }
+.evaluation-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .evaluation-metrics article { min-height: 92px; display: grid; align-content: center; gap: 5px; padding: 14px; border: 1px solid #1d3b31; background: #0a1814; border-radius: 9px; }
 .evaluation-metrics span, .evaluation-metrics small { color: #66877b; font-size: 8px; }
-.evaluation-metrics strong { color: #b8d2c7; font-size: 17px; }
+.evaluation-metrics strong { min-width: 0; overflow-wrap: anywhere; color: #b8d2c7; font-size: 17px; }
 .evaluation-editor, .evaluation-suite-panel, .comparison-panel, .blind-review-panel { margin-bottom: 13px; }
 .evaluation-form-grid { display: grid; grid-template-columns: 1.2fr 1.5fr .7fr .8fr; gap: 10px; }
 .evaluation-form-grid label, .evaluation-suite-select, .blind-submit > label { display: grid; gap: 6px; color: #73978a; font-size: 9px; }
@@ -832,6 +838,8 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .settings-grid { grid-template-columns: 1fr; }
   .cognition-form-row, .cognition-version, .trace-grid, .observability-grid { grid-template-columns: 1fr; }
   .evaluation-metrics, .evaluation-form-grid, .evaluation-workspace, .comparison-entry-card dl, .blind-responses, .blind-submit { grid-template-columns: 1fr; }
+  .quality-overview-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .quality-overview-heading small { max-width: none; text-align: left; }
   .trace-grid .model-invocations { grid-column: auto; }
   .trace-search { align-items: stretch; flex-direction: column; }
   .model-cost-list article { grid-template-columns: 1fr; }

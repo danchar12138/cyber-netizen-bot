@@ -204,6 +204,11 @@ from cnb_application.pagination import (
     decode_cursor,
     encode_cursor,
 )
+from cnb_application.quality_service import (
+    AlertRecommendationQualityReader,
+    EvaluationQualityReader,
+    QualityOverviewService,
+)
 from cnb_application.task_handlers import (
     EmbeddingRebuildTaskHandler,
     EpisodeConsolidationTaskHandler,
@@ -251,6 +256,7 @@ __all__ = [
     "AlertNotificationService",
     "AlertNotificationValidationError",
     "AlertPolicyValidationError",
+    "AlertRecommendationQualityReader",
     "ApiRequestObservation",
     "AttachmentConflictError",
     "AttachmentNotFoundError",
@@ -314,6 +320,7 @@ __all__ = [
     "EvaluationCaseDraft",
     "EvaluationConflictError",
     "EvaluationNotFoundError",
+    "EvaluationQualityReader",
     "EvaluationRepository",
     "EvaluationService",
     "EvaluationValidationError",
@@ -384,6 +391,7 @@ __all__ = [
     "PermanentTaskError",
     "PermissionDeniedError",
     "PreparedAlertNotification",
+    "QualityOverviewService",
     "ReflectionSourceRepository",
     "ReflectionTaskHandler",
     "RelationshipUpdateTaskHandler",

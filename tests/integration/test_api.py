@@ -71,9 +71,11 @@ from cnb_contracts import (
     ObservabilityDashboardResponse,
     SystemOverviewResponse,
     TaskStatusResponse,
+    UnifiedQualityOverviewResponse,
 )
 from cnb_domain import (
     ActiveAlert,
+    AdminPermission,
     AdminPrincipal,
     AdminRole,
     AlertSeverity,
@@ -1116,6 +1118,18 @@ async def test_persisted_evaluation_replay_and_blind_review_api() -> None:
             },
         )
         report_response = await client.get("/api/v1/evaluations/report")
+        quality_response = await client.get(
+            "/api/v1/evaluations/quality-overview",
+            params={"window_minutes": 2_880},
+        )
+        second_agent = await client.post(
+            "/api/v1/administration/agents",
+            json={"name": "质量概览隔离 Agent"},
+        )
+        isolated_quality_response = await client.get(
+            "/api/v1/evaluations/quality-overview",
+            headers={"X-CNB-Agent-ID": second_agent.json()["id"]},
+        )
         viewer_suite_create = await client.post(
             "/api/v1/evaluations/suites",
             headers={"X-CNB-Development-Role": "viewer"},
@@ -1135,6 +1149,10 @@ async def test_persisted_evaluation_replay_and_blind_review_api() -> None:
         )
 
     report = EvaluationReportResponse.model_validate(report_response.json())
+    quality = UnifiedQualityOverviewResponse.model_validate(quality_response.json())
+    isolated_quality = UnifiedQualityOverviewResponse.model_validate(
+        isolated_quality_response.json()
+    )
     assert run_response.status_code == 201
     assert run.passed == run.total == 5
     assert run.gate_passed is True
@@ -1157,7 +1175,75 @@ async def test_persisted_evaluation_replay_and_blind_review_api() -> None:
     assert report.total_runs == 1
     assert report.completed_reviews == 1
     assert report.pending_reviews == 3
+    assert quality.operations_window_minutes == 2_880
+    assert quality.evaluation_scope == "current_agent_all_history"
+    assert quality.coverage == "evaluation_only"
+    assert quality.evaluation.total_runs == 1
+    assert quality.alert_recommendations.total == 0
+    assert quality.automatic_actions_allowed is False
+    assert isolated_quality.coverage == "empty"
+    assert isolated_quality.evaluation.total_runs == 0
     assert viewer_suite_create.status_code == 403
+
+
+async def test_unified_quality_overview_requires_both_read_permissions() -> None:
+    """聚合接口缺少任一读取权限时都必须拒绝访问。"""
+    tenant_id, user_id, agent_id = uuid4(), uuid4(), uuid4()
+    identity = DevelopmentIdentity(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        agent_id=agent_id,
+        user_name="质量权限测试用户",
+        agent_name="质量权限测试 Agent",
+    )
+
+    class PermissionPreservingRepository(MemoryAdministrationRepository):
+        async def authorize_admin_request(
+            self,
+            *,
+            principal: AdminPrincipal,
+            requested_at: datetime,
+            window_started_at: datetime,
+        ) -> AdminPrincipal:
+            return principal
+
+    for permissions in (
+        frozenset({AdminPermission.COGNITION_READ}),
+        frozenset({AdminPermission.TRACE_READ}),
+    ):
+        principal = AdminPrincipal(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            display_name=identity.user_name,
+            role=AdminRole.VIEWER,
+            permissions=permissions,
+            authentication_mode="oidc",
+        )
+        app = create_app(
+            Settings(
+                environment="test",
+                authentication_mode="oidc",
+                oidc_issuer_url="https://identity.example.test/realms/cnb",
+                oidc_client_id="cyber-netizen-web",
+                oidc_audience="cyber-netizen-api",
+                oidc_tenant_id=tenant_id,
+                oidc_agent_id=agent_id,
+            ),
+            configuration_repository=MemoryConfigurationRepository(),
+            conversation_repository=MemoryConversationRepository(),
+            administration_repository=PermissionPreservingRepository(identity),
+            admin_authenticator=FakeOidcAuthenticator(principal),
+        )
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.get(
+                "/api/v1/evaluations/quality-overview",
+                headers={"Authorization": "Bearer signed-test-token"},
+            )
+
+        assert response.status_code == 403
 
 
 async def test_multi_model_comparison_api_exposes_governed_targets_and_isolated_detail() -> None:

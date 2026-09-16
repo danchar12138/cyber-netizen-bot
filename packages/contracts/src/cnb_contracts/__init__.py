@@ -180,6 +180,7 @@ from cnb_contracts.evaluation import (
     EvaluationSuiteCreate,
     EvaluationSuiteDefinitionResponse,
     EvaluationSuiteListResponse,
+    UnifiedQualityOverviewResponse,
 )
 from cnb_contracts.health import (
     BootstrapSettingsResponse,
@@ -557,6 +558,7 @@ __all__ = [
     "TelegramWebhookClearCommand",
     "TelegramWebhookRegisterCommand",
     "TelegramWebhookStatusResponse",
+    "UnifiedQualityOverviewResponse",
     "UserAccessPolicyUpdateCommand",
     "UserDataExportCommand",
     "UserDataForgetCommand",

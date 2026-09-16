@@ -44,6 +44,7 @@ from cnb_application import (
     ObservabilityNotificationReplayGuard,
     ObservabilityRepository,
     ObservabilityService,
+    QualityOverviewService,
     ScheduledActionService,
     SecretManagementService,
     SecretStore,
@@ -484,6 +485,19 @@ def get_observability_service(
         repository,
         configuration_service,
         audit_recorder=administration_repository,
+    )
+
+
+def get_quality_overview_service(
+    evaluation_service: Annotated[EvaluationService, Depends(get_evaluation_service)],
+    observability_service: Annotated[ObservabilityService, Depends(get_observability_service)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+) -> QualityOverviewService:
+    """构建绑定当前 Agent 的统一只读质量概览服务。"""
+    return QualityOverviewService(
+        evaluation_service,
+        observability_service,
+        agent_id=identity.agent_id,
     )
 
 

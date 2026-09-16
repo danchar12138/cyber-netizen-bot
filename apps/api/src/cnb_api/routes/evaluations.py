@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from cnb_api.dependencies import (
     get_admin_principal,
     get_evaluation_service,
+    get_quality_overview_service,
     require_permission,
 )
 from cnb_application import (
@@ -16,6 +17,8 @@ from cnb_application import (
     EvaluationNotFoundError,
     EvaluationService,
     EvaluationValidationError,
+    ObservabilityValidationError,
+    QualityOverviewService,
 )
 from cnb_contracts import (
     BlindReviewAssignmentCreate,
@@ -36,10 +39,39 @@ from cnb_contracts import (
     EvaluationSuiteCreate,
     EvaluationSuiteDefinitionResponse,
     EvaluationSuiteListResponse,
+    UnifiedQualityOverviewResponse,
 )
 from cnb_domain import AdminPermission, AdminPrincipal, BlindReviewScore
 
 router = APIRouter(prefix="/evaluations", tags=["evaluations"])
+
+
+@router.get(
+    "/quality-overview",
+    response_model=UnifiedQualityOverviewResponse,
+    dependencies=[
+        Depends(require_permission(AdminPermission.COGNITION_READ)),
+        Depends(require_permission(AdminPermission.TRACE_READ)),
+    ],
+)
+async def get_unified_quality_overview(
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[QualityOverviewService, Depends(get_quality_overview_service)],
+    window_minutes: Annotated[int, Query(ge=5, le=525_600)] = 10_080,
+) -> UnifiedQualityOverviewResponse:
+    """组合当前 Agent 的全历史拟人评测与有界告警运营质量事实。"""
+    try:
+        overview = await service.get_overview(
+            tenant_id=principal.tenant_id,
+            reviewer_id=principal.user_id,
+            window_minutes=window_minutes,
+        )
+    except ObservabilityValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(error),
+        ) from error
+    return UnifiedQualityOverviewResponse.model_validate(overview, from_attributes=True)
 
 
 @router.get(

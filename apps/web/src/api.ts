@@ -61,6 +61,7 @@ import type {
   ObservabilityAlertReplayReviewResponse,
   ObservabilityAlertSuppressionCommand,
   TelegramWebhookStatusResponse,
+  UnifiedQualityOverviewResponse,
 } from './api-client/generated/types.gen'
 import {
   ApiClientError,
@@ -944,6 +945,8 @@ export interface EvaluationReport {
   candidate_average_score: number | null
   reference_average_score: number | null
 }
+
+export type UnifiedQualityOverview = UnifiedQualityOverviewResponse
 
 export type EvaluationModelTarget = EvaluationModelTargetResponse
 export type EvaluationComparison = EvaluationComparisonResponse
@@ -1937,6 +1940,11 @@ export const getEvaluationComparison = (comparisonId: string) =>
 
 export const getEvaluationReport = () =>
   apiSdk.getApiV1EvaluationsReport()
+
+export const getUnifiedQualityOverview = (windowMinutes = 10_080) =>
+  apiSdk.getApiV1EvaluationsQualityOverview({
+    query: { window_minutes: windowMinutes },
+  })
 
 export const claimBlindReviewAssignment = (runId: string | null = null) =>
   apiSdk.postApiV1EvaluationsBlindAssignments({ body: { run_id: runId } })
