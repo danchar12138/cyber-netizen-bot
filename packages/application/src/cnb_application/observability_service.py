@@ -3,11 +3,12 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from math import ceil, sqrt
 from statistics import median
 from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
-from cnb_application.configuration_service import ConfigurationService
+from cnb_application.configuration_service import ConfigurationConflictError, ConfigurationService
 from cnb_application.data_lifecycle_service import ObservabilityHistoryRepository
 from cnb_application.pagination import (
     EntityCursor,
@@ -18,7 +19,15 @@ from cnb_application.pagination import (
 from cnb_domain import (
     ActiveAlert,
     AlertSeverity,
+    ConfigEntry,
+    ConfigScope,
+    ConfigVersion,
     JsonValue,
+    ObservabilityAlertCalibrationAnalysis,
+    ObservabilityAlertCalibrationGroup,
+    ObservabilityAlertCalibrationProposal,
+    ObservabilityAlertCalibrationRule,
+    ObservabilityAlertCalibrationStatus,
     ObservabilityAlertDisposition,
     ObservabilityAlertDispositionAction,
     ObservabilityAlertDispositionEvent,
@@ -115,6 +124,18 @@ ObservabilityAlertHandoffReason = Literal[
 ALERT_OPERATIONS_SUMMARY_MAX_RECORDS = 10_000
 ALERT_RECOMMENDATION_SOURCE_SCAN_LIMIT = 500
 ALERT_RECOMMENDATION_QUALITY_MAX_RECORDS = 10_000
+ALERT_RECOMMENDATION_CALIBRATION_CONFIDENCE_Z = 1.96
+
+_CALIBRATION_KEYS = {
+    ObservabilityAlertCalibrationRule.LONG_RUNNING: (
+        "alerts.recommendation.long_running_minutes",
+        525_600,
+    ),
+    ObservabilityAlertCalibrationRule.REPEATED_WARNING: (
+        "alerts.recommendation.minimum_repeated_occurrences",
+        10_000,
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -1188,6 +1209,143 @@ class ObservabilityService:
             ),
         )
 
+    async def alert_recommendation_calibration_analysis(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        now: datetime | None = None,
+    ) -> ObservabilityAlertCalibrationAnalysis:
+        """用冻结人工反馈生成不执行调参的分组阈值评测。"""
+        ended_at = (now or datetime.now(UTC)).astimezone(UTC)
+        configuration = await self._configuration_service.resolve_effective(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+        )
+        window_days = self._integer(
+            configuration.values["alerts.recommendation.calibration.window_days"],
+            "alerts.recommendation.calibration.window_days",
+        )
+        minimum_samples = self._integer(
+            configuration.values["alerts.recommendation.calibration.minimum_samples_per_group"],
+            "alerts.recommendation.calibration.minimum_samples_per_group",
+        )
+        target_percent = self._number(
+            configuration.values[
+                "alerts.recommendation.calibration.target_acceptance_rate_percent"
+            ],
+            "alerts.recommendation.calibration.target_acceptance_rate_percent",
+        )
+        started_at = ended_at - timedelta(days=window_days)
+        feedback = await self._repository.list_observability_alert_recommendation_feedback(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            window_started_at=started_at,
+            window_ended_at=ended_at,
+            limit=ALERT_RECOMMENDATION_QUALITY_MAX_RECORDS + 1,
+        )
+        if len(feedback) > ALERT_RECOMMENDATION_QUALITY_MAX_RECORDS:
+            raise ObservabilityValidationError(
+                "建议校准分析超过 10000 条反馈安全上限，请缩短分析窗口"
+            )
+
+        eligible = tuple(
+            (item, rule)
+            for item in feedback
+            for rule in (self._calibration_rule(item),)
+            if rule is not None
+        )
+        grouped: dict[
+            tuple[ObservabilityAlertCalibrationRule, str],
+            list[ObservabilityAlertRecommendationFeedback],
+        ] = {}
+        by_rule: dict[
+            ObservabilityAlertCalibrationRule,
+            list[ObservabilityAlertRecommendationFeedback],
+        ] = {rule: [] for rule in ObservabilityAlertCalibrationRule}
+        for item, rule in eligible:
+            grouped.setdefault((rule, item.source_type), []).append(item)
+            by_rule[rule].append(item)
+
+        groups = tuple(
+            self._calibration_group(rule=rule, source_type=source_type, values=tuple(values))
+            for (rule, source_type), values in sorted(
+                grouped.items(), key=lambda entry: (entry[0][0].value, entry[0][1])
+            )
+        )
+        proposals = tuple(
+            self._calibration_proposal(
+                rule=rule,
+                values=tuple(by_rule[rule]),
+                minimum_samples=minimum_samples,
+                target_percent=target_percent,
+                current_value=self._integer(
+                    configuration.values[_CALIBRATION_KEYS[rule][0]],
+                    _CALIBRATION_KEYS[rule][0],
+                ),
+            )
+            for rule in ObservabilityAlertCalibrationRule
+        )
+        return ObservabilityAlertCalibrationAnalysis(
+            window_started_at=started_at,
+            window_ended_at=ended_at,
+            configuration_version=configuration.version,
+            minimum_samples_per_group=minimum_samples,
+            target_acceptance_rate_percent=target_percent,
+            confidence_level_percent=95.0,
+            total_feedback=len(feedback),
+            eligible_feedback=len(eligible),
+            groups=groups,
+            proposals=proposals,
+            automatic_tuning_allowed=False,
+        )
+
+    async def create_alert_recommendation_calibration_draft(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        actor_id: UUID,
+        configuration_version: int,
+        confirmed: bool,
+        now: datetime | None = None,
+    ) -> ConfigVersion:
+        """重算校准结论并只创建需另行发布的完整配置草稿。"""
+        if not confirmed:
+            raise ObservabilityValidationError("创建告警建议校准草稿必须显式确认")
+        analysis = await self.alert_recommendation_calibration_analysis(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            now=now,
+        )
+        if analysis.configuration_version != configuration_version:
+            raise ObservabilityConflictError("生效配置已在分析后变更，请刷新校准结果后重试")
+        changes = tuple(
+            proposal
+            for proposal in analysis.proposals
+            if proposal.status is ObservabilityAlertCalibrationStatus.TIGHTEN
+            and proposal.proposed_value != proposal.current_value
+        )
+        if not changes:
+            raise ObservabilityValidationError("当前反馈证据没有可创建的阈值变更草稿")
+        try:
+            return await self._configuration_service.create_derived_draft(
+                expected_base_version=configuration_version,
+                note=f"告警建议离线校准：基于 {analysis.eligible_feedback} 条合格人工反馈",
+                overrides=tuple(
+                    ConfigEntry(
+                        key=proposal.configuration_key,
+                        scope_type=ConfigScope.AGENT,
+                        scope_id=agent_id,
+                        value=proposal.proposed_value,
+                    )
+                    for proposal in changes
+                ),
+                actor_id=actor_id,
+            )
+        except ConfigurationConflictError as error:
+            raise ObservabilityConflictError(str(error)) from error
+
     async def acknowledge_alert(
         self,
         *,
@@ -1912,6 +2070,113 @@ class ObservabilityService:
             escalation_level=lifecycle.escalation_level,
             baseline_anomalous=baseline_anomalous,
             suggested_suppression_minutes=suggested_minutes,
+        )
+
+    @staticmethod
+    def _calibration_rule(
+        feedback: ObservabilityAlertRecommendationFeedback,
+    ) -> ObservabilityAlertCalibrationRule | None:
+        """只接受可单独归因到一个配置阈值的冻结反馈。"""
+        if (
+            feedback.recommendation_action is ObservabilityAlertRecommendationAction.ACKNOWLEDGE
+            and feedback.reason_codes == (ObservabilityAlertRecommendationReason.LONG_RUNNING,)
+        ):
+            return ObservabilityAlertCalibrationRule.LONG_RUNNING
+        if (
+            feedback.recommendation_action is ObservabilityAlertRecommendationAction.SUPPRESS
+            and feedback.reason_codes == (ObservabilityAlertRecommendationReason.REPEATED_WARNING,)
+        ):
+            return ObservabilityAlertCalibrationRule.REPEATED_WARNING
+        return None
+
+    @classmethod
+    def _calibration_group(
+        cls,
+        *,
+        rule: ObservabilityAlertCalibrationRule,
+        source_type: str,
+        values: tuple[ObservabilityAlertRecommendationFeedback, ...],
+    ) -> ObservabilityAlertCalibrationGroup:
+        accepted = sum(
+            item.decision is ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED
+            for item in values
+        )
+        lower, upper = cls._wilson_interval(accepted=accepted, total=len(values))
+        return ObservabilityAlertCalibrationGroup(
+            rule=rule,
+            source_type=source_type,
+            total=len(values),
+            accepted=accepted,
+            rejected=len(values) - accepted,
+            acceptance_rate_percent=round(accepted * 100 / len(values), 2),
+            confidence_lower_percent=lower,
+            confidence_upper_percent=upper,
+        )
+
+    @classmethod
+    def _calibration_proposal(
+        cls,
+        *,
+        rule: ObservabilityAlertCalibrationRule,
+        values: tuple[ObservabilityAlertRecommendationFeedback, ...],
+        minimum_samples: int,
+        target_percent: float,
+        current_value: int,
+    ) -> ObservabilityAlertCalibrationProposal:
+        accepted = sum(
+            item.decision is ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED
+            for item in values
+        )
+        total = len(values)
+        acceptance_rate = round(accepted * 100 / total, 2) if total else 0.0
+        lower, upper = cls._wilson_interval(accepted=accepted, total=total)
+        status = ObservabilityAlertCalibrationStatus.INSUFFICIENT_DATA
+        proposed_value = current_value
+        if total >= minimum_samples:
+            if upper < target_percent:
+                maximum = _CALIBRATION_KEYS[rule][1]
+                candidate = (
+                    current_value + max(5, ceil(current_value * 0.25))
+                    if rule is ObservabilityAlertCalibrationRule.LONG_RUNNING
+                    else current_value + 1
+                )
+                proposed_value = min(maximum, candidate)
+                status = (
+                    ObservabilityAlertCalibrationStatus.TIGHTEN
+                    if proposed_value > current_value
+                    else ObservabilityAlertCalibrationStatus.LIMIT_REACHED
+                )
+            elif lower > target_percent:
+                status = ObservabilityAlertCalibrationStatus.KEEP
+            else:
+                status = ObservabilityAlertCalibrationStatus.INCONCLUSIVE
+        return ObservabilityAlertCalibrationProposal(
+            rule=rule,
+            configuration_key=_CALIBRATION_KEYS[rule][0],
+            current_value=current_value,
+            proposed_value=proposed_value,
+            status=status,
+            sample_size=total,
+            acceptance_rate_percent=acceptance_rate,
+            confidence_lower_percent=lower,
+            confidence_upper_percent=upper,
+        )
+
+    @staticmethod
+    def _wilson_interval(*, accepted: int, total: int) -> tuple[float, float]:
+        """返回二项比例的双侧 95% Wilson score 区间百分比。"""
+        if total == 0:
+            return 0.0, 100.0
+        z = ALERT_RECOMMENDATION_CALIBRATION_CONFIDENCE_Z
+        proportion = accepted / total
+        denominator = 1 + z**2 / total
+        center = (proportion + z**2 / (2 * total)) / denominator
+        margin = (
+            z * sqrt(proportion * (1 - proportion) / total + z**2 / (4 * total**2)) / denominator
+        )
+        return round(max(0.0, center - margin) * 100, 2), round(
+            min(1.0, center + margin) * 100,
+            2,
         )
 
     async def _validate_accepted_recommendation(

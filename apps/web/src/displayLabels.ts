@@ -275,6 +275,19 @@ export const observabilityRecommendationGuardrailLabels = {
   current_scope_only: '仅限当前智能体范围',
 } as const
 
+export const observabilityCalibrationRuleLabels = {
+  long_running: '持续时间阈值',
+  repeated_warning: '重复警告次数',
+} as const
+
+export const observabilityCalibrationStatusLabels = {
+  insufficient_data: '样本不足',
+  inconclusive: '结论不确定',
+  keep: '保持当前值',
+  tighten: '建议收紧',
+  limit_reached: '已达配置上限',
+} as const
+
 const observabilityUnitLabels: Readonly<Record<string, string>> = {
   '%': '%',
   ms: '毫秒',

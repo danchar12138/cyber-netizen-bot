@@ -13,7 +13,13 @@ from pydantic import SecretStr
 
 from cnb_adapters import ChannelAdapterRegistry, TelegramChannelAdapter
 from cnb_api.main import create_app
-from cnb_application import AuthenticationError, BackgroundTaskService, permissions_for_role
+from cnb_application import (
+    AuthenticationError,
+    BackgroundTaskService,
+    ConfigurationService,
+    build_default_registry,
+    permissions_for_role,
+)
 from cnb_contracts import (
     AdminRoleListResponse,
     AdminSessionResponse,
@@ -48,6 +54,7 @@ from cnb_contracts import (
     MessageListResponse,
     MessageSearchResponse,
     ObservabilityAlertBatchDispositionResponse,
+    ObservabilityAlertCalibrationAnalysisResponse,
     ObservabilityAlertDispositionEventResponse,
     ObservabilityAlertDispositionResponse,
     ObservabilityAlertLifecycleMetricsResponse,
@@ -71,10 +78,17 @@ from cnb_domain import (
     BackgroundJobKind,
     ChannelAlert,
     ChannelAlertLifecycleStatus,
+    ConfigEntry,
+    ConfigScope,
     DevelopmentIdentity,
     JsonValue,
     ManagedAdminSession,
     ObservabilityAlertLifecycle,
+    ObservabilityAlertRecommendationAction,
+    ObservabilityAlertRecommendationFeedback,
+    ObservabilityAlertRecommendationFeedbackDecision,
+    ObservabilityAlertRecommendationPriority,
+    ObservabilityAlertRecommendationReason,
     ObservabilityAlertReplayDecision,
     ObservabilityAlertReplayReason,
     ObservabilityAlertReplayReview,
@@ -538,6 +552,104 @@ async def test_observability_alert_lifecycle_api_filters_and_manages_disposition
     assert missing_response.status_code == 404
     assert cross_agent_response.status_code == 404
     assert cross_agent_feedback_response.status_code == 404
+
+
+async def test_observability_alert_calibration_api_is_guarded_and_returns_a_draft() -> None:
+    observability_repository = MemoryObservabilityRepository()
+    configuration_repository = MemoryConfigurationRepository()
+    configuration = ConfigurationService(build_default_registry(), configuration_repository)
+    baseline = await configuration.create_draft(
+        note="API 校准基线",
+        values=(
+            ConfigEntry(
+                key="alerts.recommendation.calibration.minimum_samples_per_group",
+                scope_type=ConfigScope.SYSTEM,
+                value=5,
+            ),
+            ConfigEntry(
+                key="memory.recall.limit",
+                scope_type=ConfigScope.SYSTEM,
+                value=12,
+            ),
+        ),
+    )
+    published = await configuration.publish(baseline.id)
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=configuration_repository,
+        conversation_repository=MemoryConversationRepository(),
+        observability_repository=observability_repository,
+    )
+    identity = cast(DevelopmentIdentity, app.state.development_identity)
+    now = datetime.now(UTC).replace(microsecond=0)
+    for index in range(5):
+        await observability_repository.save_observability_alert_recommendation_feedback(
+            ObservabilityAlertRecommendationFeedback(
+                id=uuid4(),
+                tenant_id=identity.tenant_id,
+                agent_id=identity.agent_id,
+                lifecycle_id=uuid4(),
+                source_type="api",
+                source_key=f"calibration-{index}",
+                code="api_error_rate",
+                recommendation_action=ObservabilityAlertRecommendationAction.ACKNOWLEDGE,
+                priority=ObservabilityAlertRecommendationPriority.NORMAL,
+                reason_codes=(ObservabilityAlertRecommendationReason.LONG_RUNNING,),
+                decision=ObservabilityAlertRecommendationFeedbackDecision.REJECTED,
+                actor_id=identity.user_id,
+                feedback_at=now - timedelta(minutes=index),
+            )
+        )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        analysis_response = await client.get(
+            "/api/v1/observability/alert-recommendations/calibration",
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        viewer_response = await client.post(
+            "/api/v1/observability/alert-recommendations/calibration/drafts",
+            json={"configuration_version": published.version, "confirmed": True},
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        unconfirmed_response = await client.post(
+            "/api/v1/observability/alert-recommendations/calibration/drafts",
+            json={"configuration_version": published.version, "confirmed": False},
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+        stale_response = await client.post(
+            "/api/v1/observability/alert-recommendations/calibration/drafts",
+            json={"configuration_version": 0, "confirmed": True},
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+        draft_response = await client.post(
+            "/api/v1/observability/alert-recommendations/calibration/drafts",
+            json={"configuration_version": published.version, "confirmed": True},
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+
+    analysis = ObservabilityAlertCalibrationAnalysisResponse.model_validate(
+        analysis_response.json()
+    )
+    draft = ConfigVersionResponse.model_validate(draft_response.json())
+    assert analysis_response.status_code == 200
+    assert (analysis.total_feedback, analysis.eligible_feedback) == (5, 5)
+    assert analysis.proposals[0].status == "tighten"
+    assert analysis.automatic_tuning_allowed is False
+    assert viewer_response.status_code == 403
+    assert unconfirmed_response.status_code == 422
+    assert stale_response.status_code == 409
+    assert draft_response.status_code == 201
+    assert draft.status == "draft"
+    assert ("memory.recall.limit", "system", None, 12) in {
+        (item.key, item.scope_type, item.scope_id, item.value) for item in draft.values
+    }
+    assert (
+        "alerts.recommendation.long_running_minutes",
+        "agent",
+        identity.agent_id,
+        150,
+    ) in {(item.key, item.scope_type, item.scope_id, item.value) for item in draft.values}
+    assert (await configuration_repository.get_published()) == published
 
 
 async def test_data_lifecycle_api_enforces_permissions_and_returns_safe_download_headers() -> None:

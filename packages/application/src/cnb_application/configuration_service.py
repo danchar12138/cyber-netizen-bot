@@ -154,6 +154,36 @@ class ConfigurationService:
             actor_id=actor_id,
         )
 
+    async def create_derived_draft(
+        self,
+        *,
+        expected_base_version: int,
+        note: str,
+        overrides: tuple[ConfigEntry, ...],
+        actor_id: UUID | None = None,
+    ) -> ConfigVersion:
+        """在当前完整快照上合并受控覆盖并创建草稿。"""
+        published = await self._repository.get_published()
+        current_version = published.version if published is not None else 0
+        if current_version != expected_base_version:
+            raise ConfigurationConflictError(
+                f"生效配置已从 v{expected_base_version} 变更为 v{current_version}，请重新分析"
+            )
+        merged = self._entry_map(published.values if published is not None else ())
+        for entry in overrides:
+            merged[(entry.key, entry.scope_type, entry.scope_id)] = entry
+        values = tuple(
+            sorted(
+                merged.values(),
+                key=lambda item: (item.key, item.scope_type.value, str(item.scope_id or "")),
+            )
+        )
+        return await self.create_draft(
+            note=note,
+            values=values,
+            actor_id=actor_id,
+        )
+
     async def import_draft(
         self,
         *,

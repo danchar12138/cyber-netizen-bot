@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 
 from cnb_domain import (
     AlertSeverity,
+    ObservabilityAlertCalibrationRule,
+    ObservabilityAlertCalibrationStatus,
     ObservabilityAlertDispositionAction,
     ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycleStatus,
@@ -342,6 +344,56 @@ class ObservabilityAlertRecommendationQualityMetricsResponse(BaseModel):
     replay_blocked: int = Field(ge=0)
     actions: tuple[ObservabilityAlertRecommendationActionMetricsResponse, ...]
     sources: tuple[ObservabilityAlertRecommendationSourceMetricsResponse, ...]
+
+
+class ObservabilityAlertCalibrationGroupResponse(BaseModel):
+    """单一阈值规则与来源分组的 95% Wilson 区间。"""
+
+    rule: ObservabilityAlertCalibrationRule
+    source_type: str = Field(min_length=1, max_length=80)
+    total: int = Field(ge=0)
+    accepted: int = Field(ge=0)
+    rejected: int = Field(ge=0)
+    acceptance_rate_percent: float = Field(ge=0, le=100)
+    confidence_lower_percent: float = Field(ge=0, le=100)
+    confidence_upper_percent: float = Field(ge=0, le=100)
+
+
+class ObservabilityAlertCalibrationProposalResponse(BaseModel):
+    """单一运行配置阈值的离线评测结论。"""
+
+    rule: ObservabilityAlertCalibrationRule
+    configuration_key: str = Field(min_length=1, max_length=255)
+    current_value: int = Field(ge=0)
+    proposed_value: int = Field(ge=0)
+    status: ObservabilityAlertCalibrationStatus
+    sample_size: int = Field(ge=0)
+    acceptance_rate_percent: float = Field(ge=0, le=100)
+    confidence_lower_percent: float = Field(ge=0, le=100)
+    confidence_upper_percent: float = Field(ge=0, le=100)
+
+
+class ObservabilityAlertCalibrationAnalysisResponse(BaseModel):
+    """不含正文且不执行调参的离线阈值分析。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    configuration_version: int = Field(ge=0)
+    minimum_samples_per_group: int = Field(ge=1)
+    target_acceptance_rate_percent: float = Field(ge=0, le=100)
+    confidence_level_percent: float = Field(ge=0, le=100)
+    total_feedback: int = Field(ge=0)
+    eligible_feedback: int = Field(ge=0)
+    groups: tuple[ObservabilityAlertCalibrationGroupResponse, ...]
+    proposals: tuple[ObservabilityAlertCalibrationProposalResponse, ...]
+    automatic_tuning_allowed: bool
+
+
+class ObservabilityAlertCalibrationDraftCommand(BaseModel):
+    """基于指定分析版本创建配置草稿的显式确认命令。"""
+
+    configuration_version: int = Field(ge=0)
+    confirmed: bool = False
 
 
 class ObservabilityAlertDispositionCommand(BaseModel):

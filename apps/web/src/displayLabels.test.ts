@@ -23,6 +23,8 @@ import {
   notificationDeliveryEventLabels,
   observabilityAlertCodeLabels,
   observabilityAlertSourceTypeLabels,
+  observabilityCalibrationRuleLabels,
+  observabilityCalibrationStatusLabels,
   observabilityReplayDecisionLabels,
   observabilityReplayReasonLabels,
   observabilityRecommendationActionLabels,
@@ -90,6 +92,9 @@ describe('管理后台中文显示文案', () => {
     expect(observabilityRecommendationGuardrailLabels.automatic_execution_forbidden).toBe(
       '禁止自动执行',
     )
+    expect(observabilityCalibrationRuleLabels.long_running).toBe('持续时间阈值')
+    expect(observabilityCalibrationStatusLabels.inconclusive).toBe('结论不确定')
+    expect(observabilityCalibrationStatusLabels.tighten).toBe('建议收紧')
     expect(observabilityUnitLabel('jobs')).toBe('项')
   })
 

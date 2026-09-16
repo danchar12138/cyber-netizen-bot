@@ -23,10 +23,13 @@ from cnb_contracts import (
     AgentRunSloResponse,
     ApiSloResponse,
     ChannelDeliveryMetricsResponse,
+    ConfigVersionResponse,
     ModelUsageResponse,
     NotificationDeliveryMetricsResponse,
     ObservabilityAlertBatchDispositionCommand,
     ObservabilityAlertBatchDispositionResponse,
+    ObservabilityAlertCalibrationAnalysisResponse,
+    ObservabilityAlertCalibrationDraftCommand,
     ObservabilityAlertDispositionClearCommand,
     ObservabilityAlertDispositionCommand,
     ObservabilityAlertDispositionEventResponse,
@@ -254,6 +257,64 @@ async def alert_recommendation_quality(
     return ObservabilityAlertRecommendationQualityMetricsResponse.model_validate(
         metrics, from_attributes=True
     )
+
+
+@router.get(
+    "/alert-recommendations/calibration",
+    response_model=ObservabilityAlertCalibrationAnalysisResponse,
+    dependencies=[Depends(require_permission(AdminPermission.TRACE_READ))],
+)
+async def alert_recommendation_calibration(
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ObservabilityService, Depends(get_observability_service)],
+) -> ObservabilityAlertCalibrationAnalysisResponse:
+    """返回当前 Agent 的离线阈值分组评测，不执行配置变更。"""
+    try:
+        analysis = await service.alert_recommendation_calibration_analysis(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+        )
+    except ObservabilityValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return ObservabilityAlertCalibrationAnalysisResponse.model_validate(
+        analysis, from_attributes=True
+    )
+
+
+@router.post(
+    "/alert-recommendations/calibration/drafts",
+    response_model=ConfigVersionResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(require_permission(AdminPermission.OBSERVABILITY_ALERT_MANAGE)),
+        Depends(require_permission(AdminPermission.CONFIGURATION_WRITE)),
+    ],
+)
+async def create_alert_recommendation_calibration_draft(
+    command: ObservabilityAlertCalibrationDraftCommand,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+    service: Annotated[ObservabilityService, Depends(get_observability_service)],
+) -> ConfigVersionResponse:
+    """重算校准结果并创建仍需人工校验与发布的配置草稿。"""
+    try:
+        draft = await service.create_alert_recommendation_calibration_draft(
+            tenant_id=principal.tenant_id,
+            agent_id=identity.agent_id,
+            actor_id=principal.user_id,
+            configuration_version=command.configuration_version,
+            confirmed=command.confirmed,
+        )
+    except ObservabilityConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except ObservabilityValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return ConfigVersionResponse.model_validate(draft, from_attributes=True)
 
 
 @router.post(

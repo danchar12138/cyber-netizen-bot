@@ -4,6 +4,7 @@ import {
   acknowledgeObservabilityAlert,
   batchDisposeObservabilityAlerts,
   clearObservabilityAlertDisposition,
+  createObservabilityAlertRecommendationCalibrationDraft,
   type ConfigPackageDocument,
   downloadObservabilityAlertHistory,
   exportConfigPackage,
@@ -14,6 +15,7 @@ import {
   getObservabilityAlertLifecycleMetrics,
   getObservabilityAlertLifecyclePage,
   getObservabilityAlertOperationsSummary,
+  getObservabilityAlertRecommendationCalibration,
   getObservabilityAlertRecommendationQuality,
   getObservabilityAlertRecommendations,
   getObservabilityAlertReplayMetrics,
@@ -177,6 +179,54 @@ describe('通用告警客户端', () => {
     )
     expect(feedbackRequest.method).toBe('POST')
     expect(await feedbackRequest.json()).toEqual({ decision: 'accepted', confirmed: true })
+  })
+
+  it('读取服务端校准结果并只提交版本与显式确认创建草稿', async () => {
+    const fetchMock = vi.fn().mockImplementation((request: Request) => {
+      const body = request.method === 'GET'
+        ? {
+            window_started_at: '2026-08-16T12:00:00Z',
+            window_ended_at: '2026-09-15T12:00:00Z',
+            configuration_version: 7,
+            minimum_samples_per_group: 20,
+            target_acceptance_rate_percent: 70,
+            confidence_level_percent: 95,
+            total_feedback: 20,
+            eligible_feedback: 20,
+            groups: [],
+            proposals: [],
+            automatic_tuning_allowed: false,
+          }
+        : {
+            id: '22222222-2222-4222-8222-222222222222',
+            version: 8,
+            status: 'draft',
+            note: '告警建议离线校准',
+            created_at: '2026-09-15T12:00:00Z',
+            published_at: null,
+            values: [],
+          }
+      return Promise.resolve(new Response(JSON.stringify(body), {
+        status: request.method === 'GET' ? 200 : 201,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getObservabilityAlertRecommendationCalibration()
+    await createObservabilityAlertRecommendationCalibrationDraft(7)
+
+    const analysisRequest = fetchMock.mock.calls[0]?.[0] as Request
+    expect(new URL(analysisRequest.url).pathname).toBe(
+      '/api/v1/observability/alert-recommendations/calibration',
+    )
+    expect(analysisRequest.method).toBe('GET')
+    const draftRequest = fetchMock.mock.calls[1]?.[0] as Request
+    expect(new URL(draftRequest.url).pathname).toBe(
+      '/api/v1/observability/alert-recommendations/calibration/drafts',
+    )
+    expect(draftRequest.method).toBe('POST')
+    expect(await draftRequest.json()).toEqual({ configuration_version: 7, confirmed: true })
   })
 
   it('完整传递生命周期组合筛选参数', async () => {

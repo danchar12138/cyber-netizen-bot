@@ -21,17 +21,24 @@ from cnb_domain import (
     AlertSeverity,
     ApiSloMetrics,
     ChannelDeliveryMetrics,
+    ConfigEntry,
+    ConfigScope,
+    ConfigVersionStatus,
     LatencyPercentiles,
     ModelUsageMetrics,
     NotificationDeliveryMetrics,
+    ObservabilityAlertCalibrationRule,
+    ObservabilityAlertCalibrationStatus,
     ObservabilityAlertDisposition,
     ObservabilityAlertDispositionAction,
     ObservabilityAlertDispositionStatus,
     ObservabilityAlertLifecycle,
     ObservabilityAlertLifecycleStatus,
     ObservabilityAlertRecommendationAction,
+    ObservabilityAlertRecommendationFeedback,
     ObservabilityAlertRecommendationFeedbackDecision,
     ObservabilityAlertRecommendationPriority,
+    ObservabilityAlertRecommendationReason,
     ObservabilityAlertReplayDecision,
     ObservabilityAlertReplayReason,
     ObservabilityAlertReplayReview,
@@ -128,6 +135,33 @@ class FixedObservabilityRepository(MemoryObservabilityRepository):
                 dead_letters=1,
             ),
         )
+
+
+def _calibration_feedback(
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    feedback_at: datetime,
+    action: ObservabilityAlertRecommendationAction,
+    reason_codes: tuple[ObservabilityAlertRecommendationReason, ...],
+    decision: ObservabilityAlertRecommendationFeedbackDecision,
+    source_type: str,
+) -> ObservabilityAlertRecommendationFeedback:
+    return ObservabilityAlertRecommendationFeedback(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        lifecycle_id=uuid4(),
+        source_type=source_type,
+        source_key=str(uuid4()),
+        code="api_error_rate",
+        recommendation_action=action,
+        priority=ObservabilityAlertRecommendationPriority.NORMAL,
+        reason_codes=reason_codes,
+        decision=decision,
+        actor_id=uuid4(),
+        feedback_at=feedback_at,
+    )
 
 
 async def test_dashboard_calculates_all_default_threshold_alerts() -> None:
@@ -1251,6 +1285,311 @@ async def test_alert_recommendation_feedback_is_guarded_idempotent_and_aggregate
     ]
     assert [item.source_type for item in quality.sources] == ["api", "task_queue"]
     assert remaining == ()
+
+
+async def test_alert_recommendation_calibration_is_scoped_grouped_and_conservative() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    repository = MemoryObservabilityRepository()
+    configuration_repository = MemoryConfigurationRepository()
+    configuration = ConfigurationService(build_default_registry(), configuration_repository)
+    service = ObservabilityService(repository, configuration)
+    now = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    baseline = await configuration.create_draft(
+        note="校准测试基线",
+        values=(
+            ConfigEntry(
+                key="alerts.recommendation.calibration.minimum_samples_per_group",
+                scope_type=ConfigScope.SYSTEM,
+                value=5,
+            ),
+            ConfigEntry(
+                key="alerts.recommendation.calibration.target_acceptance_rate_percent",
+                scope_type=ConfigScope.SYSTEM,
+                value=70.0,
+            ),
+            ConfigEntry(
+                key="memory.recall.limit",
+                scope_type=ConfigScope.SYSTEM,
+                value=12,
+            ),
+        ),
+    )
+    published = await configuration.publish(baseline.id)
+
+    feedback = [
+        _calibration_feedback(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            feedback_at=now - timedelta(hours=index),
+            action=ObservabilityAlertRecommendationAction.ACKNOWLEDGE,
+            reason_codes=(ObservabilityAlertRecommendationReason.LONG_RUNNING,),
+            decision=ObservabilityAlertRecommendationFeedbackDecision.REJECTED,
+            source_type="api" if index < 3 else "task_queue",
+        )
+        for index in range(5)
+    ]
+    feedback.extend(
+        _calibration_feedback(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            feedback_at=now - timedelta(minutes=index),
+            action=ObservabilityAlertRecommendationAction.SUPPRESS,
+            reason_codes=(ObservabilityAlertRecommendationReason.REPEATED_WARNING,),
+            decision=ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED,
+            source_type="task_queue",
+        )
+        for index in range(20)
+    )
+    feedback.extend(
+        (
+            _calibration_feedback(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                feedback_at=now,
+                action=ObservabilityAlertRecommendationAction.ACKNOWLEDGE,
+                reason_codes=(
+                    ObservabilityAlertRecommendationReason.CRITICAL,
+                    ObservabilityAlertRecommendationReason.LONG_RUNNING,
+                ),
+                decision=ObservabilityAlertRecommendationFeedbackDecision.REJECTED,
+                source_type="api",
+            ),
+            _calibration_feedback(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                feedback_at=now - timedelta(days=31),
+                action=ObservabilityAlertRecommendationAction.ACKNOWLEDGE,
+                reason_codes=(ObservabilityAlertRecommendationReason.LONG_RUNNING,),
+                decision=ObservabilityAlertRecommendationFeedbackDecision.REJECTED,
+                source_type="api",
+            ),
+            _calibration_feedback(
+                tenant_id=tenant_id,
+                agent_id=uuid4(),
+                feedback_at=now,
+                action=ObservabilityAlertRecommendationAction.ACKNOWLEDGE,
+                reason_codes=(ObservabilityAlertRecommendationReason.LONG_RUNNING,),
+                decision=ObservabilityAlertRecommendationFeedbackDecision.REJECTED,
+                source_type="api",
+            ),
+            _calibration_feedback(
+                tenant_id=uuid4(),
+                agent_id=agent_id,
+                feedback_at=now,
+                action=ObservabilityAlertRecommendationAction.ACKNOWLEDGE,
+                reason_codes=(ObservabilityAlertRecommendationReason.LONG_RUNNING,),
+                decision=ObservabilityAlertRecommendationFeedbackDecision.REJECTED,
+                source_type="api",
+            ),
+        )
+    )
+    for item in feedback:
+        await repository.save_observability_alert_recommendation_feedback(item)
+
+    analysis = await service.alert_recommendation_calibration_analysis(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=now,
+    )
+    proposals = {item.rule: item for item in analysis.proposals}
+
+    assert analysis.configuration_version == published.version
+    assert analysis.window_started_at == now - timedelta(days=30)
+    assert (analysis.total_feedback, analysis.eligible_feedback) == (26, 25)
+    assert analysis.automatic_tuning_allowed is False
+    assert [
+        (item.rule, item.source_type, item.total, item.accepted) for item in analysis.groups
+    ] == [
+        (ObservabilityAlertCalibrationRule.LONG_RUNNING, "api", 3, 0),
+        (ObservabilityAlertCalibrationRule.LONG_RUNNING, "task_queue", 2, 0),
+        (ObservabilityAlertCalibrationRule.REPEATED_WARNING, "task_queue", 20, 20),
+    ]
+    assert proposals[ObservabilityAlertCalibrationRule.LONG_RUNNING].status is (
+        ObservabilityAlertCalibrationStatus.TIGHTEN
+    )
+    assert proposals[ObservabilityAlertCalibrationRule.LONG_RUNNING].proposed_value == 150
+    assert proposals[ObservabilityAlertCalibrationRule.REPEATED_WARNING].status is (
+        ObservabilityAlertCalibrationStatus.KEEP
+    )
+
+    draft = await service.create_alert_recommendation_calibration_draft(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        actor_id=uuid4(),
+        configuration_version=published.version,
+        confirmed=True,
+        now=now,
+    )
+    assert draft.status is ConfigVersionStatus.DRAFT
+    assert await configuration_repository.get_published() == published
+    assert ("memory.recall.limit", ConfigScope.SYSTEM, None, 12) in {
+        (item.key, item.scope_type, item.scope_id, item.value) for item in draft.values
+    }
+    assert (
+        "alerts.recommendation.long_running_minutes",
+        ConfigScope.AGENT,
+        agent_id,
+        150,
+    ) in {(item.key, item.scope_type, item.scope_id, item.value) for item in draft.values}
+
+
+async def test_alert_recommendation_calibration_covers_uncertainty_limits_and_guards() -> None:
+    tenant_id, agent_id, empty_agent_id = uuid4(), uuid4(), uuid4()
+    repository = MemoryObservabilityRepository()
+    configuration_repository = MemoryConfigurationRepository()
+    configuration = ConfigurationService(build_default_registry(), configuration_repository)
+    service = ObservabilityService(repository, configuration)
+    now = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    baseline = await configuration.create_draft(
+        note="校准边界基线",
+        values=(
+            ConfigEntry(
+                key="alerts.recommendation.calibration.minimum_samples_per_group",
+                scope_type=ConfigScope.SYSTEM,
+                value=5,
+            ),
+            ConfigEntry(
+                key="alerts.recommendation.long_running_minutes",
+                scope_type=ConfigScope.AGENT,
+                scope_id=agent_id,
+                value=525_600,
+            ),
+        ),
+    )
+    published = await configuration.publish(baseline.id)
+    for index in range(5):
+        await repository.save_observability_alert_recommendation_feedback(
+            _calibration_feedback(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                feedback_at=now - timedelta(minutes=index),
+                action=ObservabilityAlertRecommendationAction.ACKNOWLEDGE,
+                reason_codes=(ObservabilityAlertRecommendationReason.LONG_RUNNING,),
+                decision=ObservabilityAlertRecommendationFeedbackDecision.REJECTED,
+                source_type="api",
+            )
+        )
+        await repository.save_observability_alert_recommendation_feedback(
+            _calibration_feedback(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                feedback_at=now - timedelta(minutes=index),
+                action=ObservabilityAlertRecommendationAction.SUPPRESS,
+                reason_codes=(ObservabilityAlertRecommendationReason.REPEATED_WARNING,),
+                decision=(
+                    ObservabilityAlertRecommendationFeedbackDecision.ACCEPTED
+                    if index < 4
+                    else ObservabilityAlertRecommendationFeedbackDecision.REJECTED
+                ),
+                source_type="task_queue",
+            )
+        )
+
+    analysis = await service.alert_recommendation_calibration_analysis(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=now,
+    )
+    proposals = {item.rule: item for item in analysis.proposals}
+    assert proposals[ObservabilityAlertCalibrationRule.LONG_RUNNING].status is (
+        ObservabilityAlertCalibrationStatus.LIMIT_REACHED
+    )
+    assert proposals[ObservabilityAlertCalibrationRule.REPEATED_WARNING].status is (
+        ObservabilityAlertCalibrationStatus.INCONCLUSIVE
+    )
+
+    empty = await service.alert_recommendation_calibration_analysis(
+        tenant_id=tenant_id,
+        agent_id=empty_agent_id,
+        now=now,
+    )
+    assert {item.status for item in empty.proposals} == {
+        ObservabilityAlertCalibrationStatus.INSUFFICIENT_DATA
+    }
+    with pytest.raises(ObservabilityValidationError, match="显式确认"):
+        await service.create_alert_recommendation_calibration_draft(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            actor_id=uuid4(),
+            configuration_version=published.version,
+            confirmed=False,
+            now=now,
+        )
+    with pytest.raises(ObservabilityValidationError, match="没有可创建"):
+        await service.create_alert_recommendation_calibration_draft(
+            tenant_id=tenant_id,
+            agent_id=empty_agent_id,
+            actor_id=uuid4(),
+            configuration_version=published.version,
+            confirmed=True,
+            now=now,
+        )
+
+    replacement = await configuration.create_draft(note="新版本", values=baseline.values)
+    await configuration.publish(replacement.id)
+    with pytest.raises(ObservabilityConflictError, match="分析后变更"):
+        await service.create_alert_recommendation_calibration_draft(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            actor_id=uuid4(),
+            configuration_version=published.version,
+            confirmed=True,
+            now=now,
+        )
+
+
+async def test_alert_recommendation_calibration_rejects_unbounded_feedback() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    now = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    feedback = _calibration_feedback(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        feedback_at=now,
+        action=ObservabilityAlertRecommendationAction.ACKNOWLEDGE,
+        reason_codes=(ObservabilityAlertRecommendationReason.LONG_RUNNING,),
+        decision=ObservabilityAlertRecommendationFeedbackDecision.REJECTED,
+        source_type="api",
+    )
+
+    class OverflowRepository(MemoryObservabilityRepository):
+        requested_limit: int | None = None
+
+        async def list_observability_alert_recommendation_feedback(
+            self,
+            *,
+            tenant_id: UUID,
+            agent_id: UUID,
+            lifecycle_ids: tuple[UUID, ...] | None = None,
+            window_started_at: datetime | None = None,
+            window_ended_at: datetime | None = None,
+            source_type: str | None = None,
+            limit: int | None = None,
+        ) -> tuple[ObservabilityAlertRecommendationFeedback, ...]:
+            del (
+                tenant_id,
+                agent_id,
+                lifecycle_ids,
+                window_started_at,
+                window_ended_at,
+                source_type,
+            )
+            self.requested_limit = limit
+            return (feedback,) * (limit or 0)
+
+    repository = OverflowRepository()
+    service = ObservabilityService(
+        repository,
+        ConfigurationService(build_default_registry(), MemoryConfigurationRepository()),
+    )
+
+    with pytest.raises(ObservabilityValidationError, match="10000 条反馈安全上限"):
+        await service.alert_recommendation_calibration_analysis(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            now=now,
+        )
+
+    assert repository.requested_limit == 10_001
 
 
 async def test_alert_operations_summary_rejects_unbounded_history() -> None:

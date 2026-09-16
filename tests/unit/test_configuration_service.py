@@ -275,6 +275,80 @@ async def test_effective_configuration_respects_scope_precedence_and_version() -
     assert builtin.sources["model.chat.max_output_tokens"].version == 0
 
 
+async def test_derived_draft_merges_overrides_into_the_complete_published_snapshot() -> None:
+    repository = MemoryConfigurationRepository()
+    configuration = ConfigurationService(build_default_registry(), repository)
+    agent_id = uuid4()
+    original = await configuration.create_draft(
+        note="完整发布基线",
+        values=(
+            ConfigEntry(
+                key="memory.recall.limit",
+                scope_type=ConfigScope.SYSTEM,
+                value=12,
+            ),
+            ConfigEntry(
+                key="alerts.recommendation.long_running_minutes",
+                scope_type=ConfigScope.AGENT,
+                scope_id=agent_id,
+                value=120,
+            ),
+        ),
+    )
+    published = await configuration.publish(original.id)
+
+    derived = await configuration.create_derived_draft(
+        expected_base_version=published.version,
+        note=" 告警建议离线校准 ",
+        overrides=(
+            ConfigEntry(
+                key="alerts.recommendation.long_running_minutes",
+                scope_type=ConfigScope.AGENT,
+                scope_id=agent_id,
+                value=150,
+            ),
+        ),
+    )
+
+    assert derived.status is ConfigVersionStatus.DRAFT
+    assert derived.note == "告警建议离线校准"
+    assert {(item.key, item.scope_type, item.scope_id, item.value) for item in derived.values} == {
+        ("memory.recall.limit", ConfigScope.SYSTEM, None, 12),
+        (
+            "alerts.recommendation.long_running_minutes",
+            ConfigScope.AGENT,
+            agent_id,
+            150,
+        ),
+    }
+    effective = await configuration.resolve_effective(tenant_id=uuid4(), agent_id=agent_id)
+    assert effective.version == published.version
+    assert effective.values["alerts.recommendation.long_running_minutes"] == 120
+
+
+async def test_derived_draft_rejects_a_stale_published_version() -> None:
+    repository = MemoryConfigurationRepository()
+    configuration = ConfigurationService(build_default_registry(), repository)
+    first = await configuration.create_draft(note="基线", values=())
+    published = await configuration.publish(first.id)
+
+    with pytest.raises(ConfigurationConflictError, match="生效配置已从 v0 变更为 v1"):
+        await configuration.create_derived_draft(
+            expected_base_version=0,
+            note="过期校准",
+            overrides=(
+                ConfigEntry(
+                    key="alerts.recommendation.long_running_minutes",
+                    scope_type=ConfigScope.SYSTEM,
+                    value=150,
+                ),
+            ),
+        )
+
+    assert (await repository.get_published()) == published
+    assert len(await repository.list_versions()) == 1
+
+
 async def test_diff_preview_reports_added_changed_and_removed_values() -> None:
     repository = MemoryConfigurationRepository()
     configuration = ConfigurationService(build_default_registry(), repository)

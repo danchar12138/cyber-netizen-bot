@@ -601,6 +601,16 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .recommendation-quality-section { margin-bottom: 13px; }
 .recommendation-quality-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .recommendation-quality-breakdown { margin-top: 13px; }
+.recommendation-calibration-section { margin-bottom: 13px; }
+.recommendation-calibration-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 13px; }
+.recommendation-calibration-table { margin-bottom: 13px; }
+.recommendation-calibration-table td strong, .recommendation-calibration-table td small { display: block; }
+.recommendation-calibration-table td small { margin-top: 4px; color: #668378; font-size: 8px; }
+.recommendation-calibration-groups { margin-top: 13px; }
+.entity-status.calibration-insufficient_data, .entity-status.calibration-inconclusive { color: #a7b5af; border-color: #3a5048; background: #18241f; }
+.entity-status.calibration-keep { color: #80cfa0; border-color: #305f47; background: #10281c; }
+.entity-status.calibration-tighten { color: #e2bc75; border-color: #685126; background: #291f0d; }
+.entity-status.calibration-limit_reached { color: #e18470; border-color: #794335; background: #301812; }
 .entity-status.priority-urgent { color: #ee8d78; border-color: #794335; background: #301812; }
 .entity-status.priority-high { color: #e2bc75; border-color: #685126; background: #291f0d; }
 .entity-status.priority-normal { color: #8fc8df; border-color: #31586b; background: #102631; }
@@ -809,6 +819,7 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .lifecycle-observability-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .replay-review-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .replay-review-summary-grid { grid-template-columns: 1fr; }
+  .recommendation-calibration-metrics { grid-template-columns: 1fr; }
   .lifecycle-filters { width: 100%; justify-content: flex-start; }
   .overview-counts, .status-summary, .task-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settings-grid { grid-template-columns: 1fr; }

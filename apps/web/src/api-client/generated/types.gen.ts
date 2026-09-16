@@ -6285,6 +6285,163 @@ export type ObservabilityAlertBatchDispositionResponse = {
 };
 
 /**
+ * ObservabilityAlertCalibrationAnalysisResponse
+ *
+ * 不含正文且不执行调参的离线阈值分析。
+ */
+export type ObservabilityAlertCalibrationAnalysisResponse = {
+    /**
+     * Automatic Tuning Allowed
+     */
+    automatic_tuning_allowed: boolean;
+    /**
+     * Confidence Level Percent
+     */
+    confidence_level_percent: number;
+    /**
+     * Configuration Version
+     */
+    configuration_version: number;
+    /**
+     * Eligible Feedback
+     */
+    eligible_feedback: number;
+    /**
+     * Groups
+     */
+    groups: Array<ObservabilityAlertCalibrationGroupResponse>;
+    /**
+     * Minimum Samples Per Group
+     */
+    minimum_samples_per_group: number;
+    /**
+     * Proposals
+     */
+    proposals: Array<ObservabilityAlertCalibrationProposalResponse>;
+    /**
+     * Target Acceptance Rate Percent
+     */
+    target_acceptance_rate_percent: number;
+    /**
+     * Total Feedback
+     */
+    total_feedback: number;
+    /**
+     * Window Ended At
+     */
+    window_ended_at: string;
+    /**
+     * Window Started At
+     */
+    window_started_at: string;
+};
+
+/**
+ * ObservabilityAlertCalibrationDraftCommand
+ *
+ * 基于指定分析版本创建配置草稿的显式确认命令。
+ */
+export type ObservabilityAlertCalibrationDraftCommand = {
+    /**
+     * Configuration Version
+     */
+    configuration_version: number;
+    /**
+     * Confirmed
+     */
+    confirmed?: boolean;
+};
+
+/**
+ * ObservabilityAlertCalibrationGroupResponse
+ *
+ * 单一阈值规则与来源分组的 95% Wilson 区间。
+ */
+export type ObservabilityAlertCalibrationGroupResponse = {
+    /**
+     * Acceptance Rate Percent
+     */
+    acceptance_rate_percent: number;
+    /**
+     * Accepted
+     */
+    accepted: number;
+    /**
+     * Confidence Lower Percent
+     */
+    confidence_lower_percent: number;
+    /**
+     * Confidence Upper Percent
+     */
+    confidence_upper_percent: number;
+    /**
+     * Rejected
+     */
+    rejected: number;
+    rule: ObservabilityAlertCalibrationRule;
+    /**
+     * Source Type
+     */
+    source_type: string;
+    /**
+     * Total
+     */
+    total: number;
+};
+
+/**
+ * ObservabilityAlertCalibrationProposalResponse
+ *
+ * 单一运行配置阈值的离线评测结论。
+ */
+export type ObservabilityAlertCalibrationProposalResponse = {
+    /**
+     * Acceptance Rate Percent
+     */
+    acceptance_rate_percent: number;
+    /**
+     * Confidence Lower Percent
+     */
+    confidence_lower_percent: number;
+    /**
+     * Confidence Upper Percent
+     */
+    confidence_upper_percent: number;
+    /**
+     * Configuration Key
+     */
+    configuration_key: string;
+    /**
+     * Current Value
+     */
+    current_value: number;
+    /**
+     * Proposed Value
+     */
+    proposed_value: number;
+    rule: ObservabilityAlertCalibrationRule;
+    /**
+     * Sample Size
+     */
+    sample_size: number;
+    status: ObservabilityAlertCalibrationStatus;
+};
+
+/**
+ * ObservabilityAlertCalibrationRule
+ *
+ * 可以用冻结反馈单独评估的建议阈值规则。
+ */
+export type ObservabilityAlertCalibrationRule = 'long_running' | 'repeated_warning';
+
+/**
+ * ObservabilityAlertCalibrationStatus
+ *
+ * 离线阈值评测对当前配置的稳定结论。
+ */
+export type ObservabilityAlertCalibrationStatus = 'insufficient_data' | 'inconclusive' | 'keep' | 'tighten' | 'limit_reached';
+
+/**
  * ObservabilityAlertDispositionAction
  *
  * 通用告警处置历史动作。
@@ -17104,6 +17261,120 @@ export type GetApiV1ObservabilityAlertRecommendationsResponses = {
 };
 
 export type GetApiV1ObservabilityAlertRecommendationsResponse = GetApiV1ObservabilityAlertRecommendationsResponses[keyof GetApiV1ObservabilityAlertRecommendationsResponses];
+
+export type GetApiV1ObservabilityAlertRecommendationsCalibrationData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/observability/alert-recommendations/calibration';
+};
+
+export type GetApiV1ObservabilityAlertRecommendationsCalibrationErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1ObservabilityAlertRecommendationsCalibrationError = GetApiV1ObservabilityAlertRecommendationsCalibrationErrors[keyof GetApiV1ObservabilityAlertRecommendationsCalibrationErrors];
+
+export type GetApiV1ObservabilityAlertRecommendationsCalibrationResponses = {
+    /**
+     * 请求成功
+     */
+    200: ObservabilityAlertCalibrationAnalysisResponse;
+};
+
+export type GetApiV1ObservabilityAlertRecommendationsCalibrationResponse = GetApiV1ObservabilityAlertRecommendationsCalibrationResponses[keyof GetApiV1ObservabilityAlertRecommendationsCalibrationResponses];
+
+export type PostApiV1ObservabilityAlertRecommendationsCalibrationDraftsData = {
+    body: ObservabilityAlertCalibrationDraftCommand;
+    path?: never;
+    query?: never;
+    url: '/api/v1/observability/alert-recommendations/calibration/drafts';
+};
+
+export type PostApiV1ObservabilityAlertRecommendationsCalibrationDraftsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1ObservabilityAlertRecommendationsCalibrationDraftsError = PostApiV1ObservabilityAlertRecommendationsCalibrationDraftsErrors[keyof PostApiV1ObservabilityAlertRecommendationsCalibrationDraftsErrors];
+
+export type PostApiV1ObservabilityAlertRecommendationsCalibrationDraftsResponses = {
+    /**
+     * 请求成功
+     */
+    201: ConfigVersionResponse;
+};
+
+export type PostApiV1ObservabilityAlertRecommendationsCalibrationDraftsResponse = PostApiV1ObservabilityAlertRecommendationsCalibrationDraftsResponses[keyof PostApiV1ObservabilityAlertRecommendationsCalibrationDraftsResponses];
 
 export type GetApiV1ObservabilityAlertRecommendationsQualityData = {
     body?: never;

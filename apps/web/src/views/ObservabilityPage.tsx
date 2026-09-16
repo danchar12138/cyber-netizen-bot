@@ -1,17 +1,19 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, BellRing, CheckCircle2, ChevronDown, CircleDollarSign, ClipboardList, Clock3, Gauge, History, RefreshCw, Search, Send, ShieldAlert, ShieldCheck, TriangleAlert, X } from 'lucide-react'
+import { Activity, BellRing, CheckCircle2, ChevronDown, CircleDollarSign, ClipboardList, Clock3, FilePenLine, Gauge, History, RefreshCw, Search, Send, ShieldAlert, ShieldCheck, SlidersHorizontal, TriangleAlert, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   acknowledgeObservabilityAlert,
   batchDisposeObservabilityAlerts,
   clearObservabilityAlertDisposition,
+  createObservabilityAlertRecommendationCalibrationDraft,
   getAdminSession,
   getCognitiveRunTrace,
   getObservabilityAlertDispositionEvents,
   getObservabilityAlertLifecycleMetrics,
   getObservabilityAlertLifecyclePage,
   getObservabilityAlertOperationsSummary,
+  getObservabilityAlertRecommendationCalibration,
   getObservabilityAlertRecommendationQuality,
   getObservabilityAlertRecommendations,
   getObservabilityAlertReplayMetrics,
@@ -31,6 +33,8 @@ import {
   modelInvocationStatusLabels,
   modelPurposeLabels,
   observabilityBaselineMetricLabels,
+  observabilityCalibrationRuleLabels,
+  observabilityCalibrationStatusLabels,
   observabilityAlertCodeLabels,
   observabilityAlertSourceTypeLabels,
   observabilityHandoffReasonLabels,
@@ -71,6 +75,7 @@ export function ObservabilityPage() {
   const [dispositionInputError, setDispositionInputError] = useState<string | null>(null)
   const [dispositionFeedback, setDispositionFeedback] = useState<string | null>(null)
   const [recommendationFeedback, setRecommendationFeedback] = useState<string | null>(null)
+  const [calibrationFeedback, setCalibrationFeedback] = useState<string | null>(null)
   const [selectedLifecycleIds, setSelectedLifecycleIds] = useState<Set<string>>(new Set())
   const [historyLifecycle, setHistoryLifecycle] = useState<ObservabilityAlertLifecycle | null>(null)
   const recommendationDispositionCompleted = useRef(new Set<string>())
@@ -78,6 +83,7 @@ export function ObservabilityPage() {
   const session = useQuery({ queryKey: ['admin-session'], queryFn: getAdminSession })
   const canReadTrace = session.data?.permissions.includes('trace:read') ?? false
   const canManageAlerts = session.data?.permissions.includes('observability_alert:manage') ?? false
+  const canWriteConfiguration = session.data?.permissions.includes('configuration:write') ?? false
   useEffect(() => {
     setSelectedLifecycleIds(new Set())
     setHistoryLifecycle(null)
@@ -129,6 +135,12 @@ export function ObservabilityPage() {
       window_minutes: 10_080,
       source_type: alertSourceType || undefined,
     }),
+    enabled: canReadTrace,
+    refetchInterval: 30_000,
+  })
+  const recommendationCalibration = useQuery({
+    queryKey: ['observability-alert-recommendation-calibration', selectedAgentId],
+    queryFn: getObservabilityAlertRecommendationCalibration,
     enabled: canReadTrace,
     refetchInterval: 30_000,
   })
@@ -191,6 +203,7 @@ export function ObservabilityPage() {
       invalidateAcrossTabs(queryClient, ['observability-alert-operations-summary']),
       invalidateAcrossTabs(queryClient, ['observability-alert-recommendations']),
       invalidateAcrossTabs(queryClient, ['observability-alert-recommendation-quality']),
+      invalidateAcrossTabs(queryClient, ['observability-alert-recommendation-calibration']),
       invalidateAcrossTabs(queryClient, ['observability-alert-replay-metrics']),
       invalidateAcrossTabs(queryClient, ['observability-alert-replay-reviews']),
       invalidateAcrossTabs(queryClient, ['audit-records']),
@@ -298,6 +311,16 @@ export function ObservabilityPage() {
       await refreshAlertViews()
     },
   })
+  const calibrationDraftMutation = useMutation({
+    mutationFn: createObservabilityAlertRecommendationCalibrationDraft,
+    onSuccess: async (draft) => {
+      setCalibrationFeedback(`已创建配置草稿 v${draft.version}，请前往配置中心校验并另行发布`)
+      await Promise.all([
+        invalidateAcrossTabs(queryClient, ['config-versions']),
+        invalidateAcrossTabs(queryClient, ['config-diff']),
+      ])
+    },
+  })
   const trace = useMutation({ mutationFn: getCognitiveRunTrace })
   const data = dashboard.data
   const lifecycle = lifecycleMetrics.data
@@ -307,6 +330,11 @@ export function ObservabilityPage() {
     [alertRecommendations.data],
   )
   const quality = recommendationQuality.data
+  const calibration = recommendationCalibration.data
+  const calibrationChanges = useMemo(
+    () => calibration?.proposals.filter((item) => item.status === 'tighten') ?? [],
+    [calibration],
+  )
   const anomalousSignals = operations?.baseline.signals.filter((item) => item.anomalous) ?? []
   const lifecycleRows = alertLifecycles.data?.pages.flatMap((page) => page.items) ?? []
   const replay = replayMetrics.data
@@ -365,6 +393,15 @@ export function ObservabilityPage() {
     if (!window.confirm(prompt)) return
     recommendationFeedbackMutation.mutate({ recommendation, decision })
   }, [recommendationFeedbackMutation])
+  const createCalibrationDraft = useCallback(() => {
+    if (!calibration || !calibrationChanges.length) return
+    setCalibrationFeedback(null)
+    const summary = calibrationChanges
+      .map((item) => `${displayLabel(observabilityCalibrationRuleLabels, item.rule)} ${item.current_value} → ${item.proposed_value}`)
+      .join('；')
+    if (!window.confirm(`确认基于当前冻结反馈创建配置草稿？\n${summary}\n草稿不会自动发布。`)) return
+    calibrationDraftMutation.mutate(calibration.configuration_version)
+  }, [calibration, calibrationChanges, calibrationDraftMutation])
   const clearDisposition = useCallback((item: ObservabilityAlertLifecycle) => {
     setDispositionInputError(null)
     setDispositionFeedback(null)
@@ -439,11 +476,13 @@ export function ObservabilityPage() {
       {alertOperations.isError && <div className="notice error" role="alert">无法读取告警异常基线与值班交接摘要。</div>}
       {alertRecommendations.isError && <div className="notice error" role="alert">无法读取告警处置建议，系统不会自动执行任何动作。</div>}
       {recommendationQuality.isError && <div className="notice error" role="alert">无法读取告警建议质量统计，请缩短窗口或检查当前权限。</div>}
+      {recommendationCalibration.isError && <div className="notice error" role="alert">无法读取告警建议校准分析，请检查当前配置与权限。</div>}
       {alertLifecycles.isError && <div className="notice error" role="alert">无法读取通用告警生命周期，请检查当前 Agent 与迁移状态。</div>}
       {(replayMetrics.isError || replayReviews.isError) && <div className="notice error" role="alert">无法读取通知重放复核记录，请检查当前 Agent 与迁移状态。</div>}
-      {(dispositionInputError || dispositionMutation.error || batchDispositionMutation.error || recommendationFeedbackMutation.error) && <div className="notice error" role="alert">{dispositionInputError ?? dispositionMutation.error?.message ?? batchDispositionMutation.error?.message ?? recommendationFeedbackMutation.error?.message}</div>}
+      {(dispositionInputError || dispositionMutation.error || batchDispositionMutation.error || recommendationFeedbackMutation.error || calibrationDraftMutation.error) && <div className="notice error" role="alert">{dispositionInputError ?? dispositionMutation.error?.message ?? batchDispositionMutation.error?.message ?? recommendationFeedbackMutation.error?.message ?? calibrationDraftMutation.error?.message}</div>}
       {dispositionFeedback && <div className="notice success" role="status"><CheckCircle2 size={17} /><div><strong>告警处置已更新</strong><span>{dispositionFeedback}</span></div></div>}
       {recommendationFeedback && <div className="notice success" role="status"><CheckCircle2 size={17} /><div><strong>建议反馈已记录</strong><span>{recommendationFeedback}</span></div></div>}
+      {calibrationFeedback && <div className="notice success" role="status"><CheckCircle2 size={17} /><div><strong>校准草稿已创建</strong><span>{calibrationFeedback}</span></div></div>}
       <section className="metric-grid" aria-label="服务等级与成本指标">
         <article className="metric-card"><div className="metric-icon"><Activity size={18} /></div><p>应用接口错误率</p><strong>{data ? `${data.api.error_rate_percent.toFixed(2)}%` : '—'}</strong><span>{data?.api.requests ?? 0} 次请求 · {data?.api.server_errors ?? 0} 次服务端错误</span></article>
         <article className="metric-card"><div className="metric-icon"><Clock3 size={18} /></div><p>应用接口 P95 / P99</p><strong>{data ? `${data.api.latency.p95_ms} / ${data.api.latency.p99_ms} 毫秒` : '—'}</strong><span>P50 {data?.api.latency.p50_ms ?? '—'} 毫秒</span></article>
@@ -501,6 +540,19 @@ export function ObservabilityPage() {
           <section className="panel"><div className="panel-heading"><div><p className="eyebrow">建议动作</p><h2>反馈分布</h2></div></div>{!quality?.actions.some((item) => item.total) && <div className="empty-state">当前窗口暂无建议反馈。</div>}{quality?.actions.some((item) => item.total) && <div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>动作</th><th>总数</th><th>采纳</th><th>驳回</th></tr></thead><tbody>{quality.actions.filter((item) => item.total).map((item) => <tr key={item.action}><td>{displayLabel(observabilityRecommendationActionLabels, item.action)}</td><td>{item.total}</td><td>{item.accepted}</td><td>{item.rejected}</td></tr>)}</tbody></table></div>}</section>
           <section className="panel"><div className="panel-heading"><div><p className="eyebrow">告警来源</p><h2>来源分布</h2></div></div>{!quality?.sources.length && <div className="empty-state">当前窗口暂无来源数据。</div>}{!!quality?.sources.length && <div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>来源</th><th>总数</th><th>采纳</th><th>驳回</th></tr></thead><tbody>{quality.sources.map((item) => <tr key={item.source_type}><td>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)}</td><td>{item.total}</td><td>{item.accepted}</td><td>{item.rejected}</td></tr>)}</tbody></table></div>}</section>
         </div>
+      </section>
+
+      <section className="recommendation-calibration-section" aria-label="告警建议阈值校准">
+        <div className="panel-heading channel-operation-heading"><div><p className="eyebrow">冻结反馈 · Wilson 95% 区间</p><h2>阈值校准分析</h2></div><div className="heading-actions"><span className="subtle">仅生成建议，不自动调参</span>{canManageAlerts && canWriteConfiguration && calibrationChanges.length > 0 && <button className="secondary-button" disabled={calibrationDraftMutation.isPending} onClick={createCalibrationDraft}><FilePenLine size={14} />创建配置草稿</button>}</div></div>
+        <div className="notice info"><SlidersHorizontal size={17} /><div><strong>分析口径</strong><span>{calibration ? `${new Date(calibration.window_started_at).toLocaleDateString('zh-CN')} 至 ${new Date(calibration.window_ended_at).toLocaleDateString('zh-CN')} · 合格反馈 ${calibration.eligible_feedback}/${calibration.total_feedback} · 配置 v${calibration.configuration_version}` : '正在读取当前智能体的离线分析窗口'}</span></div></div>
+        <div className="metric-grid recommendation-calibration-metrics">
+          <article className="metric-card"><div className="metric-icon"><ClipboardList size={18} /></div><p>合格反馈</p><strong>{calibration?.eligible_feedback ?? '—'}</strong><span>总反馈 {calibration?.total_feedback ?? '—'}</span></article>
+          <article className="metric-card"><div className="metric-icon"><Gauge size={18} /></div><p>目标采纳率</p><strong>{calibration ? `${calibration.target_acceptance_rate_percent.toFixed(1)}%` : '—'}</strong><span>双侧 {calibration?.confidence_level_percent ?? 95}% 区间</span></article>
+          <article className="metric-card"><div className="metric-icon"><SlidersHorizontal size={18} /></div><p>可收紧规则</p><strong>{calibrationChanges.length}</strong><span>{calibration?.automatic_tuning_allowed ? '允许自动调参' : '人工创建草稿'}</span></article>
+        </div>
+        {!calibration?.proposals.length && !recommendationCalibration.isLoading && <div className="empty-state">当前窗口没有可评估的阈值规则。</div>}
+        {!!calibration?.proposals.length && <div className="admin-table-scroll recommendation-calibration-table"><table className="admin-table"><thead><tr><th>规则</th><th>当前值</th><th>建议值</th><th>样本 / 采纳率</th><th>95% 区间</th><th>结论</th></tr></thead><tbody>{calibration.proposals.map((item) => <tr key={item.rule}><td className="table-primary"><strong>{displayLabel(observabilityCalibrationRuleLabels, item.rule)}</strong><small><code>{item.configuration_key}</code></small></td><td>{item.current_value}</td><td>{item.proposed_value}</td><td>{item.sample_size} / {item.acceptance_rate_percent.toFixed(2)}%</td><td>{item.confidence_lower_percent.toFixed(2)}% - {item.confidence_upper_percent.toFixed(2)}%</td><td><span className={`entity-status calibration-${item.status}`}>{displayLabel(observabilityCalibrationStatusLabels, item.status)}</span></td></tr>)}</tbody></table></div>}
+        {!!calibration?.groups.length && <div className="panel recommendation-calibration-groups"><div className="panel-heading"><div><p className="eyebrow">按来源拆分</p><h2>反馈分组</h2></div><span className="subtle">最小样本 {calibration.minimum_samples_per_group}</span></div><div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>规则</th><th>来源</th><th>样本</th><th>采纳率</th><th>95% 区间</th></tr></thead><tbody>{calibration.groups.map((item) => <tr key={`${item.rule}-${item.source_type}`}><td>{displayLabel(observabilityCalibrationRuleLabels, item.rule)}</td><td>{displayLabel(observabilityAlertSourceTypeLabels, item.source_type)}</td><td>{item.total}（采纳 {item.accepted} / 驳回 {item.rejected}）</td><td>{item.acceptance_rate_percent.toFixed(2)}%</td><td>{item.confidence_lower_percent.toFixed(2)}% - {item.confidence_upper_percent.toFixed(2)}%</td></tr>)}</tbody></table></div></div>}
       </section>
 
       <section className="channel-lifecycle-observability" aria-label="通用告警生命周期指标">

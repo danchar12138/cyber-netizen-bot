@@ -10582,6 +10582,249 @@
         "title": "ObservabilityAlertBatchDispositionResponse",
         "type": "object"
       },
+      "ObservabilityAlertCalibrationAnalysisResponse": {
+        "description": "不含正文且不执行调参的离线阈值分析。",
+        "properties": {
+          "automatic_tuning_allowed": {
+            "title": "Automatic Tuning Allowed",
+            "type": "boolean"
+          },
+          "confidence_level_percent": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Confidence Level Percent",
+            "type": "number"
+          },
+          "configuration_version": {
+            "minimum": 0.0,
+            "title": "Configuration Version",
+            "type": "integer"
+          },
+          "eligible_feedback": {
+            "minimum": 0.0,
+            "title": "Eligible Feedback",
+            "type": "integer"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityAlertCalibrationGroupResponse"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "minimum_samples_per_group": {
+            "minimum": 1.0,
+            "title": "Minimum Samples Per Group",
+            "type": "integer"
+          },
+          "proposals": {
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityAlertCalibrationProposalResponse"
+            },
+            "title": "Proposals",
+            "type": "array"
+          },
+          "target_acceptance_rate_percent": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Target Acceptance Rate Percent",
+            "type": "number"
+          },
+          "total_feedback": {
+            "minimum": 0.0,
+            "title": "Total Feedback",
+            "type": "integer"
+          },
+          "window_ended_at": {
+            "format": "date-time",
+            "title": "Window Ended At",
+            "type": "string"
+          },
+          "window_started_at": {
+            "format": "date-time",
+            "title": "Window Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_started_at",
+          "window_ended_at",
+          "configuration_version",
+          "minimum_samples_per_group",
+          "target_acceptance_rate_percent",
+          "confidence_level_percent",
+          "total_feedback",
+          "eligible_feedback",
+          "groups",
+          "proposals",
+          "automatic_tuning_allowed"
+        ],
+        "title": "ObservabilityAlertCalibrationAnalysisResponse",
+        "type": "object"
+      },
+      "ObservabilityAlertCalibrationDraftCommand": {
+        "description": "基于指定分析版本创建配置草稿的显式确认命令。",
+        "properties": {
+          "configuration_version": {
+            "minimum": 0.0,
+            "title": "Configuration Version",
+            "type": "integer"
+          },
+          "confirmed": {
+            "default": false,
+            "title": "Confirmed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "configuration_version"
+        ],
+        "title": "ObservabilityAlertCalibrationDraftCommand",
+        "type": "object"
+      },
+      "ObservabilityAlertCalibrationGroupResponse": {
+        "description": "单一阈值规则与来源分组的 95% Wilson 区间。",
+        "properties": {
+          "acceptance_rate_percent": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Acceptance Rate Percent",
+            "type": "number"
+          },
+          "accepted": {
+            "minimum": 0.0,
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "confidence_lower_percent": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Confidence Lower Percent",
+            "type": "number"
+          },
+          "confidence_upper_percent": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Confidence Upper Percent",
+            "type": "number"
+          },
+          "rejected": {
+            "minimum": 0.0,
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "rule": {
+            "$ref": "#/components/schemas/ObservabilityAlertCalibrationRule"
+          },
+          "source_type": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Source Type",
+            "type": "string"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rule",
+          "source_type",
+          "total",
+          "accepted",
+          "rejected",
+          "acceptance_rate_percent",
+          "confidence_lower_percent",
+          "confidence_upper_percent"
+        ],
+        "title": "ObservabilityAlertCalibrationGroupResponse",
+        "type": "object"
+      },
+      "ObservabilityAlertCalibrationProposalResponse": {
+        "description": "单一运行配置阈值的离线评测结论。",
+        "properties": {
+          "acceptance_rate_percent": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Acceptance Rate Percent",
+            "type": "number"
+          },
+          "confidence_lower_percent": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Confidence Lower Percent",
+            "type": "number"
+          },
+          "confidence_upper_percent": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Confidence Upper Percent",
+            "type": "number"
+          },
+          "configuration_key": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Configuration Key",
+            "type": "string"
+          },
+          "current_value": {
+            "minimum": 0.0,
+            "title": "Current Value",
+            "type": "integer"
+          },
+          "proposed_value": {
+            "minimum": 0.0,
+            "title": "Proposed Value",
+            "type": "integer"
+          },
+          "rule": {
+            "$ref": "#/components/schemas/ObservabilityAlertCalibrationRule"
+          },
+          "sample_size": {
+            "minimum": 0.0,
+            "title": "Sample Size",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ObservabilityAlertCalibrationStatus"
+          }
+        },
+        "required": [
+          "rule",
+          "configuration_key",
+          "current_value",
+          "proposed_value",
+          "status",
+          "sample_size",
+          "acceptance_rate_percent",
+          "confidence_lower_percent",
+          "confidence_upper_percent"
+        ],
+        "title": "ObservabilityAlertCalibrationProposalResponse",
+        "type": "object"
+      },
+      "ObservabilityAlertCalibrationRule": {
+        "description": "可以用冻结反馈单独评估的建议阈值规则。",
+        "enum": [
+          "long_running",
+          "repeated_warning"
+        ],
+        "title": "ObservabilityAlertCalibrationRule",
+        "type": "string"
+      },
+      "ObservabilityAlertCalibrationStatus": {
+        "description": "离线阈值评测对当前配置的稳定结论。",
+        "enum": [
+          "insufficient_data",
+          "inconclusive",
+          "keep",
+          "tighten",
+          "limit_reached"
+        ],
+        "title": "ObservabilityAlertCalibrationStatus",
+        "type": "string"
+      },
       "ObservabilityAlertDispositionAction": {
         "description": "通用告警处置历史动作。",
         "enum": [
@@ -32589,6 +32832,240 @@
           }
         },
         "summary": "返回当前 Agent 不执行副作用的确定性告警处置建议",
+        "tags": [
+          "可观测性"
+        ]
+      }
+    },
+    "/api/v1/observability/alert-recommendations/calibration": {
+      "get": {
+        "description": "返回当前 Agent 的离线阈值分组评测，不执行配置变更。",
+        "operationId": "get_api_v1_observability_alert_recommendations_calibration",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservabilityAlertCalibrationAnalysisResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "返回当前 Agent 的离线阈值分组评测，不执行配置变更",
+        "tags": [
+          "可观测性"
+        ]
+      }
+    },
+    "/api/v1/observability/alert-recommendations/calibration/drafts": {
+      "post": {
+        "description": "重算校准结果并创建仍需人工校验与发布的配置草稿。",
+        "operationId": "post_api_v1_observability_alert_recommendations_calibration_drafts",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObservabilityAlertCalibrationDraftCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigVersionResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "重算校准结果并创建仍需人工校验与发布的配置草稿",
         "tags": [
           "可观测性"
         ]

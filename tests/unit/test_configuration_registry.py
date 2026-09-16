@@ -158,6 +158,24 @@ def test_alert_recommendation_settings_are_runtime_managed_and_bounded() -> None
             2,
             10_000,
         ),
+        "alerts.recommendation.calibration.window_days": (
+            ConfigValueKind.INTEGER,
+            30,
+            7,
+            365,
+        ),
+        "alerts.recommendation.calibration.minimum_samples_per_group": (
+            ConfigValueKind.INTEGER,
+            20,
+            5,
+            10_000,
+        ),
+        "alerts.recommendation.calibration.target_acceptance_rate_percent": (
+            ConfigValueKind.NUMBER,
+            70.0,
+            50,
+            99.9,
+        ),
     }
 
     for key, (kind, default, minimum, maximum) in expected.items():
@@ -167,7 +185,11 @@ def test_alert_recommendation_settings_are_runtime_managed_and_bounded() -> None
         assert definition.default == default
         assert definition.minimum == minimum
         assert definition.maximum == maximum
-        assert definition.scopes == (ConfigScope.SYSTEM, ConfigScope.TENANT)
+        assert definition.scopes == (
+            ConfigScope.SYSTEM,
+            ConfigScope.TENANT,
+            ConfigScope.AGENT,
+        )
 
 
 def test_registry_rejects_duplicate_keys() -> None:

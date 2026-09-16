@@ -197,6 +197,23 @@ class ObservabilityAlertRecommendationFeedbackDecision(StrEnum):
     REJECTED = "rejected"
 
 
+class ObservabilityAlertCalibrationRule(StrEnum):
+    """可以用冻结反馈单独评估的建议阈值规则。"""
+
+    LONG_RUNNING = "long_running"
+    REPEATED_WARNING = "repeated_warning"
+
+
+class ObservabilityAlertCalibrationStatus(StrEnum):
+    """离线阈值评测对当前配置的稳定结论。"""
+
+    INSUFFICIENT_DATA = "insufficient_data"
+    INCONCLUSIVE = "inconclusive"
+    KEEP = "keep"
+    TIGHTEN = "tighten"
+    LIMIT_REACHED = "limit_reached"
+
+
 class ObservabilityAlertReplayDecision(StrEnum):
     """通用告警通知重放复核结论。"""
 
@@ -365,6 +382,52 @@ class ObservabilityAlertRecommendationQualityMetrics:
     replay_blocked: int
     actions: tuple[ObservabilityAlertRecommendationActionMetrics, ...]
     sources: tuple[ObservabilityAlertRecommendationSourceMetrics, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertCalibrationGroup:
+    """单一规则与来源分组的 Wilson 区间事实。"""
+
+    rule: ObservabilityAlertCalibrationRule
+    source_type: str
+    total: int
+    accepted: int
+    rejected: int
+    acceptance_rate_percent: float
+    confidence_lower_percent: float
+    confidence_upper_percent: float
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertCalibrationProposal:
+    """只读配置阈值评测结论，不代表已经创建或发布配置。"""
+
+    rule: ObservabilityAlertCalibrationRule
+    configuration_key: str
+    current_value: int
+    proposed_value: int
+    status: ObservabilityAlertCalibrationStatus
+    sample_size: int
+    acceptance_rate_percent: float
+    confidence_lower_percent: float
+    confidence_upper_percent: float
+
+
+@dataclass(frozen=True, slots=True)
+class ObservabilityAlertCalibrationAnalysis:
+    """由冻结人工反馈生成的有界离线阈值评测。"""
+
+    window_started_at: datetime
+    window_ended_at: datetime
+    configuration_version: int
+    minimum_samples_per_group: int
+    target_acceptance_rate_percent: float
+    confidence_level_percent: float
+    total_feedback: int
+    eligible_feedback: int
+    groups: tuple[ObservabilityAlertCalibrationGroup, ...]
+    proposals: tuple[ObservabilityAlertCalibrationProposal, ...]
+    automatic_tuning_allowed: bool = False
 
 
 @dataclass(frozen=True, slots=True)

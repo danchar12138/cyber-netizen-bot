@@ -37,6 +37,7 @@ import type {
   NotificationDeliveryTimelineItemResponse,
   NotificationDeliveryTimelineResponse,
   ObservabilityAlertBatchDispositionCommand,
+  ObservabilityAlertCalibrationAnalysisResponse,
   ObservabilityAlertDispositionClearCommand,
   ObservabilityAlertDispositionCommand,
   ObservabilityAlertDispositionEventResponse,
@@ -1728,6 +1729,7 @@ export type ObservabilityAlertOperationsSummary = ObservabilityAlertOperationsSu
 export type ObservabilityAlertRecommendation = ObservabilityAlertRecommendationResponse
 export type ObservabilityAlertRecommendationFeedback = ObservabilityAlertRecommendationFeedbackResponse
 export type ObservabilityAlertRecommendationQuality = ObservabilityAlertRecommendationQualityMetricsResponse
+export type ObservabilityAlertCalibrationAnalysis = ObservabilityAlertCalibrationAnalysisResponse
 export type ObservabilityAlertReplayReview = ObservabilityAlertReplayReviewResponse
 export type ObservabilityAlertReplayReviewPage = ObservabilityAlertReplayReviewPageResponse
 export type ObservabilityAlertReplayMetrics = ObservabilityAlertReplayMetricsResponse
@@ -1788,6 +1790,15 @@ export const getObservabilityAlertRecommendationQuality = (filters: {
     window_minutes: filters.window_minutes ?? 10_080,
     source_type: filters.source_type,
   },
+})
+
+export const getObservabilityAlertRecommendationCalibration = () =>
+  apiSdk.getApiV1ObservabilityAlertRecommendationsCalibration()
+
+export const createObservabilityAlertRecommendationCalibrationDraft = (
+  configurationVersion: number,
+) => apiSdk.postApiV1ObservabilityAlertRecommendationsCalibrationDrafts({
+  body: { configuration_version: configurationVersion, confirmed: true },
 })
 
 export const submitObservabilityAlertRecommendationFeedback = (

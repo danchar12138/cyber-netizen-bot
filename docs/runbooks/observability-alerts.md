@@ -31,6 +31,9 @@ SLO、队列阈值、成本预算与聚合窗口在“配置中心 → observabi
 - `alerts.recommendation.long_running_minutes`
 - `alerts.recommendation.suppression_minutes`
 - `alerts.recommendation.minimum_repeated_occurrences`
+- `alerts.recommendation.calibration.window_days`
+- `alerts.recommendation.calibration.minimum_samples_per_group`
+- `alerts.recommendation.calibration.target_acceptance_rate_percent`
 - `slo.api.maximum_error_rate_percent`
 - `slo.api.maximum_p95_ms`
 - `slo.agent.minimum_success_rate_percent`
@@ -108,6 +111,15 @@ SLO、队列阈值、成本预算与聚合窗口在“配置中心 → observabi
 6. 管理员采纳可执行建议时，后台先调用带审计的人工处置接口，再提交 `accepted` 结论；采纳“继续观察”和提交 `rejected` 都不会触发处置。反馈请求只包含结论和显式确认，动作、优先级与原因码由服务端重算并冻结。
 7. 同一生命周期只记录一条反馈：相同结论幂等返回，不同结论明确冲突。若处置成功但反馈暂时失败，页面重试只补交采纳反馈，不重复处置；重新载入页面前应先在审计时间线确认处置状态。
 8. “建议质量概览”展示窗口内采纳率、采纳后当前状态、动作/来源分布及同窗重放允许/阻止数量。这些是可审计的相关事实，不证明建议导致恢复或重放结果，也不会自动修改任何阈值。
+
+### 告警建议离线阈值校准
+
+1. “阈值校准分析”只读取当前租户、当前 Agent 和 `alerts.recommendation.calibration.window_days` 窗口内的冻结反馈；严重、升级、基线异常、混合原因和继续观察反馈不会被归因到阈值。
+2. 当前只校准“持续时间过长”单一原因对应的 `alerts.recommendation.long_running_minutes`，以及“普通警告重复出现”单一原因对应的 `alerts.recommendation.minimum_repeated_occurrences`。来源分组用于识别偏差，最终提案按当前 Agent 的规则样本聚合。
+3. 每项提案使用双侧 95% Wilson score 区间与目标采纳率比较。样本不足或区间跨越目标时不建议变更；区间显著高于目标时保持；显著低于目标时只建议保守提高阈值，不会降低阈值。
+4. “创建配置草稿”要求同时具备通用告警处置和配置写权限，并再次显式确认。服务端会重算分析、校验生效配置版本，并在完整已发布快照上合并 Agent 作用域覆盖。
+5. 校准草稿不会自动发布、定时执行或直接改变运行参数。创建后必须到“配置中心”查看安全差异、人工校验并另行发布；版本冲突时刷新分析后重试。
+6. 校准结果只提供离线决策支持，不证明阈值与告警恢复、重放或业务结果存在因果关系，也不读取处置备注、业务正文、任务载荷、Prompt、隐藏推理或 Secret。
 
 ### 成本超出窗口预算
 

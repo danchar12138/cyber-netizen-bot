@@ -6,12 +6,14 @@ const agentId = '33333333-3333-4333-8333-333333333333'
 const acknowledgeLifecycleId = '55555555-5555-4555-8555-555555555555'
 const observeLifecycleId = '66666666-6666-4666-8666-666666666666'
 const feedbackId = '77777777-7777-4777-8777-777777777777'
+const configurationDraftId = '88888888-8888-4888-8888-888888888888'
 const timestamp = '2026-09-15T08:00:00Z'
 
-test('管理员可以反馈建议并查看质量事实', async ({ page }) => {
+test('管理员可以反馈建议、查看质量事实并创建校准草稿', async ({ page }) => {
   const operationOrder: string[] = []
   const feedbackBodies = new Map<string, Record<string, unknown>>()
   let dispositionBody: Record<string, unknown> | null = null
+  let calibrationDraftBody: Record<string, unknown> | null = null
   let acceptedFeedbackAttempts = 0
   await page.route('**/api/v1/administration/session', async (route) => {
     await route.fulfill({ json: {
@@ -19,7 +21,7 @@ test('管理员可以反馈建议并查看质量事实', async ({ page }) => {
       user_id: userId,
       display_name: '本地开发者',
       role: 'admin',
-      permissions: ['trace:read', 'observability_alert:manage'],
+      permissions: ['trace:read', 'observability_alert:manage', 'configuration:write'],
       authentication_mode: 'development',
     } })
   })
@@ -98,6 +100,67 @@ test('管理员可以反馈建议并查看质量事实', async ({ page }) => {
         { source_type: 'agent_runtime', total: 3, accepted: 2, rejected: 1 },
         { source_type: 'api', total: 1, accepted: 1, rejected: 0 },
       ],
+    } })
+  })
+  await page.route('**/api/v1/observability/alert-recommendations/calibration', async (route) => {
+    await route.fulfill({ json: {
+      window_started_at: '2026-08-16T08:00:00Z',
+      window_ended_at: timestamp,
+      configuration_version: 7,
+      minimum_samples_per_group: 20,
+      target_acceptance_rate_percent: 70,
+      confidence_level_percent: 95,
+      total_feedback: 30,
+      eligible_feedback: 25,
+      groups: [
+        {
+          rule: 'long_running',
+          source_type: 'agent_runtime',
+          total: 25,
+          accepted: 5,
+          rejected: 20,
+          acceptance_rate_percent: 20,
+          confidence_lower_percent: 8.86,
+          confidence_upper_percent: 39.13,
+        },
+      ],
+      proposals: [
+        {
+          rule: 'long_running',
+          configuration_key: 'alerts.recommendation.long_running_minutes',
+          current_value: 120,
+          proposed_value: 150,
+          status: 'tighten',
+          sample_size: 25,
+          acceptance_rate_percent: 20,
+          confidence_lower_percent: 8.86,
+          confidence_upper_percent: 39.13,
+        },
+        {
+          rule: 'repeated_warning',
+          configuration_key: 'alerts.recommendation.minimum_repeated_occurrences',
+          current_value: 3,
+          proposed_value: 3,
+          status: 'insufficient_data',
+          sample_size: 0,
+          acceptance_rate_percent: 0,
+          confidence_lower_percent: 0,
+          confidence_upper_percent: 100,
+        },
+      ],
+      automatic_tuning_allowed: false,
+    } })
+  })
+  await page.route('**/api/v1/observability/alert-recommendations/calibration/drafts', async (route) => {
+    calibrationDraftBody = route.request().postDataJSON() as Record<string, unknown>
+    await route.fulfill({ status: 201, json: {
+      id: configurationDraftId,
+      version: 8,
+      status: 'draft',
+      note: '告警建议离线校准：基于 25 条合格人工反馈',
+      created_at: timestamp,
+      published_at: null,
+      values: [],
     } })
   })
   await page.route('**/api/v1/observability/alert-recommendations?*', async (route) => {
@@ -242,6 +305,9 @@ test('管理员可以反馈建议并查看质量事实', async ({ page }) => {
   await expect(page.getByText('严重告警 · 已经升级', { exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '建议质量概览' })).toBeVisible()
   await expect(page.getByText('75.00%', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '阈值校准分析' })).toBeVisible()
+  await expect(page.getByText('25 / 20.00%', { exact: true })).toBeVisible()
+  await expect(page.getByText('建议收紧', { exact: true })).toBeVisible()
   page.once('dialog', async (dialog) => {
     expect(dialog.type()).toBe('confirm')
     expect(dialog.message()).toContain('建议不会自动执行')
@@ -289,4 +355,15 @@ test('管理员可以反馈建议并查看质量事实', async ({ page }) => {
     'feedback:accepted',
     'feedback:rejected',
   ])
+
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('持续时间阈值 120 → 150')
+    expect(dialog.message()).toContain('草稿不会自动发布')
+    await dialog.accept()
+  })
+  await page.getByRole('button', { name: '创建配置草稿' }).click()
+
+  await expect(page.getByText('校准草稿已创建', { exact: true })).toBeVisible()
+  await expect(page.getByText(/配置草稿 v8/)).toBeVisible()
+  expect(calibrationDraftBody).toEqual({ configuration_version: 7, confirmed: true })
 })
