@@ -1,5 +1,8 @@
 """框架无关的性能、成本、SLO 与确定性告警应用服务。"""
 
+import hashlib
+import hmac
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -734,7 +737,8 @@ class ObservabilityService:
             raise ObservabilityValidationError("通用告警来源类型不能为空")
         if normalized_source is not None and len(normalized_source) > 80:
             raise ObservabilityValidationError("通用告警来源类型不能超过 80 个字符")
-        ended_at = (now or datetime.now(UTC)).astimezone(UTC)
+        # 将分析窗口固定到分钟边界，避免同一管理操作因请求间隔几秒而产生不同证据。
+        ended_at = (now or datetime.now(UTC)).astimezone(UTC).replace(second=0, microsecond=0)
         started_at = ended_at - timedelta(minutes=window_minutes)
         rows = await self._repository.list_observability_alert_lifecycles_in_window(
             tenant_id=tenant_id,
@@ -1229,7 +1233,8 @@ class ObservabilityService:
         now: datetime | None = None,
     ) -> ObservabilityAlertCalibrationAnalysis:
         """用冻结人工反馈生成不执行调参的分组阈值评测。"""
-        ended_at = (now or datetime.now(UTC)).astimezone(UTC)
+        # 将校准窗口固定到分钟边界，保证回放证据在相邻管理请求间稳定。
+        ended_at = (now or datetime.now(UTC)).astimezone(UTC).replace(second=0, microsecond=0)
         configuration = await self._configuration_service.resolve_effective(
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -1319,16 +1324,27 @@ class ObservabilityService:
         agent_id: UUID,
         actor_id: UUID,
         configuration_version: int,
+        replay_fingerprint: str,
+        replay_window_ended_at: datetime,
         confirmed: bool,
         now: datetime | None = None,
     ) -> ConfigVersion:
         """重算校准结论并只创建需另行发布的完整配置草稿。"""
         if not confirmed:
             raise ObservabilityValidationError("创建告警建议校准草稿必须显式确认")
+        replay = await self.alert_recommendation_calibration_replay(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            now=replay_window_ended_at,
+        )
+        if replay.configuration_version != configuration_version:
+            raise ObservabilityConflictError("生效配置已在分析后变更，请刷新校准结果后重试")
+        if not hmac.compare_digest(replay.replay_fingerprint, replay_fingerprint):
+            raise ObservabilityConflictError("回放证据已过期，请刷新回放结果后重试")
         analysis = await self.alert_recommendation_calibration_analysis(
             tenant_id=tenant_id,
             agent_id=agent_id,
-            now=now,
+            now=replay_window_ended_at,
         )
         if analysis.configuration_version != configuration_version:
             raise ObservabilityConflictError("生效配置已在分析后变更，请刷新校准结果后重试")
@@ -1461,7 +1477,58 @@ class ObservabilityService:
             total_feedback=analysis.total_feedback,
             eligible_feedback=analysis.eligible_feedback,
             proposals=tuple(replay_proposals),
+            replay_fingerprint=self._calibration_replay_fingerprint(
+                configuration_version=analysis.configuration_version,
+                window_started_at=analysis.window_started_at,
+                window_ended_at=analysis.window_ended_at,
+                total_feedback=analysis.total_feedback,
+                eligible_feedback=analysis.eligible_feedback,
+                proposals=tuple(replay_proposals),
+            ),
         )
+
+    @staticmethod
+    def _calibration_replay_fingerprint(
+        *,
+        configuration_version: int,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+        total_feedback: int,
+        eligible_feedback: int,
+        proposals: tuple[ObservabilityAlertCalibrationReplayProposal, ...],
+    ) -> str:
+        """对回放安全聚合结果做稳定哈希，不纳入正文或运行载荷。"""
+        payload = {
+            "configuration_version": configuration_version,
+            "window_started_at": window_started_at.isoformat(),
+            "window_ended_at": window_ended_at.isoformat(),
+            "total_feedback": total_feedback,
+            "eligible_feedback": eligible_feedback,
+            "proposals": [
+                {
+                    "rule": proposal.rule.value,
+                    "configuration_key": proposal.configuration_key,
+                    "current_value": proposal.current_value,
+                    "candidate_value": proposal.candidate_value,
+                    "sample_size": proposal.sample_size,
+                    "lifecycle_facts": proposal.lifecycle_facts,
+                    "missing_lifecycle_facts": proposal.missing_lifecycle_facts,
+                    "current_triggered": proposal.current_triggered,
+                    "candidate_triggered": proposal.candidate_triggered,
+                    "avoided": proposal.avoided,
+                    "retained": proposal.retained,
+                    "retained_accepted": proposal.retained_accepted,
+                    "retained_rejected": proposal.retained_rejected,
+                    "alternative_actions": [
+                        {"action": item.action.value, "total": item.total}
+                        for item in proposal.alternative_actions
+                    ],
+                }
+                for proposal in proposals
+            ],
+        }
+        encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _replay_observed_value(

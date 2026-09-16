@@ -6339,7 +6339,7 @@ export type ObservabilityAlertCalibrationAnalysisResponse = {
 /**
  * ObservabilityAlertCalibrationDraftCommand
  *
- * 基于指定分析版本创建配置草稿的显式确认命令。
+ * 基于指定分析版本和回放证据创建配置草稿的显式确认命令。
  */
 export type ObservabilityAlertCalibrationDraftCommand = {
     /**
@@ -6350,6 +6350,14 @@ export type ObservabilityAlertCalibrationDraftCommand = {
      * Confirmed
      */
     confirmed?: boolean;
+    /**
+     * Replay Fingerprint
+     */
+    replay_fingerprint: string;
+    /**
+     * Replay Window Ended At
+     */
+    replay_window_ended_at: string;
 };
 
 /**
@@ -6449,6 +6457,10 @@ export type ObservabilityAlertCalibrationReplayAnalysisResponse = {
      * Proposals
      */
     proposals: Array<ObservabilityAlertCalibrationReplayProposalResponse>;
+    /**
+     * Replay Fingerprint
+     */
+    replay_fingerprint: string;
     /**
      * Scenario Only
      */

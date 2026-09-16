@@ -333,6 +333,8 @@ async def create_alert_recommendation_calibration_draft(
             agent_id=identity.agent_id,
             actor_id=principal.user_id,
             configuration_version=command.configuration_version,
+            replay_fingerprint=command.replay_fingerprint,
+            replay_window_ended_at=command.replay_window_ended_at,
             confirmed=command.confirmed,
         )
     except ObservabilityConflictError as error:

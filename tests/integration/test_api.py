@@ -582,7 +582,7 @@ async def test_observability_alert_calibration_api_is_guarded_and_returns_a_draf
         observability_repository=observability_repository,
     )
     identity = cast(DevelopmentIdentity, app.state.development_identity)
-    now = datetime.now(UTC).replace(microsecond=0)
+    now = datetime.now(UTC).replace(second=0, microsecond=0)
     for index in range(5):
         await observability_repository.save_observability_alert_recommendation_feedback(
             ObservabilityAlertRecommendationFeedback(
@@ -611,24 +611,50 @@ async def test_observability_alert_calibration_api_is_guarded_and_returns_a_draf
             "/api/v1/observability/alert-recommendations/calibration/replay",
             headers={"X-CNB-Development-Role": "viewer"},
         )
-        viewer_response = await client.post(
+        replay_fingerprint = replay_response.json()["replay_fingerprint"]
+        missing_evidence_response = await client.post(
             "/api/v1/observability/alert-recommendations/calibration/drafts",
             json={"configuration_version": published.version, "confirmed": True},
+            headers={"X-CNB-Development-Role": "operator"},
+        )
+        viewer_response = await client.post(
+            "/api/v1/observability/alert-recommendations/calibration/drafts",
+            json={
+                "configuration_version": published.version,
+                "replay_fingerprint": replay_fingerprint,
+                "replay_window_ended_at": replay_response.json()["window_ended_at"],
+                "confirmed": True,
+            },
             headers={"X-CNB-Development-Role": "viewer"},
         )
         unconfirmed_response = await client.post(
             "/api/v1/observability/alert-recommendations/calibration/drafts",
-            json={"configuration_version": published.version, "confirmed": False},
+            json={
+                "configuration_version": published.version,
+                "replay_fingerprint": replay_fingerprint,
+                "replay_window_ended_at": replay_response.json()["window_ended_at"],
+                "confirmed": False,
+            },
             headers={"X-CNB-Development-Role": "operator"},
         )
         stale_response = await client.post(
             "/api/v1/observability/alert-recommendations/calibration/drafts",
-            json={"configuration_version": 0, "confirmed": True},
+            json={
+                "configuration_version": 0,
+                "replay_fingerprint": replay_fingerprint,
+                "replay_window_ended_at": replay_response.json()["window_ended_at"],
+                "confirmed": True,
+            },
             headers={"X-CNB-Development-Role": "operator"},
         )
         draft_response = await client.post(
             "/api/v1/observability/alert-recommendations/calibration/drafts",
-            json={"configuration_version": published.version, "confirmed": True},
+            json={
+                "configuration_version": published.version,
+                "replay_fingerprint": replay_fingerprint,
+                "replay_window_ended_at": replay_response.json()["window_ended_at"],
+                "confirmed": True,
+            },
             headers={"X-CNB-Development-Role": "operator"},
         )
 
@@ -646,6 +672,7 @@ async def test_observability_alert_calibration_api_is_guarded_and_returns_a_draf
     assert analysis.proposals[0].status == "tighten"
     assert analysis.automatic_tuning_allowed is False
     assert viewer_response.status_code == 403
+    assert missing_evidence_response.status_code == 422
     assert unconfirmed_response.status_code == 422
     assert stale_response.status_code == 409
     assert draft_response.status_code == 201

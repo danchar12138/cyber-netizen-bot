@@ -208,6 +208,7 @@ describe('通用告警客户端', () => {
             eligible_feedback: 20,
             groups: [],
             proposals: [],
+            replay_fingerprint: 'a'.repeat(64),
             automatic_tuning_allowed: false,
           }
         : {
@@ -227,7 +228,11 @@ describe('通用告警客户端', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     await getObservabilityAlertRecommendationCalibration()
-    await createObservabilityAlertRecommendationCalibrationDraft(7)
+    await createObservabilityAlertRecommendationCalibrationDraft(
+      7,
+      'a'.repeat(64),
+      '2026-09-15T12:00:00Z',
+    )
 
     const analysisRequest = fetchMock.mock.calls[0]?.[0] as Request
     expect(new URL(analysisRequest.url).pathname).toBe(
@@ -239,7 +244,12 @@ describe('通用告警客户端', () => {
       '/api/v1/observability/alert-recommendations/calibration/drafts',
     )
     expect(draftRequest.method).toBe('POST')
-    expect(await draftRequest.json()).toEqual({ configuration_version: 7, confirmed: true })
+    expect(await draftRequest.json()).toEqual({
+      configuration_version: 7,
+      replay_fingerprint: 'a'.repeat(64),
+      replay_window_ended_at: '2026-09-15T12:00:00Z',
+      confirmed: true,
+    })
   })
 
   it('读取候选阈值场景回放结果并使用默认窗口', async () => {
@@ -250,6 +260,7 @@ describe('通用告警客户端', () => {
       total_feedback: 20,
       eligible_feedback: 20,
       proposals: [],
+      replay_fingerprint: 'a'.repeat(64),
       scenario_only: true,
       automatic_tuning_allowed: false,
     }), {

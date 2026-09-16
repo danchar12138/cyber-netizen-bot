@@ -1412,11 +1412,25 @@ async def test_alert_recommendation_calibration_is_scoped_grouped_and_conservati
         ObservabilityAlertCalibrationStatus.KEEP
     )
 
+    replay = await service.alert_recommendation_calibration_replay(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=now,
+    )
+    rounded_replay = await service.alert_recommendation_calibration_replay(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=now + timedelta(seconds=59),
+    )
+    assert rounded_replay.window_ended_at == replay.window_ended_at
+    assert rounded_replay.replay_fingerprint == replay.replay_fingerprint
     draft = await service.create_alert_recommendation_calibration_draft(
         tenant_id=tenant_id,
         agent_id=agent_id,
         actor_id=uuid4(),
         configuration_version=published.version,
+        replay_fingerprint=replay.replay_fingerprint,
+        replay_window_ended_at=replay.window_ended_at,
         confirmed=True,
         now=now,
     )
@@ -1431,6 +1445,41 @@ async def test_alert_recommendation_calibration_is_scoped_grouped_and_conservati
         agent_id,
         150,
     ) in {(item.key, item.scope_type, item.scope_id, item.value) for item in draft.values}
+
+    await repository.save_observability_alert_recommendation_feedback(
+        _calibration_feedback(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            feedback_at=now,
+            action=ObservabilityAlertRecommendationAction.ACKNOWLEDGE,
+            reason_codes=(ObservabilityAlertRecommendationReason.LONG_RUNNING,),
+            decision=ObservabilityAlertRecommendationFeedbackDecision.REJECTED,
+            source_type="api",
+        )
+    )
+    with pytest.raises(ObservabilityConflictError, match="回放证据已过期"):
+        await service.create_alert_recommendation_calibration_draft(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            actor_id=uuid4(),
+            configuration_version=published.version,
+            replay_fingerprint=replay.replay_fingerprint,
+            replay_window_ended_at=replay.window_ended_at,
+            confirmed=True,
+            now=now,
+        )
+
+    with pytest.raises(ObservabilityConflictError, match="回放证据已过期"):
+        await service.create_alert_recommendation_calibration_draft(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            actor_id=uuid4(),
+            configuration_version=published.version,
+            replay_fingerprint="0" * 64,
+            replay_window_ended_at=replay.window_ended_at,
+            confirmed=True,
+            now=now,
+        )
 
 
 async def test_alert_recommendation_calibration_covers_uncertainty_limits_and_guards() -> None:
@@ -1506,12 +1555,24 @@ async def test_alert_recommendation_calibration_covers_uncertainty_limits_and_gu
     assert {item.status for item in empty.proposals} == {
         ObservabilityAlertCalibrationStatus.INSUFFICIENT_DATA
     }
+    replay = await service.alert_recommendation_calibration_replay(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        now=now,
+    )
+    empty_replay = await service.alert_recommendation_calibration_replay(
+        tenant_id=tenant_id,
+        agent_id=empty_agent_id,
+        now=now,
+    )
     with pytest.raises(ObservabilityValidationError, match="显式确认"):
         await service.create_alert_recommendation_calibration_draft(
             tenant_id=tenant_id,
             agent_id=agent_id,
             actor_id=uuid4(),
             configuration_version=published.version,
+            replay_fingerprint=replay.replay_fingerprint,
+            replay_window_ended_at=replay.window_ended_at,
             confirmed=False,
             now=now,
         )
@@ -1521,6 +1582,20 @@ async def test_alert_recommendation_calibration_covers_uncertainty_limits_and_gu
             agent_id=empty_agent_id,
             actor_id=uuid4(),
             configuration_version=published.version,
+            replay_fingerprint=empty_replay.replay_fingerprint,
+            replay_window_ended_at=empty_replay.window_ended_at,
+            confirmed=True,
+            now=now,
+        )
+
+    with pytest.raises(ObservabilityConflictError, match="回放证据已过期"):
+        await service.create_alert_recommendation_calibration_draft(
+            tenant_id=tenant_id,
+            agent_id=empty_agent_id,
+            actor_id=uuid4(),
+            configuration_version=published.version,
+            replay_fingerprint=replay.replay_fingerprint,
+            replay_window_ended_at=replay.window_ended_at,
             confirmed=True,
             now=now,
         )
@@ -1533,6 +1608,8 @@ async def test_alert_recommendation_calibration_covers_uncertainty_limits_and_gu
             agent_id=agent_id,
             actor_id=uuid4(),
             configuration_version=published.version,
+            replay_fingerprint=replay.replay_fingerprint,
+            replay_window_ended_at=replay.window_ended_at,
             confirmed=True,
             now=now,
         )

@@ -325,7 +325,15 @@ export function ObservabilityPage() {
     },
   })
   const calibrationDraftMutation = useMutation({
-    mutationFn: createObservabilityAlertRecommendationCalibrationDraft,
+    mutationFn: ({ configurationVersion, replayFingerprint, replayWindowEndedAt }: {
+      configurationVersion: number
+      replayFingerprint: string
+      replayWindowEndedAt: string
+    }) => createObservabilityAlertRecommendationCalibrationDraft(
+      configurationVersion,
+      replayFingerprint,
+      replayWindowEndedAt,
+    ),
     onSuccess: async (draft) => {
       setCalibrationFeedback(`已创建配置草稿 v${draft.version}，请前往配置中心校验并另行发布`)
       await Promise.all([
@@ -408,14 +416,18 @@ export function ObservabilityPage() {
     recommendationFeedbackMutation.mutate({ recommendation, decision })
   }, [recommendationFeedbackMutation])
   const createCalibrationDraft = useCallback(() => {
-    if (!calibration || !calibrationChanges.length) return
+    if (!calibration || !calibrationChanges.length || !calibrationReplay?.replay_fingerprint) return
     setCalibrationFeedback(null)
     const summary = calibrationChanges
       .map((item) => `${displayLabel(observabilityCalibrationRuleLabels, item.rule)} ${item.current_value} → ${item.proposed_value}`)
       .join('；')
     if (!window.confirm(`确认基于当前冻结反馈创建配置草稿？\n${summary}\n草稿不会自动发布。`)) return
-    calibrationDraftMutation.mutate(calibration.configuration_version)
-  }, [calibration, calibrationChanges, calibrationDraftMutation])
+    calibrationDraftMutation.mutate({
+      configurationVersion: calibration.configuration_version,
+      replayFingerprint: calibrationReplay.replay_fingerprint,
+      replayWindowEndedAt: calibrationReplay.window_ended_at,
+    })
+  }, [calibration, calibrationChanges, calibrationDraftMutation, calibrationReplay])
   const clearDisposition = useCallback((item: ObservabilityAlertLifecycle) => {
     setDispositionInputError(null)
     setDispositionFeedback(null)
@@ -557,7 +569,7 @@ export function ObservabilityPage() {
       </section>
 
       <section className="recommendation-calibration-section" aria-label="告警建议阈值校准">
-        <div className="panel-heading channel-operation-heading"><div><p className="eyebrow">冻结反馈 · Wilson 95% 区间</p><h2>阈值校准分析</h2></div><div className="heading-actions"><span className="subtle">仅生成建议，不自动调参</span>{canManageAlerts && canWriteConfiguration && calibrationChanges.length > 0 && <button className="secondary-button" disabled={calibrationDraftMutation.isPending} onClick={createCalibrationDraft}><FilePenLine size={14} />创建配置草稿</button>}</div></div>
+        <div className="panel-heading channel-operation-heading"><div><p className="eyebrow">冻结反馈 · Wilson 95% 区间</p><h2>阈值校准分析</h2></div><div className="heading-actions"><span className="subtle">仅生成建议，不自动调参</span>{canManageAlerts && canWriteConfiguration && calibrationChanges.length > 0 && <button className="secondary-button" disabled={calibrationDraftMutation.isPending || !calibrationReplay?.replay_fingerprint} onClick={createCalibrationDraft}><FilePenLine size={14} />创建配置草稿</button>}</div></div>
         <div className="notice info"><SlidersHorizontal size={17} /><div><strong>分析口径</strong><span>{calibration ? `${new Date(calibration.window_started_at).toLocaleDateString('zh-CN')} 至 ${new Date(calibration.window_ended_at).toLocaleDateString('zh-CN')} · 合格反馈 ${calibration.eligible_feedback}/${calibration.total_feedback} · 配置 v${calibration.configuration_version}` : '正在读取当前智能体的离线分析窗口'}</span></div></div>
         <div className="metric-grid recommendation-calibration-metrics">
           <article className="metric-card"><div className="metric-icon"><ClipboardList size={18} /></div><p>合格反馈</p><strong>{calibration?.eligible_feedback ?? '—'}</strong><span>总反馈 {calibration?.total_feedback ?? '—'}</span></article>

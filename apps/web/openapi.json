@@ -10663,7 +10663,7 @@
         "type": "object"
       },
       "ObservabilityAlertCalibrationDraftCommand": {
-        "description": "基于指定分析版本创建配置草稿的显式确认命令。",
+        "description": "基于指定分析版本和回放证据创建配置草稿的显式确认命令。",
         "properties": {
           "configuration_version": {
             "minimum": 0.0,
@@ -10674,10 +10674,22 @@
             "default": false,
             "title": "Confirmed",
             "type": "boolean"
+          },
+          "replay_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Replay Fingerprint",
+            "type": "string"
+          },
+          "replay_window_ended_at": {
+            "format": "date-time",
+            "title": "Replay Window Ended At",
+            "type": "string"
           }
         },
         "required": [
-          "configuration_version"
+          "configuration_version",
+          "replay_fingerprint",
+          "replay_window_ended_at"
         ],
         "title": "ObservabilityAlertCalibrationDraftCommand",
         "type": "object"
@@ -10828,6 +10840,11 @@
             "title": "Proposals",
             "type": "array"
           },
+          "replay_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Replay Fingerprint",
+            "type": "string"
+          },
           "scenario_only": {
             "title": "Scenario Only",
             "type": "boolean"
@@ -10855,6 +10872,7 @@
           "total_feedback",
           "eligible_feedback",
           "proposals",
+          "replay_fingerprint",
           "scenario_only",
           "automatic_tuning_allowed"
         ],

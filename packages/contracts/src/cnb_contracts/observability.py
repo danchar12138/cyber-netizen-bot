@@ -392,9 +392,11 @@ class ObservabilityAlertCalibrationAnalysisResponse(BaseModel):
 
 
 class ObservabilityAlertCalibrationDraftCommand(BaseModel):
-    """基于指定分析版本创建配置草稿的显式确认命令。"""
+    """基于指定分析版本和回放证据创建配置草稿的显式确认命令。"""
 
     configuration_version: int = Field(ge=0)
+    replay_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    replay_window_ended_at: datetime
     confirmed: bool = False
 
 
@@ -433,6 +435,7 @@ class ObservabilityAlertCalibrationReplayAnalysisResponse(BaseModel):
     total_feedback: int = Field(ge=0)
     eligible_feedback: int = Field(ge=0)
     proposals: tuple[ObservabilityAlertCalibrationReplayProposalResponse, ...]
+    replay_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     scenario_only: bool
     automatic_tuning_allowed: bool
 

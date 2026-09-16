@@ -1803,8 +1803,15 @@ export const getObservabilityAlertRecommendationCalibrationReplay = () =>
 
 export const createObservabilityAlertRecommendationCalibrationDraft = (
   configurationVersion: number,
+  replayFingerprint: string,
+  replayWindowEndedAt: string,
 ) => apiSdk.postApiV1ObservabilityAlertRecommendationsCalibrationDrafts({
-  body: { configuration_version: configurationVersion, confirmed: true },
+  body: {
+    configuration_version: configurationVersion,
+    replay_fingerprint: replayFingerprint,
+    replay_window_ended_at: replayWindowEndedAt,
+    confirmed: true,
+  },
 })
 
 export const submitObservabilityAlertRecommendationFeedback = (

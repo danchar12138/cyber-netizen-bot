@@ -469,6 +469,7 @@ class ObservabilityAlertCalibrationReplayAnalysis:
     total_feedback: int
     eligible_feedback: int
     proposals: tuple[ObservabilityAlertCalibrationReplayProposal, ...]
+    replay_fingerprint: str
     scenario_only: bool = True
     automatic_tuning_allowed: bool = False
 

@@ -8,6 +8,7 @@ const observeLifecycleId = '66666666-6666-4666-8666-666666666666'
 const feedbackId = '77777777-7777-4777-8777-777777777777'
 const configurationDraftId = '88888888-8888-4888-8888-888888888888'
 const timestamp = '2026-09-15T08:00:00Z'
+const replayFingerprint = 'a'.repeat(64)
 
 test('管理员可以反馈建议、查看质量事实并创建校准草稿', async ({ page }) => {
   const operationOrder: string[] = []
@@ -180,6 +181,7 @@ test('管理员可以反馈建议、查看质量事实并创建校准草稿', as
           ],
         },
       ],
+      replay_fingerprint: replayFingerprint,
       scenario_only: true,
       automatic_tuning_allowed: false,
     } })
@@ -402,5 +404,10 @@ test('管理员可以反馈建议、查看质量事实并创建校准草稿', as
 
   await expect(page.getByText('校准草稿已创建', { exact: true })).toBeVisible()
   await expect(page.getByText(/配置草稿 v8/)).toBeVisible()
-  expect(calibrationDraftBody).toEqual({ configuration_version: 7, confirmed: true })
+  expect(calibrationDraftBody).toEqual({
+    configuration_version: 7,
+    replay_fingerprint: replayFingerprint,
+    replay_window_ended_at: timestamp,
+    confirmed: true,
+  })
 })
