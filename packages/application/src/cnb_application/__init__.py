@@ -206,7 +206,10 @@ from cnb_application.pagination import (
 )
 from cnb_application.quality_service import (
     AlertRecommendationQualityReader,
+    EvaluationQualityHistoryReader,
+    EvaluationQualityHistoryService,
     EvaluationQualityReader,
+    QualityHistoryValidationError,
     QualityOverviewService,
 )
 from cnb_application.task_handlers import (
@@ -320,6 +323,8 @@ __all__ = [
     "EvaluationCaseDraft",
     "EvaluationConflictError",
     "EvaluationNotFoundError",
+    "EvaluationQualityHistoryReader",
+    "EvaluationQualityHistoryService",
     "EvaluationQualityReader",
     "EvaluationRepository",
     "EvaluationService",
@@ -391,6 +396,7 @@ __all__ = [
     "PermanentTaskError",
     "PermissionDeniedError",
     "PreparedAlertNotification",
+    "QualityHistoryValidationError",
     "QualityOverviewService",
     "ReflectionSourceRepository",
     "ReflectionTaskHandler",

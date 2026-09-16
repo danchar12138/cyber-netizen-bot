@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from cnb_api.dependencies import (
     get_admin_principal,
+    get_evaluation_quality_history_service,
     get_evaluation_service,
     get_quality_overview_service,
     require_permission,
@@ -15,9 +16,11 @@ from cnb_application import (
     EvaluationCaseDraft,
     EvaluationConflictError,
     EvaluationNotFoundError,
+    EvaluationQualityHistoryService,
     EvaluationService,
     EvaluationValidationError,
     ObservabilityValidationError,
+    QualityHistoryValidationError,
     QualityOverviewService,
 )
 from cnb_contracts import (
@@ -31,6 +34,7 @@ from cnb_contracts import (
     EvaluationComparisonSummaryResponse,
     EvaluationModelTargetListResponse,
     EvaluationModelTargetResponse,
+    EvaluationQualityHistoryResponse,
     EvaluationReportResponse,
     EvaluationRunCreate,
     EvaluationRunListResponse,
@@ -44,6 +48,35 @@ from cnb_contracts import (
 from cnb_domain import AdminPermission, AdminPrincipal, BlindReviewScore
 
 router = APIRouter(prefix="/evaluations", tags=["evaluations"])
+
+
+@router.get(
+    "/quality-history",
+    response_model=EvaluationQualityHistoryResponse,
+    dependencies=[Depends(require_permission(AdminPermission.COGNITION_READ))],
+)
+async def get_evaluation_quality_history(
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[
+        EvaluationQualityHistoryService,
+        Depends(get_evaluation_quality_history_service),
+    ],
+    window_minutes: Annotated[int, Query(ge=1_440, le=129_600)] = 43_200,
+    bucket_minutes: Annotated[int, Query(ge=60, le=129_600)] = 7_200,
+) -> EvaluationQualityHistoryResponse:
+    """按运行时间返回连续趋势和完整冻结版本的只读质量事实。"""
+    try:
+        history = await service.get_history(
+            tenant_id=principal.tenant_id,
+            window_minutes=window_minutes,
+            bucket_minutes=bucket_minutes,
+        )
+    except QualityHistoryValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(error),
+        ) from error
+    return EvaluationQualityHistoryResponse.model_validate(history, from_attributes=True)
 
 
 @router.get(

@@ -43,6 +43,7 @@ from cnb_domain import (
     EvaluationComparisonEntry,
     EvaluationComparisonStatus,
     EvaluationModelTarget,
+    EvaluationQualitySamples,
     EvaluationReport,
     EvaluationRun,
     EvaluationRunStatus,
@@ -153,6 +154,15 @@ class EvaluationRepository(Protocol):
     async def get_report(
         self, *, tenant_id: UUID, agent_id: UUID, reviewer_id: UUID
     ) -> EvaluationReport: ...
+
+    async def get_quality_samples(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+    ) -> EvaluationQualitySamples: ...
 
 
 class EvaluationService:
@@ -575,6 +585,21 @@ class EvaluationService:
             tenant_id=tenant_id,
             agent_id=self._agent_id,
             reviewer_id=reviewer_id,
+        )
+
+    async def get_quality_samples(
+        self,
+        *,
+        tenant_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+    ) -> EvaluationQualitySamples:
+        """读取当前 Agent 有界且不含正文的评测质量样本。"""
+        return await self._repository.get_quality_samples(
+            tenant_id=tenant_id,
+            agent_id=self._agent_id,
+            window_started_at=window_started_at,
+            window_ended_at=window_ended_at,
         )
 
     async def _published_suite(

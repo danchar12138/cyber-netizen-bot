@@ -5,12 +5,22 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from cnb_application import QualityOverviewService
+from cnb_application import (
+    EvaluationQualityHistoryService,
+    QualityHistoryValidationError,
+    QualityOverviewService,
+)
 from cnb_domain import (
+    BlindReviewPreference,
+    EvaluationQualityReviewSample,
+    EvaluationQualityRunSample,
+    EvaluationQualitySamples,
     EvaluationReport,
+    EvaluationVersionSnapshot,
     ObservabilityAlertRecommendationQualityMetrics,
     QualityDataCoverage,
     QualityEvaluationScope,
+    QualityReviewAttribution,
 )
 
 
@@ -44,6 +54,24 @@ class RecordingAlertRecommendationReader:
     ) -> ObservabilityAlertRecommendationQualityMetrics:
         self.calls.append((tenant_id, agent_id, window_minutes, source_type, now))
         return self.metrics
+
+
+class RecordingQualityHistoryReader:
+    """记录窗口边界并返回安全评测样本的读取桩。"""
+
+    def __init__(self, samples: EvaluationQualitySamples) -> None:
+        self.samples = samples
+        self.calls: list[tuple[UUID, datetime, datetime]] = []
+
+    async def get_quality_samples(
+        self,
+        *,
+        tenant_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+    ) -> EvaluationQualitySamples:
+        self.calls.append((tenant_id, window_started_at, window_ended_at))
+        return self.samples
 
 
 def _evaluation(*, has_data: bool) -> EvaluationReport:
@@ -119,3 +147,113 @@ async def test_quality_overview_reports_real_coverage_and_shared_scope(
     assert overview.automatic_actions_allowed is False
     assert evaluation_reader.calls == [(tenant_id, reviewer_id)]
     assert operations_reader.calls == [(tenant_id, agent_id, 2_880, None, generated_at)]
+
+
+async def test_quality_history_keeps_empty_buckets_and_groups_complete_snapshots() -> None:
+    """趋势保留空桶，盲评按运行归属，版本按完整冻结快照分组。"""
+    now = datetime(2026, 9, 16, 12, tzinfo=UTC)
+    started_at = now - timedelta(days=7)
+    tenant_id = uuid4()
+    first_run_id, second_run_id = uuid4(), uuid4()
+    first_snapshot = EvaluationVersionSnapshot(
+        suite_key="anthropomorphic-baseline",
+        suite_version=1,
+        configuration_version=3,
+        persona_version=4,
+        prompt_version=5,
+        policy_version=6,
+        model_route_version=7,
+        provider="openai-compatible",
+        model="model-a",
+    )
+    second_snapshot = EvaluationVersionSnapshot(
+        suite_key="anthropomorphic-baseline",
+        suite_version=1,
+        configuration_version=3,
+        persona_version=5,
+        prompt_version=5,
+        policy_version=6,
+        model_route_version=7,
+        provider="openai-compatible",
+        model="model-a",
+    )
+    reader = RecordingQualityHistoryReader(
+        EvaluationQualitySamples(
+            runs=(
+                EvaluationQualityRunSample(
+                    run_id=first_run_id,
+                    created_at=started_at + timedelta(hours=1),
+                    gate_passed=True,
+                    pass_rate=100.0,
+                    snapshot=first_snapshot,
+                ),
+                EvaluationQualityRunSample(
+                    run_id=second_run_id,
+                    created_at=started_at + timedelta(days=2, hours=1),
+                    gate_passed=False,
+                    pass_rate=60.0,
+                    snapshot=second_snapshot,
+                ),
+            ),
+            reviews=(
+                EvaluationQualityReviewSample(
+                    run_id=first_run_id,
+                    preference=BlindReviewPreference.CANDIDATE,
+                    candidate_average_score=4.5,
+                    reference_average_score=3.25,
+                    created_at=now - timedelta(hours=1),
+                ),
+                EvaluationQualityReviewSample(
+                    run_id=second_run_id,
+                    preference=BlindReviewPreference.TIE,
+                    candidate_average_score=4.0,
+                    reference_average_score=4.0,
+                    created_at=now - timedelta(minutes=30),
+                ),
+            ),
+        )
+    )
+
+    history = await EvaluationQualityHistoryService(reader).get_history(
+        tenant_id=tenant_id,
+        window_minutes=10_080,
+        bucket_minutes=1_440,
+        now=now,
+    )
+
+    assert reader.calls == [(tenant_id, started_at, now)]
+    assert history.review_attribution is QualityReviewAttribution.RUN_CREATED_AT
+    assert history.total_runs == history.completed_reviews == 2
+    assert len(history.trend) == 7
+    assert history.trend[0].total_runs == 1
+    assert history.trend[0].completed_reviews == 1
+    assert history.trend[0].candidate_wins == 1
+    assert history.trend[1].total_runs == 0
+    assert history.trend[1].average_pass_rate is None
+    assert history.trend[2].ties == 1
+    assert len(history.versions) == 2
+    assert history.versions[0].snapshot == second_snapshot
+    assert history.versions[1].snapshot == first_snapshot
+    assert history.comparable_versions is True
+    assert history.automatic_actions_allowed is False
+
+
+@pytest.mark.parametrize(
+    ("window_minutes", "bucket_minutes"),
+    [(1_439, 60), (129_601, 1_440), (10_080, 59), (10_080, 2_000), (90_000, 900)],
+)
+async def test_quality_history_rejects_invalid_windows(
+    window_minutes: int,
+    bucket_minutes: int,
+) -> None:
+    """服务层独立拒绝越界、不整除或超过九十桶的查询。"""
+    reader = RecordingQualityHistoryReader(EvaluationQualitySamples(runs=(), reviews=()))
+
+    with pytest.raises(QualityHistoryValidationError):
+        await EvaluationQualityHistoryService(reader).get_history(
+            tenant_id=uuid4(),
+            window_minutes=window_minutes,
+            bucket_minutes=bucket_minutes,
+        )
+
+    assert reader.calls == []

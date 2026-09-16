@@ -43,6 +43,7 @@ from cnb_contracts import (
     DataLifecycleOverviewResponse,
     EvaluationComparisonResponse,
     EvaluationModelTargetListResponse,
+    EvaluationQualityHistoryResponse,
     EvaluationReportResponse,
     EvaluationRunResponse,
     EvaluationSuiteResponse,
@@ -1122,6 +1123,10 @@ async def test_persisted_evaluation_replay_and_blind_review_api() -> None:
             "/api/v1/evaluations/quality-overview",
             params={"window_minutes": 2_880},
         )
+        quality_history_response = await client.get(
+            "/api/v1/evaluations/quality-history",
+            params={"window_minutes": 10_080, "bucket_minutes": 1_440},
+        )
         second_agent = await client.post(
             "/api/v1/administration/agents",
             json={"name": "质量概览隔离 Agent"},
@@ -1129,6 +1134,15 @@ async def test_persisted_evaluation_replay_and_blind_review_api() -> None:
         isolated_quality_response = await client.get(
             "/api/v1/evaluations/quality-overview",
             headers={"X-CNB-Agent-ID": second_agent.json()["id"]},
+        )
+        isolated_quality_history_response = await client.get(
+            "/api/v1/evaluations/quality-history",
+            headers={"X-CNB-Agent-ID": second_agent.json()["id"]},
+            params={"window_minutes": 10_080, "bucket_minutes": 1_440},
+        )
+        invalid_quality_history_response = await client.get(
+            "/api/v1/evaluations/quality-history",
+            params={"window_minutes": 10_081, "bucket_minutes": 1_440},
         )
         viewer_suite_create = await client.post(
             "/api/v1/evaluations/suites",
@@ -1150,8 +1164,14 @@ async def test_persisted_evaluation_replay_and_blind_review_api() -> None:
 
     report = EvaluationReportResponse.model_validate(report_response.json())
     quality = UnifiedQualityOverviewResponse.model_validate(quality_response.json())
+    quality_history = EvaluationQualityHistoryResponse.model_validate(
+        quality_history_response.json()
+    )
     isolated_quality = UnifiedQualityOverviewResponse.model_validate(
         isolated_quality_response.json()
+    )
+    isolated_quality_history = EvaluationQualityHistoryResponse.model_validate(
+        isolated_quality_history_response.json()
     )
     assert run_response.status_code == 201
     assert run.passed == run.total == 5
@@ -1181,8 +1201,21 @@ async def test_persisted_evaluation_replay_and_blind_review_api() -> None:
     assert quality.evaluation.total_runs == 1
     assert quality.alert_recommendations.total == 0
     assert quality.automatic_actions_allowed is False
+    assert quality_history.review_attribution == "run_created_at"
+    assert quality_history.total_runs == 1
+    assert quality_history.completed_reviews == 1
+    assert len(quality_history.trend) == 7
+    assert sum(item.total_runs for item in quality_history.trend) == 1
+    assert sum(item.completed_reviews for item in quality_history.trend) == 1
+    assert len(quality_history.versions) == 1
+    assert quality_history.comparable_versions is False
+    assert quality_history.automatic_actions_allowed is False
     assert isolated_quality.coverage == "empty"
     assert isolated_quality.evaluation.total_runs == 0
+    assert isolated_quality_history.total_runs == 0
+    assert isolated_quality_history.completed_reviews == 0
+    assert isolated_quality_history.versions == ()
+    assert invalid_quality_history_response.status_code == 422
     assert viewer_suite_create.status_code == 403
 
 
@@ -1244,6 +1277,62 @@ async def test_unified_quality_overview_requires_both_read_permissions() -> None
             )
 
         assert response.status_code == 403
+
+
+async def test_evaluation_quality_history_requires_cognition_read_permission() -> None:
+    """质量历史接口只接受具备认知读取权限的管理身份。"""
+    tenant_id, user_id, agent_id = uuid4(), uuid4(), uuid4()
+    identity = DevelopmentIdentity(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        agent_id=agent_id,
+        user_name="质量历史权限测试用户",
+        agent_name="质量历史权限测试 Agent",
+    )
+
+    class PermissionPreservingRepository(MemoryAdministrationRepository):
+        async def authorize_admin_request(
+            self,
+            *,
+            principal: AdminPrincipal,
+            requested_at: datetime,
+            window_started_at: datetime,
+        ) -> AdminPrincipal:
+            return principal
+
+    principal = AdminPrincipal(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        display_name=identity.user_name,
+        role=AdminRole.VIEWER,
+        permissions=frozenset({AdminPermission.TRACE_READ}),
+        authentication_mode="oidc",
+    )
+    app = create_app(
+        Settings(
+            environment="test",
+            authentication_mode="oidc",
+            oidc_issuer_url="https://identity.example.test/realms/cnb",
+            oidc_client_id="cyber-netizen-web",
+            oidc_audience="cyber-netizen-api",
+            oidc_tenant_id=tenant_id,
+            oidc_agent_id=agent_id,
+        ),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+        administration_repository=PermissionPreservingRepository(identity),
+        admin_authenticator=FakeOidcAuthenticator(principal),
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/api/v1/evaluations/quality-history",
+            headers={"Authorization": "Bearer signed-test-token"},
+        )
+
+    assert response.status_code == 403
 
 
 async def test_multi_model_comparison_api_exposes_governed_targets_and_isolated_detail() -> None:

@@ -14,6 +14,7 @@ from cnb_domain import (
     EvaluationSuiteStatus,
     QualityDataCoverage,
     QualityEvaluationScope,
+    QualityReviewAttribution,
 )
 
 
@@ -323,6 +324,70 @@ class EvaluationReportResponse(BaseModel):
     ties: int
     candidate_average_score: float | None
     reference_average_score: float | None
+
+
+class EvaluationVersionSnapshotResponse(BaseModel):
+    """定义可比较评测上下文的完整冻结版本与模型快照。"""
+
+    suite_key: str
+    suite_version: int
+    configuration_version: int
+    persona_version: int
+    prompt_version: int
+    policy_version: int
+    model_route_version: int
+    provider: str
+    model: str
+
+
+class EvaluationQualityTrendPointResponse(BaseModel):
+    """一个连续时间桶中的拟人评测质量事实。"""
+
+    bucket_started_at: datetime
+    bucket_ended_at: datetime
+    total_runs: int = Field(ge=0)
+    gate_passed_runs: int = Field(ge=0)
+    average_pass_rate: float | None = Field(default=None, ge=0, le=100)
+    completed_reviews: int = Field(ge=0)
+    candidate_wins: int = Field(ge=0)
+    reference_wins: int = Field(ge=0)
+    ties: int = Field(ge=0)
+    candidate_average_score: float | None = Field(default=None, ge=1, le=5)
+    reference_average_score: float | None = Field(default=None, ge=1, le=5)
+
+
+class EvaluationVersionQualitySummaryResponse(BaseModel):
+    """同一完整冻结快照下的拟人评测质量事实。"""
+
+    snapshot: EvaluationVersionSnapshotResponse
+    first_run_at: datetime
+    latest_run_at: datetime
+    total_runs: int = Field(ge=1)
+    gate_passed_runs: int = Field(ge=0)
+    average_pass_rate: float = Field(ge=0, le=100)
+    completed_reviews: int = Field(ge=0)
+    candidate_wins: int = Field(ge=0)
+    reference_wins: int = Field(ge=0)
+    ties: int = Field(ge=0)
+    candidate_average_score: float | None = Field(default=None, ge=1, le=5)
+    reference_average_score: float | None = Field(default=None, ge=1, le=5)
+
+
+class EvaluationQualityHistoryResponse(BaseModel):
+    """当前 Agent 的有界趋势与冻结版本质量对比。"""
+
+    generated_at: datetime
+    window_started_at: datetime
+    window_ended_at: datetime
+    window_minutes: int = Field(ge=1_440, le=129_600)
+    bucket_minutes: int = Field(ge=60, le=129_600)
+    review_attribution: QualityReviewAttribution
+    total_runs: int = Field(ge=0)
+    completed_reviews: int = Field(ge=0)
+    trend: tuple[EvaluationQualityTrendPointResponse, ...]
+    versions: tuple[EvaluationVersionQualitySummaryResponse, ...]
+    comparable_versions: bool
+    automatic_actions_allowed: Literal[False]
 
 
 class UnifiedQualityOverviewResponse(BaseModel):

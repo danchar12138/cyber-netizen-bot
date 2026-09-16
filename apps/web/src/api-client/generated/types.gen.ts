@@ -3695,6 +3695,111 @@ export type EvaluationModelTargetResponse = {
 };
 
 /**
+ * EvaluationQualityHistoryResponse
+ *
+ * 当前 Agent 的有界趋势与冻结版本质量对比。
+ */
+export type EvaluationQualityHistoryResponse = {
+    /**
+     * Automatic Actions Allowed
+     */
+    automatic_actions_allowed: false;
+    /**
+     * Bucket Minutes
+     */
+    bucket_minutes: number;
+    /**
+     * Comparable Versions
+     */
+    comparable_versions: boolean;
+    /**
+     * Completed Reviews
+     */
+    completed_reviews: number;
+    /**
+     * Generated At
+     */
+    generated_at: string;
+    review_attribution: QualityReviewAttribution;
+    /**
+     * Total Runs
+     */
+    total_runs: number;
+    /**
+     * Trend
+     */
+    trend: Array<EvaluationQualityTrendPointResponse>;
+    /**
+     * Versions
+     */
+    versions: Array<EvaluationVersionQualitySummaryResponse>;
+    /**
+     * Window Ended At
+     */
+    window_ended_at: string;
+    /**
+     * Window Minutes
+     */
+    window_minutes: number;
+    /**
+     * Window Started At
+     */
+    window_started_at: string;
+};
+
+/**
+ * EvaluationQualityTrendPointResponse
+ *
+ * 一个连续时间桶中的拟人评测质量事实。
+ */
+export type EvaluationQualityTrendPointResponse = {
+    /**
+     * Average Pass Rate
+     */
+    average_pass_rate?: number | null;
+    /**
+     * Bucket Ended At
+     */
+    bucket_ended_at: string;
+    /**
+     * Bucket Started At
+     */
+    bucket_started_at: string;
+    /**
+     * Candidate Average Score
+     */
+    candidate_average_score?: number | null;
+    /**
+     * Candidate Wins
+     */
+    candidate_wins: number;
+    /**
+     * Completed Reviews
+     */
+    completed_reviews: number;
+    /**
+     * Gate Passed Runs
+     */
+    gate_passed_runs: number;
+    /**
+     * Reference Average Score
+     */
+    reference_average_score?: number | null;
+    /**
+     * Reference Wins
+     */
+    reference_wins: number;
+    /**
+     * Ties
+     */
+    ties: number;
+    /**
+     * Total Runs
+     */
+    total_runs: number;
+};
+
+/**
  * EvaluationReportResponse
  *
  * 拟人自动回归与人工盲评聚合报告。
@@ -4062,6 +4167,103 @@ export type EvaluationSuiteResponse = {
  * 评测集不可变版本的生命周期。
  */
 export type EvaluationSuiteStatus = 'draft' | 'published' | 'superseded';
+
+/**
+ * EvaluationVersionQualitySummaryResponse
+ *
+ * 同一完整冻结快照下的拟人评测质量事实。
+ */
+export type EvaluationVersionQualitySummaryResponse = {
+    /**
+     * Average Pass Rate
+     */
+    average_pass_rate: number;
+    /**
+     * Candidate Average Score
+     */
+    candidate_average_score?: number | null;
+    /**
+     * Candidate Wins
+     */
+    candidate_wins: number;
+    /**
+     * Completed Reviews
+     */
+    completed_reviews: number;
+    /**
+     * First Run At
+     */
+    first_run_at: string;
+    /**
+     * Gate Passed Runs
+     */
+    gate_passed_runs: number;
+    /**
+     * Latest Run At
+     */
+    latest_run_at: string;
+    /**
+     * Reference Average Score
+     */
+    reference_average_score?: number | null;
+    /**
+     * Reference Wins
+     */
+    reference_wins: number;
+    snapshot: EvaluationVersionSnapshotResponse;
+    /**
+     * Ties
+     */
+    ties: number;
+    /**
+     * Total Runs
+     */
+    total_runs: number;
+};
+
+/**
+ * EvaluationVersionSnapshotResponse
+ *
+ * 定义可比较评测上下文的完整冻结版本与模型快照。
+ */
+export type EvaluationVersionSnapshotResponse = {
+    /**
+     * Configuration Version
+     */
+    configuration_version: number;
+    /**
+     * Model
+     */
+    model: string;
+    /**
+     * Model Route Version
+     */
+    model_route_version: number;
+    /**
+     * Persona Version
+     */
+    persona_version: number;
+    /**
+     * Policy Version
+     */
+    policy_version: number;
+    /**
+     * Prompt Version
+     */
+    prompt_version: number;
+    /**
+     * Provider
+     */
+    provider: string;
+    /**
+     * Suite Key
+     */
+    suite_key: string;
+    /**
+     * Suite Version
+     */
+    suite_version: number;
+};
 
 /**
  * ExternalConversationKind
@@ -7686,6 +7888,13 @@ export type QualityDataCoverage = 'complete' | 'evaluation_only' | 'operations_o
  * 拟人评测聚合使用的稳定统计口径。
  */
 export type QualityEvaluationScope = 'current_agent_all_history';
+
+/**
+ * QualityReviewAttribution
+ *
+ * 人工盲评在趋势中的稳定归属口径。
+ */
+export type QualityReviewAttribution = 'run_created_at';
 
 /**
  * QueueMetricsResponse
@@ -14918,6 +15127,72 @@ export type GetApiV1EvaluationsComparisonsByComparisonIdResponses = {
 };
 
 export type GetApiV1EvaluationsComparisonsByComparisonIdResponse = GetApiV1EvaluationsComparisonsByComparisonIdResponses[keyof GetApiV1EvaluationsComparisonsByComparisonIdResponses];
+
+export type GetApiV1EvaluationsQualityHistoryData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Window Minutes
+         */
+        window_minutes?: number;
+        /**
+         * Bucket Minutes
+         */
+        bucket_minutes?: number;
+    };
+    url: '/api/v1/evaluations/quality-history';
+};
+
+export type GetApiV1EvaluationsQualityHistoryErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1EvaluationsQualityHistoryError = GetApiV1EvaluationsQualityHistoryErrors[keyof GetApiV1EvaluationsQualityHistoryErrors];
+
+export type GetApiV1EvaluationsQualityHistoryResponses = {
+    /**
+     * 请求成功
+     */
+    200: EvaluationQualityHistoryResponse;
+};
+
+export type GetApiV1EvaluationsQualityHistoryResponse = GetApiV1EvaluationsQualityHistoryResponses[keyof GetApiV1EvaluationsQualityHistoryResponses];
 
 export type GetApiV1EvaluationsQualityOverviewData = {
     body?: never;

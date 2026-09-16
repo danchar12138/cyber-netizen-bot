@@ -27,6 +27,7 @@ import type {
   EvaluationComparisonResponse,
   EvaluationComparisonSummaryResponse,
   EvaluationModelTargetResponse,
+  EvaluationQualityHistoryResponse,
   ExternalConversationMappingResponse,
   ExternalIdentityMappingResponse,
   InboxEventResponse,
@@ -947,6 +948,7 @@ export interface EvaluationReport {
 }
 
 export type UnifiedQualityOverview = UnifiedQualityOverviewResponse
+export type EvaluationQualityHistory = EvaluationQualityHistoryResponse
 
 export type EvaluationModelTarget = EvaluationModelTargetResponse
 export type EvaluationComparison = EvaluationComparisonResponse
@@ -1945,6 +1947,16 @@ export const getUnifiedQualityOverview = (windowMinutes = 10_080) =>
   apiSdk.getApiV1EvaluationsQualityOverview({
     query: { window_minutes: windowMinutes },
   })
+
+export const getEvaluationQualityHistory = (
+  windowMinutes = 43_200,
+  bucketMinutes = 7_200,
+) => apiSdk.getApiV1EvaluationsQualityHistory({
+  query: {
+    window_minutes: windowMinutes,
+    bucket_minutes: bucketMinutes,
+  },
+})
 
 export const claimBlindReviewAssignment = (runId: string | null = null) =>
   apiSdk.postApiV1EvaluationsBlindAssignments({ body: { run_id: runId } })

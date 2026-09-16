@@ -9,6 +9,7 @@ import {
   getEvaluationComparison,
   getEvaluationComparisons,
   getEvaluationComparisonTargets,
+  getEvaluationQualityHistory,
   getUnifiedQualityOverview,
   getEvaluationRun,
   getEvaluationRuns,
@@ -69,6 +70,28 @@ const qualityCoverageLabels = {
   empty: '暂无质量证据',
 } as const
 
+const qualityHistoryWindows = [
+  { days: 7, windowMinutes: 10_080, bucketMinutes: 1_440 },
+  { days: 30, windowMinutes: 43_200, bucketMinutes: 1_440 },
+  { days: 90, windowMinutes: 129_600, bucketMinutes: 1_440 },
+] as const
+
+function formatQualityDate(value: string) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+  }).format(new Date(value))
+}
+
+function formatQualityDateTime(value: string) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value))
+}
+
 function formatQualityWindow(minutes: number) {
   if (minutes % 1_440 === 0) return `近 ${minutes / 1_440} 天`
   if (minutes % 60 === 0) return `近 ${minutes / 60} 小时`
@@ -116,6 +139,7 @@ export function EvaluationsPage() {
   const [selectedRun, setSelectedRun] = useState<string | null>(null)
   const [selectedProfileKeys, setSelectedProfileKeys] = useState<string[]>([])
   const [selectedComparison, setSelectedComparison] = useState<string | null>(null)
+  const [qualityWindowDays, setQualityWindowDays] = useState<7 | 30 | 90>(30)
   const [assignment, setAssignment] = useState<BlindReviewAssignment | null>(null)
   const [scoreA, setScoreA] = useState(neutralScore)
   const [scoreB, setScoreB] = useState(neutralScore)
@@ -134,6 +158,20 @@ export function EvaluationsPage() {
   const quality = useQuery({
     queryKey: ['evaluation-quality-overview', selectedAgentId, 10_080],
     queryFn: () => getUnifiedQualityOverview(10_080),
+  })
+  const qualityWindow = qualityHistoryWindows.find((item) => item.days === qualityWindowDays)
+    ?? qualityHistoryWindows[1]
+  const qualityHistory = useQuery({
+    queryKey: [
+      'evaluation-quality-history',
+      selectedAgentId,
+      qualityWindow.windowMinutes,
+      qualityWindow.bucketMinutes,
+    ],
+    queryFn: () => getEvaluationQualityHistory(
+      qualityWindow.windowMinutes,
+      qualityWindow.bucketMinutes,
+    ),
   })
   const comparisonTargets = useQuery({
     queryKey: ['evaluation-comparison-targets', selectedAgentId],
@@ -175,6 +213,7 @@ export function EvaluationsPage() {
   const refresh = async () => {
     await invalidateAcrossTabs(queryClient, ['evaluation-runs'])
     await queryClient.invalidateQueries({ queryKey: ['evaluation-quality-overview'] })
+    await queryClient.invalidateQueries({ queryKey: ['evaluation-quality-history'] })
   }
   const createSuite = useMutation({
     mutationFn: () => {
@@ -235,6 +274,7 @@ export function EvaluationsPage() {
     onSuccess: async () => {
       setAssignment(null)
       await queryClient.invalidateQueries({ queryKey: ['evaluation-quality-overview'] })
+      await queryClient.invalidateQueries({ queryKey: ['evaluation-quality-history'] })
     },
   })
 
@@ -280,6 +320,131 @@ export function EvaluationsPage() {
           <article><span>已接受建议后状态</span><strong>{quality.data?.alert_recommendations.accepted_resolved ?? 0} / {quality.data?.alert_recommendations.accepted_active ?? 0}</strong><small>已恢复 / 仍活动，仅表示观察事实</small></article>
           <article><span>通知重放复核</span><strong>{quality.data?.alert_recommendations.replay_allowed ?? 0} / {quality.data?.alert_recommendations.replay_blocked ?? 0}</strong><small>允许 / 阻止，共 {quality.data?.alert_recommendations.replay_total ?? 0} 次</small></article>
         </div>
+      </section>
+
+      <section className="quality-history-section" aria-labelledby="quality-history-title">
+        <div className="quality-history-heading">
+          <div>
+            <h2 id="quality-history-title">拟人质量趋势与冻结版本</h2>
+            <span>
+              {qualityHistory.data
+                ? `${formatQualityWindow(qualityHistory.data.window_minutes)} · ${qualityHistory.data.total_runs} 次回归 · ${qualityHistory.data.completed_reviews} 份盲评`
+                : `近 ${qualityWindowDays} 天`}
+            </span>
+          </div>
+          <div className="quality-window-selector" role="group" aria-label="质量趋势时间窗口">
+            {qualityHistoryWindows.map((item) => <button
+              aria-pressed={qualityWindowDays === item.days}
+              className={qualityWindowDays === item.days ? 'active' : ''}
+              key={item.days}
+              onClick={() => setQualityWindowDays(item.days)}
+              type="button"
+            >
+              {item.days} 天
+            </button>)}
+          </div>
+        </div>
+        {qualityHistory.error && <div className="notice error">质量趋势加载失败：{qualityHistory.error.message}</div>}
+        {qualityHistory.isPending && <div className="empty-state compact">正在读取质量趋势…</div>}
+        {qualityHistory.data?.total_runs === 0 && <div className="empty-state compact">当前时间窗口暂无自动回归记录，无法形成趋势或版本对比。</div>}
+        {!!qualityHistory.data?.total_runs && <>
+          <div className="quality-trend-legend" aria-label="趋势图图例">
+            <span><i className="pass-rate" />自动回归通过率</span>
+            <span><i className="candidate-score" />候选盲评均分</span>
+            <small>盲评按对应运行时间归桶</small>
+          </div>
+          <div
+            className="quality-trend-scroll"
+            tabIndex={0}
+            aria-label={`近 ${qualityWindowDays} 天拟人质量趋势图`}
+          >
+            <div
+              className="quality-trend"
+              style={{ gridTemplateColumns: `repeat(${qualityHistory.data.trend.length}, minmax(18px, 1fr))` }}
+            >
+              {qualityHistory.data.trend.map((point) => {
+                const passRate = point.average_pass_rate ?? 0
+                const candidateScore = point.candidate_average_score ?? 0
+                const bucketLabel = formatQualityDate(point.bucket_started_at)
+                const accessibleSummary = `${bucketLabel}：${point.total_runs} 次回归，通过率 ${point.average_pass_rate?.toFixed(1) ?? '无样本'}%，${point.completed_reviews} 份盲评，候选均分 ${point.candidate_average_score?.toFixed(2) ?? '无样本'}`
+                return <div className="quality-trend-bucket" key={point.bucket_started_at} title={accessibleSummary}>
+                  <div className="quality-trend-bars" role="img" aria-label={accessibleSummary}>
+                    <i
+                      aria-hidden="true"
+                      className={`pass-rate ${point.average_pass_rate == null ? 'empty' : ''}`}
+                      style={{ height: `${passRate}%` }}
+                    />
+                    <i
+                      aria-hidden="true"
+                      className={`candidate-score ${point.candidate_average_score == null ? 'empty' : ''}`}
+                      style={{ height: `${candidateScore * 20}%` }}
+                    />
+                  </div>
+                  <time dateTime={point.bucket_started_at}>{bucketLabel}</time>
+                </div>
+              })}
+            </div>
+          </div>
+          <div className="quality-version-heading">
+            <div>
+              <h3>完整冻结快照对比</h3>
+              <span>{qualityHistory.data.versions.length} 组版本上下文</span>
+            </div>
+            {!qualityHistory.data.comparable_versions && <small>当前窗口只有一组快照，暂无可比较版本。</small>}
+          </div>
+          <div className="admin-table-scroll quality-version-table">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>评测集 / 模型</th>
+                  <th>配置 / 人格 / 提示词</th>
+                  <th>策略 / 路由</th>
+                  <th>运行范围</th>
+                  <th>自动回归</th>
+                  <th>人工盲评</th>
+                </tr>
+              </thead>
+              <tbody>
+                {qualityHistory.data.versions.map((version) => <tr key={[
+                  version.snapshot.suite_key,
+                  version.snapshot.suite_version,
+                  version.snapshot.configuration_version,
+                  version.snapshot.persona_version,
+                  version.snapshot.prompt_version,
+                  version.snapshot.policy_version,
+                  version.snapshot.model_route_version,
+                  version.snapshot.provider,
+                  version.snapshot.model,
+                ].join(':')}>
+                  <td className="table-primary">
+                    <strong>{version.snapshot.suite_key} · v{version.snapshot.suite_version}</strong>
+                    <code>{version.snapshot.provider}/{version.snapshot.model}</code>
+                  </td>
+                  <td>
+                    <strong>配置 v{version.snapshot.configuration_version}</strong>
+                    <small>人格 v{version.snapshot.persona_version} · 提示词 v{version.snapshot.prompt_version}</small>
+                  </td>
+                  <td>
+                    <strong>策略 v{version.snapshot.policy_version}</strong>
+                    <small>模型路由 v{version.snapshot.model_route_version}</small>
+                  </td>
+                  <td>
+                    <strong>{version.total_runs} 次</strong>
+                    <small>{formatQualityDateTime(version.first_run_at)} 至 {formatQualityDateTime(version.latest_run_at)}</small>
+                  </td>
+                  <td>
+                    <strong>{version.average_pass_rate.toFixed(1)}%</strong>
+                    <small>门禁通过 {version.gate_passed_runs} / {version.total_runs}</small>
+                  </td>
+                  <td>
+                    <strong>{version.candidate_average_score?.toFixed(2) ?? '—'} / {version.reference_average_score?.toFixed(2) ?? '—'}</strong>
+                    <small>候选胜 {version.candidate_wins} · 平 {version.ties} · 参考胜 {version.reference_wins} · 共 {version.completed_reviews} 份</small>
+                  </td>
+                </tr>)}
+              </tbody>
+            </table>
+          </div>
+        </>}
       </section>
 
       {editing && <section className="panel evaluation-editor">

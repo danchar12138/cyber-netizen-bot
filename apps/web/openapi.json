@@ -6081,6 +6081,186 @@
         "title": "EvaluationModelTargetResponse",
         "type": "object"
       },
+      "EvaluationQualityHistoryResponse": {
+        "description": "当前 Agent 的有界趋势与冻结版本质量对比。",
+        "properties": {
+          "automatic_actions_allowed": {
+            "const": false,
+            "title": "Automatic Actions Allowed",
+            "type": "boolean"
+          },
+          "bucket_minutes": {
+            "maximum": 129600.0,
+            "minimum": 60.0,
+            "title": "Bucket Minutes",
+            "type": "integer"
+          },
+          "comparable_versions": {
+            "title": "Comparable Versions",
+            "type": "boolean"
+          },
+          "completed_reviews": {
+            "minimum": 0.0,
+            "title": "Completed Reviews",
+            "type": "integer"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "review_attribution": {
+            "$ref": "#/components/schemas/QualityReviewAttribution"
+          },
+          "total_runs": {
+            "minimum": 0.0,
+            "title": "Total Runs",
+            "type": "integer"
+          },
+          "trend": {
+            "items": {
+              "$ref": "#/components/schemas/EvaluationQualityTrendPointResponse"
+            },
+            "title": "Trend",
+            "type": "array"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/EvaluationVersionQualitySummaryResponse"
+            },
+            "title": "Versions",
+            "type": "array"
+          },
+          "window_ended_at": {
+            "format": "date-time",
+            "title": "Window Ended At",
+            "type": "string"
+          },
+          "window_minutes": {
+            "maximum": 129600.0,
+            "minimum": 1440.0,
+            "title": "Window Minutes",
+            "type": "integer"
+          },
+          "window_started_at": {
+            "format": "date-time",
+            "title": "Window Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "generated_at",
+          "window_started_at",
+          "window_ended_at",
+          "window_minutes",
+          "bucket_minutes",
+          "review_attribution",
+          "total_runs",
+          "completed_reviews",
+          "trend",
+          "versions",
+          "comparable_versions",
+          "automatic_actions_allowed"
+        ],
+        "title": "EvaluationQualityHistoryResponse",
+        "type": "object"
+      },
+      "EvaluationQualityTrendPointResponse": {
+        "description": "一个连续时间桶中的拟人评测质量事实。",
+        "properties": {
+          "average_pass_rate": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Pass Rate"
+          },
+          "bucket_ended_at": {
+            "format": "date-time",
+            "title": "Bucket Ended At",
+            "type": "string"
+          },
+          "bucket_started_at": {
+            "format": "date-time",
+            "title": "Bucket Started At",
+            "type": "string"
+          },
+          "candidate_average_score": {
+            "anyOf": [
+              {
+                "maximum": 5.0,
+                "minimum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Average Score"
+          },
+          "candidate_wins": {
+            "minimum": 0.0,
+            "title": "Candidate Wins",
+            "type": "integer"
+          },
+          "completed_reviews": {
+            "minimum": 0.0,
+            "title": "Completed Reviews",
+            "type": "integer"
+          },
+          "gate_passed_runs": {
+            "minimum": 0.0,
+            "title": "Gate Passed Runs",
+            "type": "integer"
+          },
+          "reference_average_score": {
+            "anyOf": [
+              {
+                "maximum": 5.0,
+                "minimum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Average Score"
+          },
+          "reference_wins": {
+            "minimum": 0.0,
+            "title": "Reference Wins",
+            "type": "integer"
+          },
+          "ties": {
+            "minimum": 0.0,
+            "title": "Ties",
+            "type": "integer"
+          },
+          "total_runs": {
+            "minimum": 0.0,
+            "title": "Total Runs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bucket_started_at",
+          "bucket_ended_at",
+          "total_runs",
+          "gate_passed_runs",
+          "completed_reviews",
+          "candidate_wins",
+          "reference_wins",
+          "ties"
+        ],
+        "title": "EvaluationQualityTrendPointResponse",
+        "type": "object"
+      },
       "EvaluationReportResponse": {
         "description": "拟人自动回归与人工盲评聚合报告。",
         "properties": {
@@ -6645,6 +6825,154 @@
         ],
         "title": "EvaluationSuiteStatus",
         "type": "string"
+      },
+      "EvaluationVersionQualitySummaryResponse": {
+        "description": "同一完整冻结快照下的拟人评测质量事实。",
+        "properties": {
+          "average_pass_rate": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Average Pass Rate",
+            "type": "number"
+          },
+          "candidate_average_score": {
+            "anyOf": [
+              {
+                "maximum": 5.0,
+                "minimum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Average Score"
+          },
+          "candidate_wins": {
+            "minimum": 0.0,
+            "title": "Candidate Wins",
+            "type": "integer"
+          },
+          "completed_reviews": {
+            "minimum": 0.0,
+            "title": "Completed Reviews",
+            "type": "integer"
+          },
+          "first_run_at": {
+            "format": "date-time",
+            "title": "First Run At",
+            "type": "string"
+          },
+          "gate_passed_runs": {
+            "minimum": 0.0,
+            "title": "Gate Passed Runs",
+            "type": "integer"
+          },
+          "latest_run_at": {
+            "format": "date-time",
+            "title": "Latest Run At",
+            "type": "string"
+          },
+          "reference_average_score": {
+            "anyOf": [
+              {
+                "maximum": 5.0,
+                "minimum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Average Score"
+          },
+          "reference_wins": {
+            "minimum": 0.0,
+            "title": "Reference Wins",
+            "type": "integer"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/EvaluationVersionSnapshotResponse"
+          },
+          "ties": {
+            "minimum": 0.0,
+            "title": "Ties",
+            "type": "integer"
+          },
+          "total_runs": {
+            "minimum": 1.0,
+            "title": "Total Runs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "snapshot",
+          "first_run_at",
+          "latest_run_at",
+          "total_runs",
+          "gate_passed_runs",
+          "average_pass_rate",
+          "completed_reviews",
+          "candidate_wins",
+          "reference_wins",
+          "ties"
+        ],
+        "title": "EvaluationVersionQualitySummaryResponse",
+        "type": "object"
+      },
+      "EvaluationVersionSnapshotResponse": {
+        "description": "定义可比较评测上下文的完整冻结版本与模型快照。",
+        "properties": {
+          "configuration_version": {
+            "title": "Configuration Version",
+            "type": "integer"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "model_route_version": {
+            "title": "Model Route Version",
+            "type": "integer"
+          },
+          "persona_version": {
+            "title": "Persona Version",
+            "type": "integer"
+          },
+          "policy_version": {
+            "title": "Policy Version",
+            "type": "integer"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "suite_key": {
+            "title": "Suite Key",
+            "type": "string"
+          },
+          "suite_version": {
+            "title": "Suite Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "suite_key",
+          "suite_version",
+          "configuration_version",
+          "persona_version",
+          "prompt_version",
+          "policy_version",
+          "model_route_version",
+          "provider",
+          "model"
+        ],
+        "title": "EvaluationVersionSnapshotResponse",
+        "type": "object"
       },
       "ExternalConversationKind": {
         "description": "平台会话的稳定语义，不使用显示名称推断。",
@@ -12875,6 +13203,14 @@
           "current_agent_all_history"
         ],
         "title": "QualityEvaluationScope",
+        "type": "string"
+      },
+      "QualityReviewAttribution": {
+        "description": "人工盲评在趋势中的稳定归属口径。",
+        "enum": [
+          "run_created_at"
+        ],
+        "title": "QualityReviewAttribution",
         "type": "string"
       },
       "QueueMetricsResponse": {
@@ -27610,6 +27946,144 @@
           }
         },
         "summary": "读取受权限保护的多模型对比及逐用例完整回答",
+        "tags": [
+          "评测实验室"
+        ]
+      }
+    },
+    "/api/v1/evaluations/quality-history": {
+      "get": {
+        "description": "按运行时间返回连续趋势和完整冻结版本的只读质量事实。",
+        "operationId": "get_api_v1_evaluations_quality_history",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window_minutes",
+            "required": false,
+            "schema": {
+              "default": 43200,
+              "maximum": 129600,
+              "minimum": 1440,
+              "title": "Window Minutes",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bucket_minutes",
+            "required": false,
+            "schema": {
+              "default": 7200,
+              "maximum": 129600,
+              "minimum": 60,
+              "title": "Bucket Minutes",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationQualityHistoryResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "按运行时间返回连续趋势和完整冻结版本的只读质量事实",
         "tags": [
           "评测实验室"
         ]

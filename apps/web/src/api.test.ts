@@ -11,6 +11,7 @@ import {
   formatConfigValue,
   formatConfigVersionStatus,
   getAuditRecords,
+  getEvaluationQualityHistory,
   getObservabilityAlertLifecycles,
   getObservabilityAlertDispositionEvents,
   getObservabilityAlertLifecycleMetrics,
@@ -559,6 +560,38 @@ describe('统一质量概览客户端', () => {
     const url = new URL(request.url)
     expect(url.pathname).toBe('/api/v1/evaluations/quality-overview')
     expect(url.searchParams.get('window_minutes')).toBe('2880')
+    expect(request.headers.get('X-CNB-Agent-ID')).toBe(
+      '33333333-3333-4333-8333-333333333333',
+    )
+  })
+
+  it('使用当前 Agent、窗口和桶宽读取拟人质量历史', async () => {
+    setSelectedAgentId('33333333-3333-4333-8333-333333333333')
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      generated_at: '2026-09-16T08:30:00Z',
+      window_started_at: '2026-08-17T08:30:00Z',
+      window_ended_at: '2026-09-16T08:30:00Z',
+      window_minutes: 43_200,
+      bucket_minutes: 1_440,
+      review_attribution: 'run_created_at',
+      total_runs: 0,
+      completed_reviews: 0,
+      trend: [],
+      versions: [],
+      comparable_versions: false,
+      automatic_actions_allowed: false,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getEvaluationQualityHistory(43_200, 1_440)
+
+    const request = fetchMock.mock.calls[0]?.[0] as Request
+    const url = new URL(request.url)
+    expect(url.pathname).toBe('/api/v1/evaluations/quality-history')
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      window_minutes: '43200',
+      bucket_minutes: '1440',
+    })
     expect(request.headers.get('X-CNB-Agent-ID')).toBe(
       '33333333-3333-4333-8333-333333333333',
     )

@@ -32,6 +32,7 @@ from cnb_application import (
     ConversationService,
     DataLifecycleRepository,
     DataLifecycleService,
+    EvaluationQualityHistoryService,
     EvaluationRepository,
     EvaluationService,
     InboundGatewayRepository,
@@ -499,6 +500,13 @@ def get_quality_overview_service(
         observability_service,
         agent_id=identity.agent_id,
     )
+
+
+def get_evaluation_quality_history_service(
+    evaluation_service: Annotated[EvaluationService, Depends(get_evaluation_service)],
+) -> EvaluationQualityHistoryService:
+    """构建当前 Agent 的只读拟人评测质量历史服务。"""
+    return EvaluationQualityHistoryService(evaluation_service)
 
 
 def get_data_lifecycle_service(

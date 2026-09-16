@@ -27,11 +27,15 @@ from cnb_domain import (
     EvaluationComparison,
     EvaluationComparisonEntry,
     EvaluationComparisonStatus,
+    EvaluationQualityReviewSample,
+    EvaluationQualityRunSample,
+    EvaluationQualitySamples,
     EvaluationReport,
     EvaluationRun,
     EvaluationRunStatus,
     EvaluationSuiteDefinition,
     EvaluationSuiteStatus,
+    EvaluationVersionSnapshot,
 )
 from cnb_infrastructure.models import (
     AuditLog,
@@ -44,6 +48,38 @@ from cnb_infrastructure.models import (
     EvaluationRunModel,
     EvaluationSuiteModel,
 )
+
+
+def _quality_run_sample(run: EvaluationRun) -> EvaluationQualityRunSample:
+    """从完整运行中提取不含输入和回答正文的质量样本。"""
+    return EvaluationQualityRunSample(
+        run_id=run.id,
+        created_at=run.created_at,
+        gate_passed=run.gate_passed,
+        pass_rate=run.pass_rate,
+        snapshot=EvaluationVersionSnapshot(
+            suite_key=run.suite_key,
+            suite_version=run.suite_version,
+            configuration_version=run.configuration_version,
+            persona_version=run.persona_version,
+            prompt_version=run.prompt_version,
+            policy_version=run.policy_version,
+            model_route_version=run.model_route_version,
+            provider=run.provider,
+            model=run.model,
+        ),
+    )
+
+
+def _quality_review_sample(review: BlindReview) -> EvaluationQualityReviewSample:
+    """从完整盲评中提取不含备注和回答正文的质量样本。"""
+    return EvaluationQualityReviewSample(
+        run_id=review.run_id,
+        preference=review.preference,
+        candidate_average_score=review.candidate_score.average,
+        reference_average_score=review.reference_score.average,
+        created_at=review.created_at,
+    )
 
 
 class MemoryEvaluationRepository:
@@ -379,6 +415,37 @@ class MemoryEvaluationRepository:
                 runs=runs,
                 reviews=reviews,
                 pending_reviews=len(eligible_result_ids - reviewed_result_ids),
+            )
+
+    async def get_quality_samples(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+    ) -> EvaluationQualitySamples:
+        """读取有界运行及其已提交盲评的安全质量样本。"""
+        async with self._lock:
+            runs = tuple(
+                item
+                for item in self._runs.values()
+                if item.tenant_id == tenant_id
+                and item.agent_id == agent_id
+                and window_started_at <= item.created_at < window_ended_at
+            )
+            run_ids = {item.id for item in runs}
+            reviews = tuple(
+                item
+                for item in self._reviews.values()
+                if item.tenant_id == tenant_id
+                and item.agent_id == agent_id
+                and item.run_id in run_ids
+                and item.created_at < window_ended_at
+            )
+            return EvaluationQualitySamples(
+                runs=tuple(_quality_run_sample(item) for item in runs),
+                reviews=tuple(_quality_review_sample(item) for item in reviews),
             )
 
     def _owned_suite(
@@ -891,6 +958,48 @@ class SqlAlchemyEvaluationRepository:
                 runs=runs,
                 reviews=reviews,
                 pending_reviews=len(eligible_ids - reviewed_ids),
+            )
+
+    async def get_quality_samples(
+        self,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        window_started_at: datetime,
+        window_ended_at: datetime,
+    ) -> EvaluationQualitySamples:
+        """从 PostgreSQL 读取有界且不含正文的评测质量样本。"""
+        async with self._session_factory() as session:
+            run_rows = (
+                await session.scalars(
+                    select(EvaluationRunModel)
+                    .where(
+                        EvaluationRunModel.tenant_id == tenant_id,
+                        EvaluationRunModel.agent_id == agent_id,
+                        EvaluationRunModel.created_at >= window_started_at,
+                        EvaluationRunModel.created_at < window_ended_at,
+                    )
+                    .order_by(EvaluationRunModel.created_at)
+                )
+            ).all()
+            if not run_rows:
+                return EvaluationQualitySamples(runs=(), reviews=())
+            run_ids = tuple(row.id for row in run_rows)
+            review_rows = (
+                await session.scalars(
+                    select(BlindReviewModel)
+                    .where(
+                        BlindReviewModel.tenant_id == tenant_id,
+                        BlindReviewModel.agent_id == agent_id,
+                        BlindReviewModel.run_id.in_(run_ids),
+                        BlindReviewModel.created_at < window_ended_at,
+                    )
+                    .order_by(BlindReviewModel.created_at)
+                )
+            ).all()
+            return EvaluationQualitySamples(
+                runs=tuple(_quality_run_sample(self._run_from_row(row, ())) for row in run_rows),
+                reviews=tuple(_quality_review_sample(self._review(row)) for row in review_rows),
             )
 
     @staticmethod
