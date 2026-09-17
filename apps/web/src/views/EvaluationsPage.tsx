@@ -98,6 +98,12 @@ function formatQualityWindow(minutes: number) {
   return `近 ${minutes} 分钟`
 }
 
+function formatQualityDelta(value: number | null | undefined, suffix = '') {
+  if (value == null) return '样本不足'
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${value.toFixed(2)}${suffix}`
+}
+
 function ScoreEditor({
   label,
   value,
@@ -444,6 +450,63 @@ export function EvaluationsPage() {
               </tbody>
             </table>
           </div>
+          <div className="quality-baseline-heading">
+            <div>
+              <h3>同源基线差异</h3>
+              <span>候选为最新完整冻结快照，基线为同源紧邻上一快照</span>
+            </div>
+            <small>只呈现观察差异，不代表显著性或因果关系</small>
+          </div>
+          {!qualityHistory.data.baseline_comparisons.length && (
+            <div className="empty-state compact">当前窗口没有满足同源条件的连续冻结快照，暂无基线差异。</div>
+          )}
+          {!!qualityHistory.data.baseline_comparisons.length && (
+            <div className="quality-baseline-list">
+              {qualityHistory.data.baseline_comparisons.map((comparison) => {
+                const renderSnapshot = (label: string, version: typeof comparison.candidate) => (
+                  <div className="quality-baseline-snapshot">
+                    <strong>{label} · {formatQualityDateTime(version.latest_run_at)}</strong>
+                    <span>
+                      配置 v{version.snapshot.configuration_version} · 人格 v{version.snapshot.persona_version} · 提示词 v{version.snapshot.prompt_version}
+                    </span>
+                    <span>策略 v{version.snapshot.policy_version} · 路由 v{version.snapshot.model_route_version}</span>
+                    <small>{version.total_runs} 次回归 · {version.completed_reviews} 份盲评</small>
+                  </div>
+                )
+                return <article className="quality-baseline-item" key={`${comparison.key.suite_key}:${comparison.key.suite_version}:${comparison.key.provider}:${comparison.key.model}`}>
+                  <div className="quality-baseline-item-heading">
+                    <div>
+                      <strong>{comparison.key.suite_key} · 评测集 v{comparison.key.suite_version}</strong>
+                      <span>{comparison.key.provider}/{comparison.key.model}</span>
+                    </div>
+                    <small>门槛：每个快照至少 {comparison.minimum_runs_per_snapshot} 次回归、{comparison.minimum_reviews_per_snapshot} 份盲评</small>
+                  </div>
+                  <div className="quality-baseline-snapshots">
+                    {renderSnapshot('候选', comparison.candidate)}
+                    {renderSnapshot('基线', comparison.baseline)}
+                  </div>
+                  <div className="quality-baseline-metrics">
+                    <div>
+                      <span>自动回归通过率差</span>
+                      <strong>{formatQualityDelta(comparison.pass_rate_delta_percentage_points, ' 个百分点')}</strong>
+                      <small>{comparison.automatic_regression_comparable ? '双方样本达到门槛' : '自动回归样本不足'}</small>
+                    </div>
+                    <div>
+                      <span>候选盲评均分差</span>
+                      <strong>{formatQualityDelta(comparison.candidate_average_score_delta)}</strong>
+                      <small>{comparison.blind_review_comparable ? '双方样本达到门槛' : '盲评样本不足'}</small>
+                    </div>
+                    <div>
+                      <span>参考盲评均分差</span>
+                      <strong>{formatQualityDelta(comparison.reference_average_score_delta)}</strong>
+                      <small>{comparison.blind_review_comparable ? '双方样本达到门槛' : '盲评样本不足'}</small>
+                    </div>
+                  </div>
+                  <p className="quality-baseline-note">样本门槛只决定是否展示差值；本比较未进行统计显著性评估，也不允许作因果结论。</p>
+                </article>
+              })}
+            </div>
+          )}
         </>}
       </section>
 

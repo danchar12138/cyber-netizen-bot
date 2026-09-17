@@ -1208,6 +1208,7 @@ async def test_persisted_evaluation_replay_and_blind_review_api() -> None:
     assert sum(item.total_runs for item in quality_history.trend) == 1
     assert sum(item.completed_reviews for item in quality_history.trend) == 1
     assert len(quality_history.versions) == 1
+    assert quality_history.baseline_comparisons == ()
     assert quality_history.comparable_versions is False
     assert quality_history.automatic_actions_allowed is False
     assert isolated_quality.coverage == "empty"
@@ -1215,6 +1216,7 @@ async def test_persisted_evaluation_replay_and_blind_review_api() -> None:
     assert isolated_quality_history.total_runs == 0
     assert isolated_quality_history.completed_reviews == 0
     assert isolated_quality_history.versions == ()
+    assert isolated_quality_history.baseline_comparisons == ()
     assert invalid_quality_history_response.status_code == 422
     assert viewer_suite_create.status_code == 403
 

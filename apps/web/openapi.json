@@ -6081,6 +6081,129 @@
         "title": "EvaluationModelTargetResponse",
         "type": "object"
       },
+      "EvaluationQualityBaselineComparisonResponse": {
+        "description": "最新冻结快照相对紧邻同源基线的有门槛观察差异。",
+        "properties": {
+          "automatic_regression_comparable": {
+            "title": "Automatic Regression Comparable",
+            "type": "boolean"
+          },
+          "baseline": {
+            "$ref": "#/components/schemas/EvaluationVersionQualitySummaryResponse"
+          },
+          "blind_review_comparable": {
+            "title": "Blind Review Comparable",
+            "type": "boolean"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/EvaluationVersionQualitySummaryResponse"
+          },
+          "candidate_average_score_delta": {
+            "anyOf": [
+              {
+                "maximum": 4.0,
+                "minimum": -4.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Average Score Delta"
+          },
+          "causal_conclusion_allowed": {
+            "const": false,
+            "title": "Causal Conclusion Allowed",
+            "type": "boolean"
+          },
+          "key": {
+            "$ref": "#/components/schemas/EvaluationQualityComparisonKeyResponse"
+          },
+          "minimum_reviews_per_snapshot": {
+            "minimum": 1.0,
+            "title": "Minimum Reviews Per Snapshot",
+            "type": "integer"
+          },
+          "minimum_runs_per_snapshot": {
+            "minimum": 1.0,
+            "title": "Minimum Runs Per Snapshot",
+            "type": "integer"
+          },
+          "pass_rate_delta_percentage_points": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": -100.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pass Rate Delta Percentage Points"
+          },
+          "reference_average_score_delta": {
+            "anyOf": [
+              {
+                "maximum": 4.0,
+                "minimum": -4.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Average Score Delta"
+          },
+          "statistical_significance_assessed": {
+            "const": false,
+            "title": "Statistical Significance Assessed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "candidate",
+          "baseline",
+          "minimum_runs_per_snapshot",
+          "minimum_reviews_per_snapshot",
+          "automatic_regression_comparable",
+          "blind_review_comparable",
+          "statistical_significance_assessed",
+          "causal_conclusion_allowed"
+        ],
+        "title": "EvaluationQualityBaselineComparisonResponse",
+        "type": "object"
+      },
+      "EvaluationQualityComparisonKeyResponse": {
+        "description": "限定同源基线比较的评测集版本与模型。",
+        "properties": {
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "suite_key": {
+            "title": "Suite Key",
+            "type": "string"
+          },
+          "suite_version": {
+            "title": "Suite Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "suite_key",
+          "suite_version",
+          "provider",
+          "model"
+        ],
+        "title": "EvaluationQualityComparisonKeyResponse",
+        "type": "object"
+      },
       "EvaluationQualityHistoryResponse": {
         "description": "当前 Agent 的有界趋势与冻结版本质量对比。",
         "properties": {
@@ -6088,6 +6211,13 @@
             "const": false,
             "title": "Automatic Actions Allowed",
             "type": "boolean"
+          },
+          "baseline_comparisons": {
+            "items": {
+              "$ref": "#/components/schemas/EvaluationQualityBaselineComparisonResponse"
+            },
+            "title": "Baseline Comparisons",
+            "type": "array"
           },
           "bucket_minutes": {
             "maximum": 129600.0,
@@ -6159,6 +6289,7 @@
           "completed_reviews",
           "trend",
           "versions",
+          "baseline_comparisons",
           "comparable_versions",
           "automatic_actions_allowed"
         ],

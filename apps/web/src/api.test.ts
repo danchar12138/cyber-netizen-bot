@@ -578,12 +578,13 @@ describe('统一质量概览客户端', () => {
       completed_reviews: 0,
       trend: [],
       versions: [],
+      baseline_comparisons: [],
       comparable_versions: false,
       automatic_actions_allowed: false,
     }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await getEvaluationQualityHistory(43_200, 1_440)
+    const history = await getEvaluationQualityHistory(43_200, 1_440)
 
     const request = fetchMock.mock.calls[0]?.[0] as Request
     const url = new URL(request.url)
@@ -595,6 +596,7 @@ describe('统一质量概览客户端', () => {
     expect(request.headers.get('X-CNB-Agent-ID')).toBe(
       '33333333-3333-4333-8333-333333333333',
     )
+    expect(history.baseline_comparisons).toEqual([])
   })
 })
 

@@ -10,6 +10,8 @@ from uuid import UUID
 
 from cnb_domain import (
     BlindReviewPreference,
+    EvaluationQualityBaselineComparison,
+    EvaluationQualityComparisonKey,
     EvaluationQualityHistory,
     EvaluationQualityReviewSample,
     EvaluationQualityRunSample,
@@ -145,6 +147,8 @@ class EvaluationQualityHistoryService:
     _MAXIMUM_WINDOW_MINUTES = 129_600
     _MINIMUM_BUCKET_MINUTES = 60
     _MAXIMUM_BUCKETS = 90
+    _MINIMUM_COMPARISON_RUNS = 5
+    _MINIMUM_COMPARISON_REVIEWS = 5
 
     def __init__(self, reader: EvaluationQualityHistoryReader) -> None:
         self._reader = reader
@@ -217,7 +221,7 @@ class EvaluationQualityHistoryService:
                     )
                     for snapshot, items in runs_by_snapshot.items()
                 ),
-                key=lambda item: (item.latest_run_at, item.snapshot.suite_key),
+                key=self._version_order_key,
                 reverse=True,
             )
         )
@@ -232,6 +236,7 @@ class EvaluationQualityHistoryService:
             completed_reviews=len(reviews),
             trend=trend,
             versions=versions,
+            baseline_comparisons=self._baseline_comparisons(versions),
             comparable_versions=len(versions) >= 2,
         )
 
@@ -302,6 +307,124 @@ class EvaluationQualityHistoryService:
             candidate_average_score=metrics.candidate_average_score,
             reference_average_score=metrics.reference_average_score,
         )
+
+    @staticmethod
+    def _version_order_key(
+        item: EvaluationVersionQualitySummary,
+    ) -> tuple[datetime, datetime, str, int, int, int, int, int, int, str, str]:
+        """为冻结快照提供不依赖仓储返回顺序的确定性排序键。"""
+        snapshot = item.snapshot
+        return (
+            item.latest_run_at,
+            item.first_run_at,
+            snapshot.suite_key,
+            snapshot.suite_version,
+            snapshot.configuration_version,
+            snapshot.persona_version,
+            snapshot.prompt_version,
+            snapshot.policy_version,
+            snapshot.model_route_version,
+            snapshot.provider,
+            snapshot.model,
+        )
+
+    @classmethod
+    def _baseline_comparisons(
+        cls,
+        versions: Sequence[EvaluationVersionQualitySummary],
+    ) -> tuple[EvaluationQualityBaselineComparison, ...]:
+        """每个同源组只比较最新快照与紧邻的上一快照。"""
+        groups: dict[
+            EvaluationQualityComparisonKey,
+            list[EvaluationVersionQualitySummary],
+        ] = defaultdict(list)
+        for version in versions:
+            snapshot = version.snapshot
+            key = EvaluationQualityComparisonKey(
+                suite_key=snapshot.suite_key,
+                suite_version=snapshot.suite_version,
+                provider=snapshot.provider,
+                model=snapshot.model,
+            )
+            groups[key].append(version)
+
+        comparisons: list[EvaluationQualityBaselineComparison] = []
+        for key, group in groups.items():
+            ordered = sorted(group, key=cls._version_order_key, reverse=True)
+            if len(ordered) < 2:
+                continue
+            comparisons.append(
+                cls._baseline_comparison(
+                    key=key,
+                    candidate=ordered[0],
+                    baseline=ordered[1],
+                )
+            )
+        return tuple(
+            sorted(
+                comparisons,
+                key=lambda item: (
+                    item.candidate.latest_run_at,
+                    item.key.suite_key,
+                    item.key.suite_version,
+                    item.key.provider,
+                    item.key.model,
+                ),
+                reverse=True,
+            )
+        )
+
+    @classmethod
+    def _baseline_comparison(
+        cls,
+        *,
+        key: EvaluationQualityComparisonKey,
+        candidate: EvaluationVersionQualitySummary,
+        baseline: EvaluationVersionQualitySummary,
+    ) -> EvaluationQualityBaselineComparison:
+        automatic_regression_comparable = (
+            candidate.total_runs >= cls._MINIMUM_COMPARISON_RUNS
+            and baseline.total_runs >= cls._MINIMUM_COMPARISON_RUNS
+        )
+        blind_review_comparable = (
+            candidate.completed_reviews >= cls._MINIMUM_COMPARISON_REVIEWS
+            and baseline.completed_reviews >= cls._MINIMUM_COMPARISON_REVIEWS
+        )
+        return EvaluationQualityBaselineComparison(
+            key=key,
+            candidate=candidate,
+            baseline=baseline,
+            minimum_runs_per_snapshot=cls._MINIMUM_COMPARISON_RUNS,
+            minimum_reviews_per_snapshot=cls._MINIMUM_COMPARISON_REVIEWS,
+            automatic_regression_comparable=automatic_regression_comparable,
+            blind_review_comparable=blind_review_comparable,
+            pass_rate_delta_percentage_points=(
+                round(candidate.average_pass_rate - baseline.average_pass_rate, 4)
+                if automatic_regression_comparable
+                else None
+            ),
+            candidate_average_score_delta=cls._score_delta(
+                candidate.candidate_average_score,
+                baseline.candidate_average_score,
+                comparable=blind_review_comparable,
+            ),
+            reference_average_score_delta=cls._score_delta(
+                candidate.reference_average_score,
+                baseline.reference_average_score,
+                comparable=blind_review_comparable,
+            ),
+        )
+
+    @staticmethod
+    def _score_delta(
+        candidate: float | None,
+        baseline: float | None,
+        *,
+        comparable: bool,
+    ) -> float | None:
+        if not comparable or candidate is None or baseline is None:
+            return None
+        return round(candidate - baseline, 4)
 
     @staticmethod
     def _metrics(

@@ -3695,6 +3695,77 @@ export type EvaluationModelTargetResponse = {
 };
 
 /**
+ * EvaluationQualityBaselineComparisonResponse
+ *
+ * 最新冻结快照相对紧邻同源基线的有门槛观察差异。
+ */
+export type EvaluationQualityBaselineComparisonResponse = {
+    /**
+     * Automatic Regression Comparable
+     */
+    automatic_regression_comparable: boolean;
+    baseline: EvaluationVersionQualitySummaryResponse;
+    /**
+     * Blind Review Comparable
+     */
+    blind_review_comparable: boolean;
+    candidate: EvaluationVersionQualitySummaryResponse;
+    /**
+     * Candidate Average Score Delta
+     */
+    candidate_average_score_delta?: number | null;
+    /**
+     * Causal Conclusion Allowed
+     */
+    causal_conclusion_allowed: false;
+    key: EvaluationQualityComparisonKeyResponse;
+    /**
+     * Minimum Reviews Per Snapshot
+     */
+    minimum_reviews_per_snapshot: number;
+    /**
+     * Minimum Runs Per Snapshot
+     */
+    minimum_runs_per_snapshot: number;
+    /**
+     * Pass Rate Delta Percentage Points
+     */
+    pass_rate_delta_percentage_points?: number | null;
+    /**
+     * Reference Average Score Delta
+     */
+    reference_average_score_delta?: number | null;
+    /**
+     * Statistical Significance Assessed
+     */
+    statistical_significance_assessed: false;
+};
+
+/**
+ * EvaluationQualityComparisonKeyResponse
+ *
+ * 限定同源基线比较的评测集版本与模型。
+ */
+export type EvaluationQualityComparisonKeyResponse = {
+    /**
+     * Model
+     */
+    model: string;
+    /**
+     * Provider
+     */
+    provider: string;
+    /**
+     * Suite Key
+     */
+    suite_key: string;
+    /**
+     * Suite Version
+     */
+    suite_version: number;
+};
+
+/**
  * EvaluationQualityHistoryResponse
  *
  * 当前 Agent 的有界趋势与冻结版本质量对比。
@@ -3704,6 +3775,10 @@ export type EvaluationQualityHistoryResponse = {
      * Automatic Actions Allowed
      */
     automatic_actions_allowed: false;
+    /**
+     * Baseline Comparisons
+     */
+    baseline_comparisons: Array<EvaluationQualityBaselineComparisonResponse>;
     /**
      * Bucket Minutes
      */

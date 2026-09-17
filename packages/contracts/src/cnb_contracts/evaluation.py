@@ -373,6 +373,32 @@ class EvaluationVersionQualitySummaryResponse(BaseModel):
     reference_average_score: float | None = Field(default=None, ge=1, le=5)
 
 
+class EvaluationQualityComparisonKeyResponse(BaseModel):
+    """限定同源基线比较的评测集版本与模型。"""
+
+    suite_key: str
+    suite_version: int
+    provider: str
+    model: str
+
+
+class EvaluationQualityBaselineComparisonResponse(BaseModel):
+    """最新冻结快照相对紧邻同源基线的有门槛观察差异。"""
+
+    key: EvaluationQualityComparisonKeyResponse
+    candidate: EvaluationVersionQualitySummaryResponse
+    baseline: EvaluationVersionQualitySummaryResponse
+    minimum_runs_per_snapshot: int = Field(ge=1)
+    minimum_reviews_per_snapshot: int = Field(ge=1)
+    automatic_regression_comparable: bool
+    blind_review_comparable: bool
+    pass_rate_delta_percentage_points: float | None = Field(default=None, ge=-100, le=100)
+    candidate_average_score_delta: float | None = Field(default=None, ge=-4, le=4)
+    reference_average_score_delta: float | None = Field(default=None, ge=-4, le=4)
+    statistical_significance_assessed: Literal[False]
+    causal_conclusion_allowed: Literal[False]
+
+
 class EvaluationQualityHistoryResponse(BaseModel):
     """当前 Agent 的有界趋势与冻结版本质量对比。"""
 
@@ -386,6 +412,7 @@ class EvaluationQualityHistoryResponse(BaseModel):
     completed_reviews: int = Field(ge=0)
     trend: tuple[EvaluationQualityTrendPointResponse, ...]
     versions: tuple[EvaluationVersionQualitySummaryResponse, ...]
+    baseline_comparisons: tuple[EvaluationQualityBaselineComparisonResponse, ...]
     comparable_versions: bool
     automatic_actions_allowed: Literal[False]
 

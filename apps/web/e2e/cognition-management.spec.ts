@@ -314,18 +314,18 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
       return {
         bucket_started_at: bucketStartedAt.toISOString(),
         bucket_ended_at: bucketEndedAt.toISOString(),
-        total_runs: hasRun ? 1 : 0,
-        gate_passed_runs: hasRun ? 1 : 0,
-        average_pass_rate: hasRun ? 100 : null,
-        completed_reviews: index === days - 1 ? 1 : 0,
-        candidate_wins: index === days - 1 ? 1 : 0,
+        total_runs: hasRun ? 5 : 0,
+        gate_passed_runs: index === days - 2 ? 4 : index === days - 1 ? 5 : 0,
+        average_pass_rate: index === days - 2 ? 80 : index === days - 1 ? 100 : null,
+        completed_reviews: hasRun ? 5 : 0,
+        candidate_wins: hasRun ? 4 : 0,
         reference_wins: 0,
-        ties: 0,
-        candidate_average_score: index === days - 1 ? 4.25 : null,
-        reference_average_score: index === days - 1 ? 3.25 : null,
+        ties: hasRun ? 1 : 0,
+        candidate_average_score: index === days - 2 ? 3.25 : index === days - 1 ? 4.25 : null,
+        reference_average_score: index === days - 2 ? 3.5 : index === days - 1 ? 3.25 : null,
       }
     })
-    const versionSnapshot = {
+    const baselineSnapshot = {
       suite_key: 'anthropomorphic-baseline',
       suite_version: 1,
       configuration_version: 3,
@@ -334,7 +334,40 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
       policy_version: 2,
       model_route_version: 1,
       provider: 'development',
-      model: 'friendly-echo-v1',
+      model: 'friendly-quality-v1',
+    }
+    const candidateSnapshot = {
+      ...baselineSnapshot,
+      configuration_version: 4,
+      persona_version: 3,
+    }
+    const baselineVersion = {
+      snapshot: baselineSnapshot,
+      first_run_at: '2026-09-09T07:55:00Z',
+      latest_run_at: '2026-09-09T08:00:00Z',
+      total_runs: 5,
+      gate_passed_runs: 4,
+      average_pass_rate: 80,
+      completed_reviews: 5,
+      candidate_wins: 4,
+      reference_wins: 0,
+      ties: 1,
+      candidate_average_score: 3.25,
+      reference_average_score: 3.5,
+    }
+    const candidateVersion = {
+      snapshot: candidateSnapshot,
+      first_run_at: '2026-09-10T07:55:00Z',
+      latest_run_at: timestamp,
+      total_runs: 5,
+      gate_passed_runs: 5,
+      average_pass_rate: 100,
+      completed_reviews: 5,
+      candidate_wins: 4,
+      reference_wins: 0,
+      ties: 1,
+      candidate_average_score: 4.25,
+      reference_average_score: 3.25,
     }
     await route.fulfill({
       json: {
@@ -344,42 +377,29 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
         window_minutes: windowMinutes,
         bucket_minutes: bucketMinutes,
         review_attribution: 'run_created_at',
-        total_runs: 2,
-        completed_reviews: 1,
+        total_runs: 10,
+        completed_reviews: 10,
         trend,
-        versions: [
+        versions: [candidateVersion, baselineVersion],
+        baseline_comparisons: [
           {
-            snapshot: versionSnapshot,
-            first_run_at: '2026-09-09T08:00:00Z',
-            latest_run_at: '2026-09-09T08:00:00Z',
-            total_runs: 1,
-            gate_passed_runs: 1,
-            average_pass_rate: 100,
-            completed_reviews: 0,
-            candidate_wins: 0,
-            reference_wins: 0,
-            ties: 0,
-            candidate_average_score: null,
-            reference_average_score: null,
-          },
-          {
-            snapshot: {
-              ...versionSnapshot,
-              configuration_version: 4,
-              persona_version: 3,
-              model: 'friendly-quality-v1',
+            key: {
+              suite_key: baselineSnapshot.suite_key,
+              suite_version: baselineSnapshot.suite_version,
+              provider: baselineSnapshot.provider,
+              model: baselineSnapshot.model,
             },
-            first_run_at: timestamp,
-            latest_run_at: timestamp,
-            total_runs: 1,
-            gate_passed_runs: 1,
-            average_pass_rate: 100,
-            completed_reviews: 1,
-            candidate_wins: 1,
-            reference_wins: 0,
-            ties: 0,
-            candidate_average_score: 4.25,
-            reference_average_score: 3.25,
+            candidate: candidateVersion,
+            baseline: baselineVersion,
+            minimum_runs_per_snapshot: 5,
+            minimum_reviews_per_snapshot: 5,
+            automatic_regression_comparable: true,
+            blind_review_comparable: true,
+            pass_rate_delta_percentage_points: 20,
+            candidate_average_score_delta: 1,
+            reference_average_score_delta: -0.25,
+            statistical_significance_assessed: false,
+            causal_conclusion_allowed: false,
           },
         ],
         comparable_versions: true,
@@ -417,19 +437,25 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
   await expect(page.getByText('证据完整')).toBeVisible()
   await expect(page.getByText('75.0%')).toBeVisible()
   await expect(page.getByText('只读质量事实，不会自动调参、发布或处置告警')).toBeVisible()
-  await expect(page.getByText('近 30 天 · 2 次回归 · 1 份盲评')).toBeVisible()
+  await expect(page.getByText('近 30 天 · 10 次回归 · 10 份盲评')).toBeVisible()
   await expect(page.locator('.quality-trend-bucket')).toHaveCount(30)
-  await expect(page.locator('.quality-version-table').getByText('development/friendly-quality-v1')).toBeVisible()
+  await expect(page.locator('.quality-version-table').getByText('development/friendly-quality-v1').first()).toBeVisible()
+  await expect(page.getByText('+20.00 个百分点')).toBeVisible()
+  await expect(page.getByText('+1.00')).toBeVisible()
+  await expect(page.getByText('-0.25')).toBeVisible()
+  await expect(page.getByText('样本门槛只决定是否展示差值；本比较未进行统计显著性评估，也不允许作因果结论。')).toBeVisible()
   await page.getByRole('button', { name: '7 天' }).click()
-  await expect(page.getByText('近 7 天 · 2 次回归 · 1 份盲评')).toBeVisible()
+  await expect(page.getByText('近 7 天 · 10 次回归 · 10 份盲评')).toBeVisible()
   await expect(page.locator('.quality-trend-bucket')).toHaveCount(7)
   await page.getByRole('button', { name: '90 天' }).click()
-  await expect(page.getByText('近 90 天 · 2 次回归 · 1 份盲评')).toBeVisible()
+  await expect(page.getByText('近 90 天 · 10 次回归 · 10 份盲评')).toBeVisible()
   await expect(page.locator('.quality-trend-bucket')).toHaveCount(90)
   expect(await page.evaluate<boolean>('document.documentElement.scrollWidth > window.innerWidth')).toBe(false)
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate<boolean>('document.documentElement.scrollWidth > window.innerWidth')).toBe(false)
-  await expect.poll(() => page.locator('.quality-trend-scroll').evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+  await expect.poll(() => page.evaluate<boolean>(
+    "(() => { const element = document.querySelector('.quality-trend-scroll'); return element !== null && element.scrollWidth > element.clientWidth })()",
+  )).toBe(true)
   await page.setViewportSize({ width: 1280, height: 720 })
   await page.getByRole('button', { name: '新建评测集' }).click()
   await page.getByRole('button', { name: '保存草稿' }).click()

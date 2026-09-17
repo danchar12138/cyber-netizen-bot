@@ -111,6 +111,34 @@ class EvaluationVersionQualitySummary:
 
 
 @dataclass(frozen=True, slots=True)
+class EvaluationQualityComparisonKey:
+    """限定显式基线比较只能发生在同评测集版本与同模型内。"""
+
+    suite_key: str
+    suite_version: int
+    provider: str
+    model: str
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationQualityBaselineComparison:
+    """最新冻结快照相对紧邻同源基线的有门槛观察差异。"""
+
+    key: EvaluationQualityComparisonKey
+    candidate: EvaluationVersionQualitySummary
+    baseline: EvaluationVersionQualitySummary
+    minimum_runs_per_snapshot: int
+    minimum_reviews_per_snapshot: int
+    automatic_regression_comparable: bool
+    blind_review_comparable: bool
+    pass_rate_delta_percentage_points: float | None
+    candidate_average_score_delta: float | None
+    reference_average_score_delta: float | None
+    statistical_significance_assessed: bool = False
+    causal_conclusion_allowed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class EvaluationQualityHistory:
     """有界趋势和完整冻结版本对比的只读质量事实。"""
 
@@ -124,6 +152,7 @@ class EvaluationQualityHistory:
     completed_reviews: int
     trend: tuple[EvaluationQualityTrendPoint, ...]
     versions: tuple[EvaluationVersionQualitySummary, ...]
+    baseline_comparisons: tuple[EvaluationQualityBaselineComparison, ...]
     comparable_versions: bool
     automatic_actions_allowed: bool = False
 

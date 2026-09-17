@@ -194,6 +194,8 @@ from cnb_domain.observability import (
     QueueMetrics,
 )
 from cnb_domain.quality import (
+    EvaluationQualityBaselineComparison,
+    EvaluationQualityComparisonKey,
     EvaluationQualityHistory,
     EvaluationQualityReviewSample,
     EvaluationQualityRunSample,
@@ -306,6 +308,8 @@ __all__ = [
     "EvaluationComparisonEntry",
     "EvaluationComparisonStatus",
     "EvaluationModelTarget",
+    "EvaluationQualityBaselineComparison",
+    "EvaluationQualityComparisonKey",
     "EvaluationQualityHistory",
     "EvaluationQualityReviewSample",
     "EvaluationQualityRunSample",
