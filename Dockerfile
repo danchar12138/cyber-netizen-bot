@@ -2,7 +2,7 @@
 
 FROM ghcr.io/astral-sh/uv:0.12.10 AS uv
 
-FROM python:3.12.14-slim-bookworm AS python-runtime
+FROM python:3.14.7-slim-bookworm AS python-runtime
 
 # Debian 安全修复可能早于 Python 基础镜像重建。
 # hadolint ignore=DL3005
