@@ -9,9 +9,11 @@ from typing import cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from cnb_application import (
+    EvaluationApprovalConflictError,
     EvaluationCaseDraft,
     EvaluationConflictError,
     EvaluationNotFoundError,
@@ -21,18 +23,22 @@ from cnb_domain import (
     BlindReviewAssignment,
     BlindReviewPreference,
     BlindReviewScore,
+    EvaluationApprovalOutcome,
+    EvaluationApprovalReason,
     EvaluationCaseDefinition,
     EvaluationCaseRunResult,
     EvaluationCheck,
     EvaluationComparison,
     EvaluationComparisonEntry,
     EvaluationComparisonStatus,
+    EvaluationDecisionApprovalRecord,
     EvaluationDecisionOutcome,
     EvaluationDecisionReason,
     EvaluationDecisionRecord,
     EvaluationQualityReviewSample,
     EvaluationQualityRunSample,
     EvaluationQualitySamples,
+    EvaluationReleaseEnvironment,
     EvaluationReport,
     EvaluationRun,
     EvaluationRunStatus,
@@ -48,6 +54,7 @@ from cnb_infrastructure.models import (
     EvaluationCaseResultModel,
     EvaluationComparisonEntryModel,
     EvaluationComparisonModel,
+    EvaluationDecisionApprovalModel,
     EvaluationDecisionModel,
     EvaluationRunModel,
     EvaluationSuiteModel,
@@ -94,6 +101,7 @@ class MemoryEvaluationRepository:
         self._runs: dict[UUID, EvaluationRun] = {}
         self._comparisons: dict[UUID, EvaluationComparison] = {}
         self._decisions: dict[UUID, EvaluationDecisionRecord] = {}
+        self._approvals: dict[UUID, EvaluationDecisionApprovalRecord] = {}
         self._assignments: dict[UUID, BlindReviewAssignment] = {}
         self._reviews: dict[UUID, BlindReview] = {}
         self._lock = asyncio.Lock()
@@ -278,6 +286,24 @@ class MemoryEvaluationRepository:
     ) -> EvaluationDecisionRecord | None:
         async with self._lock:
             item = self._decisions.get(decision_id)
+            if item is None or item.tenant_id != tenant_id or item.agent_id != agent_id:
+                return None
+            return item
+
+    async def save_approval(
+        self, record: EvaluationDecisionApprovalRecord
+    ) -> EvaluationDecisionApprovalRecord:
+        async with self._lock:
+            if record.decision_id in self._approvals:
+                raise EvaluationApprovalConflictError("评测决策已经存在终态审批")
+            self._approvals[record.decision_id] = record
+            return record
+
+    async def get_approval(
+        self, *, decision_id: UUID, tenant_id: UUID, agent_id: UUID
+    ) -> EvaluationDecisionApprovalRecord | None:
+        async with self._lock:
+            item = self._approvals.get(decision_id)
             if item is None or item.tenant_id != tenant_id or item.agent_id != agent_id:
                 return None
             return item
@@ -551,6 +577,68 @@ class SqlAlchemyEvaluationRepository:
             )
         return record
 
+    async def save_approval(
+        self, record: EvaluationDecisionApprovalRecord
+    ) -> EvaluationDecisionApprovalRecord:
+        try:
+            async with self._session_factory() as session, session.begin():
+                session.add(
+                    EvaluationDecisionApprovalModel(
+                        id=record.id,
+                        decision_id=record.decision_id,
+                        tenant_id=record.tenant_id,
+                        agent_id=record.agent_id,
+                        approved_by=record.approved_by,
+                        approved_at=record.approved_at,
+                        outcome=record.outcome.value,
+                        reason=record.reason.value,
+                        release_environment=(
+                            record.release_environment.value
+                            if record.release_environment is not None
+                            else None
+                        ),
+                        change_reference=record.change_reference,
+                        content=record.content,
+                        sha256=record.sha256,
+                    )
+                )
+                self._audit(
+                    session,
+                    tenant_id=record.tenant_id,
+                    actor_id=record.approved_by,
+                    action="evaluation.decision_approved",
+                    resource_id=record.id,
+                    detail={
+                        "decision_id": str(record.decision_id),
+                        "outcome": record.outcome.value,
+                        "reason": record.reason.value,
+                        "release_environment": (
+                            record.release_environment.value
+                            if record.release_environment is not None
+                            else None
+                        ),
+                        "change_reference": record.change_reference,
+                        "sha256": record.sha256,
+                    },
+                )
+                await session.flush()
+        except IntegrityError as error:
+            raise EvaluationApprovalConflictError("评测决策已经存在终态审批") from error
+        return record
+
+    async def get_approval(
+        self, *, decision_id: UUID, tenant_id: UUID, agent_id: UUID
+    ) -> EvaluationDecisionApprovalRecord | None:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(EvaluationDecisionApprovalModel).where(
+                    EvaluationDecisionApprovalModel.decision_id == decision_id,
+                    EvaluationDecisionApprovalModel.tenant_id == tenant_id,
+                    EvaluationDecisionApprovalModel.agent_id == agent_id,
+                )
+            )
+            return self._approval(row) if row else None
+
     async def list_decisions(
         self, *, tenant_id: UUID, agent_id: UUID, limit: int
     ) -> tuple[EvaluationDecisionRecord, ...]:
@@ -591,6 +679,27 @@ class SqlAlchemyEvaluationRepository:
             created_at=row.created_at,
             outcome=EvaluationDecisionOutcome(row.outcome),
             reason=EvaluationDecisionReason(row.reason),
+            content=row.content,
+            sha256=row.sha256,
+        )
+
+    @staticmethod
+    def _approval(row: EvaluationDecisionApprovalModel) -> EvaluationDecisionApprovalRecord:
+        return EvaluationDecisionApprovalRecord(
+            id=row.id,
+            decision_id=row.decision_id,
+            tenant_id=row.tenant_id,
+            agent_id=row.agent_id,
+            approved_by=row.approved_by,
+            approved_at=row.approved_at,
+            outcome=EvaluationApprovalOutcome(row.outcome),
+            reason=EvaluationApprovalReason(row.reason),
+            release_environment=(
+                EvaluationReleaseEnvironment(row.release_environment)
+                if row.release_environment is not None
+                else None
+            ),
+            change_reference=row.change_reference,
             content=row.content,
             sha256=row.sha256,
         )

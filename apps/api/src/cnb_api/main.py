@@ -64,6 +64,7 @@ from cnb_infrastructure import (
     AesGcmEnvelopeCipher,
     ConfiguredModelProviderResolver,
     DependencyProbe,
+    Ed25519EvaluationApprovalSigner,
     InMemoryMemoryRepository,
     InMemoryTaskRepository,
     MemoryAdministrationRepository,
@@ -304,6 +305,9 @@ def create_app(
             allow_development_placeholder=resolved_settings.environment in {"development", "test"},
         )
         application.state.secret_store = SqlAlchemySecretStore(session_factory, cipher)
+    application.state.evaluation_approval_signer = Ed25519EvaluationApprovalSigner(
+        application.state.secret_store
+    )
     application.state.cognitive_runtime = cognitive_runtime or AnthropomorphicCognitiveRuntime()
     application.state.model_reliability_guard = ModelReliabilityGuard()
     if model_provider_resolver is not None:

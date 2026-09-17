@@ -575,6 +575,30 @@ button:disabled { cursor: not-allowed; opacity: .43; }
 .evaluation-decision-metadata dt { color: #66877b; font-size: 7px; }
 .evaluation-decision-metadata dd { margin: 4px 0 0; color: #9fc2b4; font-size: 8px; overflow-wrap: anywhere; }
 .evaluation-decision-metadata code { color: #86b4a3; font-size: 7px; }
+.evaluation-approval-section { margin-top: 13px; padding-top: 13px; border-top: 1px solid #1d3b31; }
+.evaluation-approval-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.evaluation-approval-heading > div { display: flex; align-items: flex-start; gap: 7px; color: #6fd69a; }
+.evaluation-approval-heading > div > div { display: grid; gap: 4px; }
+.evaluation-approval-heading strong { color: #b8d2c7; font-size: 10px; }
+.evaluation-approval-heading span, .evaluation-approval-heading small { color: #66877b; font-size: 8px; line-height: 1.5; }
+.evaluation-approval-heading small { max-width: 250px; text-align: right; }
+.evaluation-approval-empty { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding: 8px 0; border-bottom: 1px solid #173029; }
+.evaluation-approval-empty strong { color: #a9c7bb; font-size: 9px; }
+.evaluation-approval-empty span { color: #77968b; font-size: 8px; text-align: right; }
+.evaluation-approval-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; align-items: end; gap: 8px; margin-top: 10px; }
+.evaluation-approval-form label { display: grid; min-width: 0; gap: 5px; color: #73978a; font-size: 8px; }
+.evaluation-approval-form select, .evaluation-approval-form input { width: 100%; min-width: 0; height: 34px; padding: 7px 9px; color: #bdd2ca; border: 1px solid #285043; outline: 0; background: #091713; border-radius: 7px; }
+.evaluation-approval-form button { min-height: 34px; white-space: nowrap; }
+.evaluation-approval-proof { margin-top: 11px; }
+.evaluation-approval-proof-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.evaluation-approval-proof-heading > div:first-child { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.evaluation-approval-proof-heading strong { color: #a9c7bb; font-size: 9px; }
+.evaluation-approval-proof-heading small { color: #66877b; font-size: 8px; }
+.evaluation-approval-metadata { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; margin: 10px 0; border-top: 1px solid #173029; }
+.evaluation-approval-metadata > div { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; min-width: 0; padding: 7px 0; border-bottom: 1px solid #173029; }
+.evaluation-approval-metadata dt { color: #66877b; font-size: 7px; }
+.evaluation-approval-metadata dd { min-width: 0; margin: 0; color: #9fc2b4; font-size: 8px; overflow-wrap: anywhere; }
+.evaluation-approval-metadata code { color: #86b4a3; font-size: 7px; }
 .evaluation-editor, .evaluation-suite-panel, .comparison-panel, .blind-review-panel { margin-bottom: 13px; }
 .evaluation-form-grid { display: grid; grid-template-columns: 1.2fr 1.5fr .7fr .8fr; gap: 10px; }
 .evaluation-form-grid label, .evaluation-suite-select, .blind-submit > label { display: grid; gap: 6px; color: #73978a; font-size: 9px; }
@@ -900,6 +924,8 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .evaluation-decision-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .evaluation-decision-form button { justify-self: start; }
   .evaluation-decision-metadata { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .evaluation-approval-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .evaluation-approval-form button { justify-self: start; }
   .lifecycle-manifest, .lifecycle-confirmation, .lifecycle-verifications { grid-column: auto; }
   .config-sections { display: none; }
 }
@@ -940,6 +966,10 @@ button:disabled { cursor: not-allowed; opacity: .43; }
   .evaluation-decision-form, .evaluation-decision-workspace, .evaluation-decision-metadata { grid-template-columns: 1fr; }
   .evaluation-decision-form button { width: 100%; justify-content: center; }
   .evaluation-decision-detail-heading { align-items: flex-start; flex-direction: column; }
+  .evaluation-approval-heading, .evaluation-approval-empty, .evaluation-approval-proof-heading { align-items: flex-start; flex-direction: column; }
+  .evaluation-approval-heading small, .evaluation-approval-empty span { max-width: none; text-align: left; }
+  .evaluation-approval-form, .evaluation-approval-metadata { grid-template-columns: 1fr; }
+  .evaluation-approval-form button { width: 100%; justify-content: center; }
   .trace-grid .model-invocations { grid-column: auto; }
   .trace-search { align-items: stretch; flex-direction: column; }
   .model-cost-list article { grid-template-columns: 1fr; }

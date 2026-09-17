@@ -24,6 +24,11 @@ import type {
   ChannelOperationMetricsResponse,
   ConfigDefinitionResponse,
   ConversationResponse,
+  EvaluationApprovalCreate,
+  EvaluationApprovalOutcome,
+  EvaluationApprovalReason,
+  EvaluationApprovalResponse,
+  EvaluationApprovalVerificationResponse,
   EvaluationComparisonResponse,
   EvaluationComparisonSummaryResponse,
   EvaluationDecisionCreate,
@@ -33,6 +38,7 @@ import type {
   EvaluationDecisionSummaryResponse,
   EvaluationModelTargetResponse,
   EvaluationQualityHistoryResponse,
+  EvaluationReleaseEnvironment,
   EvaluationVersionSnapshotResponse,
   ExternalConversationMappingResponse,
   ExternalIdentityMappingResponse,
@@ -350,6 +356,7 @@ export type AdminPermission =
   | 'cognition:write'
   | 'cognition:evaluate'
   | 'evaluation:review'
+  | 'evaluation:approve'
   | 'memory:read'
   | 'memory:write'
   | 'memory:rebuild'
@@ -964,6 +971,12 @@ export type EvaluationDecisionSummary = EvaluationDecisionSummaryResponse
 export type EvaluationDecisionInput = EvaluationDecisionCreate
 export type EvaluationDecisionResult = EvaluationDecisionOutcome
 export type EvaluationDecisionReasonCode = EvaluationDecisionReason
+export type EvaluationApproval = EvaluationApprovalResponse
+export type EvaluationApprovalInput = EvaluationApprovalCreate
+export type EvaluationApprovalResult = EvaluationApprovalOutcome
+export type EvaluationApprovalReasonCode = EvaluationApprovalReason
+export type EvaluationApprovalVerification = EvaluationApprovalVerificationResponse
+export type EvaluationApprovalReleaseEnvironment = EvaluationReleaseEnvironment
 export type EvaluationVersionSnapshot = EvaluationVersionSnapshotResponse
 
 export type MemoryKind =
@@ -1981,6 +1994,32 @@ export const getEvaluationDecision = (decisionId: string) =>
 export const createEvaluationDecision = (input: EvaluationDecisionInput) =>
   apiSdk.postApiV1EvaluationsDecisions({ body: input })
 
+export async function getEvaluationApproval(
+  decisionId: string,
+): Promise<EvaluationApproval | null> {
+  try {
+    return await apiSdk.getApiV1EvaluationsDecisionsByDecisionIdApproval({
+      path: { decision_id: decisionId },
+    })
+  } catch (error) {
+    if (error instanceof ApiClientError && error.status === 404) return null
+    throw error
+  }
+}
+
+export const createEvaluationApproval = (
+  decisionId: string,
+  input: EvaluationApprovalInput,
+) => apiSdk.postApiV1EvaluationsDecisionsByDecisionIdApproval({
+  path: { decision_id: decisionId },
+  body: input,
+})
+
+export const verifyEvaluationApproval = (decisionId: string) =>
+  apiSdk.postApiV1EvaluationsDecisionsByDecisionIdApprovalVerification({
+    path: { decision_id: decisionId },
+  })
+
 export async function downloadEvaluationDecision(
   decisionId: string,
 ): Promise<DataExportDownload> {
@@ -1994,6 +2033,27 @@ export async function downloadEvaluationDecision(
   return {
     blob: data,
     filename: `evaluation-decision-${decisionId}.json`,
+    sha256: response.headers.get('X-Content-SHA256'),
+    runId: null,
+  }
+}
+
+export async function downloadEvaluationApproval(
+  decisionId: string,
+): Promise<DataExportDownload> {
+  const { data, response } = await apiClient.get<{ 200: Blob }, unknown, true, 'fields'>({
+    url: '/api/v1/evaluations/decisions/{decision_id}/approval/export',
+    path: { decision_id: decisionId },
+    parseAs: 'blob',
+    responseStyle: 'fields',
+    throwOnError: true,
+  })
+  const disposition = response.headers.get('Content-Disposition')
+  const filename = disposition?.match(/filename="([^"]+)"/)?.[1]
+    ?? `evaluation-approval-${decisionId}.json`
+  return {
+    blob: data,
+    filename,
     sha256: response.headers.get('X-Content-SHA256'),
     runId: null,
   }

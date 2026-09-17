@@ -1,6 +1,7 @@
 """无需外部基础设施的 API 契约冒烟测试。"""
 
 import asyncio
+import base64
 from collections.abc import Mapping
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
@@ -8,6 +9,7 @@ from hashlib import sha256
 from typing import cast
 from uuid import NAMESPACE_DNS, UUID, uuid4, uuid5
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient, Response
 from pydantic import SecretStr
@@ -18,6 +20,7 @@ from cnb_application import (
     AuthenticationError,
     BackgroundTaskService,
     ConfigurationService,
+    SecretManagementService,
     build_default_registry,
     permissions_for_role,
 )
@@ -42,6 +45,8 @@ from cnb_contracts import (
     ConversationListResponse,
     ConversationResponse,
     DataLifecycleOverviewResponse,
+    EvaluationApprovalResponse,
+    EvaluationApprovalVerificationResponse,
     EvaluationComparisonResponse,
     EvaluationDecisionListResponse,
     EvaluationDecisionResponse,
@@ -90,6 +95,9 @@ from cnb_domain import (
     ConfigEntry,
     ConfigScope,
     DevelopmentIdentity,
+    EvaluationDecisionOutcome,
+    EvaluationDecisionReason,
+    EvaluationDecisionRecord,
     EvaluationQualityReviewSample,
     EvaluationQualityRunSample,
     EvaluationQualitySamples,
@@ -107,6 +115,7 @@ from cnb_domain import (
     ObservabilityAlertReplayReview,
 )
 from cnb_infrastructure import (
+    EVALUATION_APPROVAL_SIGNING_KEY,
     InMemoryMemoryRepository,
     InMemoryTaskRepository,
     MemoryAdministrationRepository,
@@ -118,6 +127,7 @@ from cnb_infrastructure import (
     MemoryEvaluationRepository,
     MemoryObjectStorage,
     MemoryObservabilityRepository,
+    MemorySecretStore,
     Settings,
 )
 
@@ -1409,6 +1419,171 @@ async def test_evaluation_decision_api_freezes_bytes_and_enforces_scope_and_perm
         )
 
     assert tenant_isolated_detail.status_code == 404
+
+
+async def test_evaluation_approval_api_separates_duties_and_exports_signed_proof() -> None:
+    tenant_id, agent_id = uuid4(), uuid4()
+    creator_id, approver_id = uuid4(), uuid4()
+    repository = MemoryEvaluationRepository()
+    secret_store = MemorySecretStore()
+    secret_service = SecretManagementService(build_default_registry(), secret_store)
+    encoded_seed = base64.b64encode(bytes(range(32))).decode("ascii")
+    await secret_service.set_secret(
+        key=EVALUATION_APPROVAL_SIGNING_KEY,
+        scope_type=ConfigScope.AGENT,
+        scope_id=agent_id,
+        plaintext=encoded_seed,
+    )
+    decision_content = b'{"schema_version":1}'
+    decision = EvaluationDecisionRecord(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        created_by=creator_id,
+        created_at=datetime.now(UTC),
+        outcome=EvaluationDecisionOutcome.ADOPT_CANDIDATE,
+        reason=EvaluationDecisionReason.QUALITY_GAIN,
+        content=decision_content,
+        sha256=sha256(decision_content).hexdigest(),
+    )
+    self_review_decision = EvaluationDecisionRecord(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        created_by=approver_id,
+        created_at=datetime.now(UTC),
+        outcome=EvaluationDecisionOutcome.ADOPT_CANDIDATE,
+        reason=EvaluationDecisionReason.QUALITY_GAIN,
+        content=decision_content,
+        sha256=sha256(decision_content).hexdigest(),
+    )
+    await repository.save_decision(decision)
+    await repository.save_decision(self_review_decision)
+
+    class PermissionPreservingRepository(MemoryAdministrationRepository):
+        async def authorize_admin_request(
+            self,
+            *,
+            principal: AdminPrincipal,
+            requested_at: datetime,
+            window_started_at: datetime,
+        ) -> AdminPrincipal:
+            return principal
+
+    def app_for(user_id: UUID, role: AdminRole) -> FastAPI:
+        identity = DevelopmentIdentity(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            agent_id=agent_id,
+            user_name=f"{role.value} 审批测试用户",
+            agent_name="审批测试 Agent",
+        )
+        principal = AdminPrincipal(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            display_name=identity.user_name,
+            role=role,
+            permissions=permissions_for_role(role),
+            authentication_mode="oidc",
+        )
+        return create_app(
+            Settings(
+                environment="test",
+                authentication_mode="oidc",
+                oidc_issuer_url="https://identity.example.test/realms/cnb",
+                oidc_client_id="cyber-netizen-web",
+                oidc_audience="cyber-netizen-api",
+                oidc_tenant_id=tenant_id,
+                oidc_agent_id=agent_id,
+            ),
+            configuration_repository=MemoryConfigurationRepository(),
+            conversation_repository=MemoryConversationRepository(),
+            evaluation_repository=repository,
+            secret_store=secret_store,
+            administration_repository=PermissionPreservingRepository(identity),
+            admin_authenticator=FakeOidcAuthenticator(principal),
+        )
+
+    headers = {"Authorization": "Bearer signed-test-token"}
+    command = {
+        "outcome": "approved",
+        "reason": "evidence_confirmed",
+        "release_environment": "staging",
+        "change_reference": "release-2026.09.17-54",
+    }
+    async with AsyncClient(
+        transport=ASGITransport(app=app_for(approver_id, AdminRole.ADMIN)),
+        base_url="http://test",
+    ) as client:
+        created_response = await client.post(
+            f"/api/v1/evaluations/decisions/{decision.id}/approval",
+            headers=headers,
+            json=command,
+        )
+        duplicate_response = await client.post(
+            f"/api/v1/evaluations/decisions/{decision.id}/approval",
+            headers=headers,
+            json=command,
+        )
+        self_review_response = await client.post(
+            f"/api/v1/evaluations/decisions/{self_review_decision.id}/approval",
+            headers=headers,
+            json={
+                "outcome": "rejected",
+                "reason": "risk_unresolved",
+                "release_environment": None,
+                "change_reference": None,
+            },
+        )
+        export_response = await client.get(
+            f"/api/v1/evaluations/decisions/{decision.id}/approval/export",
+            headers=headers,
+        )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app_for(uuid4(), AdminRole.VIEWER)),
+        base_url="http://test",
+    ) as client:
+        read_response = await client.get(
+            f"/api/v1/evaluations/decisions/{decision.id}/approval",
+            headers=headers,
+        )
+        verification_response = await client.post(
+            f"/api/v1/evaluations/decisions/{decision.id}/approval/verification",
+            headers=headers,
+        )
+        viewer_export_response = await client.get(
+            f"/api/v1/evaluations/decisions/{decision.id}/approval/export",
+            headers=headers,
+        )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app_for(uuid4(), AdminRole.OPERATOR)),
+        base_url="http://test",
+    ) as client:
+        operator_approval_response = await client.post(
+            f"/api/v1/evaluations/decisions/{self_review_decision.id}/approval",
+            headers=headers,
+            json=command,
+        )
+
+    created = EvaluationApprovalResponse.model_validate(created_response.json())
+    verification = EvaluationApprovalVerificationResponse.model_validate(
+        verification_response.json()
+    )
+    assert created_response.status_code == 201
+    assert created.approved_by == approver_id
+    assert created.proof.payload.automatic_actions_allowed is False
+    assert created.proof.signature.algorithm == "Ed25519"
+    assert read_response.status_code == 200
+    assert verification.valid is True
+    assert sha256(export_response.content).hexdigest() == created.sha256
+    assert export_response.headers["X-Content-SHA256"] == created.sha256
+    assert encoded_seed not in export_response.text
+    assert duplicate_response.status_code == 409
+    assert self_review_response.status_code == 422
+    assert operator_approval_response.status_code == 403
+    assert viewer_export_response.status_code == 403
 
 
 async def test_unified_quality_overview_requires_both_read_permissions() -> None:

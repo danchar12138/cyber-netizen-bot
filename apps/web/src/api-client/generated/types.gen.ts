@@ -96,7 +96,7 @@ export type ActiveAlertResponse = {
  *
  * API 按能力而非页面名称执行的细粒度权限。
  */
-export type AdminPermission = 'dashboard:read' | 'configuration:read' | 'configuration:write' | 'secret:manage' | 'conversation:read' | 'conversation:use' | 'access_control:read' | 'agent:read' | 'agent:write' | 'cognition:read' | 'cognition:write' | 'cognition:evaluate' | 'evaluation:review' | 'memory:read' | 'memory:write' | 'memory:rebuild' | 'task:read' | 'task:manage' | 'proactive:manage' | 'channel:read' | 'channel:write' | 'channel:send' | 'channel_credential:manage' | 'channel_alert:manage' | 'channel_notification:manage' | 'observability_alert:manage' | 'integration:read' | 'integration:manage' | 'inbox:replay' | 'trace:read' | 'user:read' | 'user:write' | 'user:role_write' | 'audit:read' | 'data_lifecycle:read' | 'data_lifecycle:export' | 'data_lifecycle:forget' | 'data_lifecycle:retention_manage' | 'data_lifecycle:backup_drill_record';
+export type AdminPermission = 'dashboard:read' | 'configuration:read' | 'configuration:write' | 'secret:manage' | 'conversation:read' | 'conversation:use' | 'access_control:read' | 'agent:read' | 'agent:write' | 'cognition:read' | 'cognition:write' | 'cognition:evaluate' | 'evaluation:review' | 'evaluation:approve' | 'memory:read' | 'memory:write' | 'memory:rebuild' | 'task:read' | 'task:manage' | 'proactive:manage' | 'channel:read' | 'channel:write' | 'channel:send' | 'channel_credential:manage' | 'channel_alert:manage' | 'channel_notification:manage' | 'observability_alert:manage' | 'integration:read' | 'integration:manage' | 'inbox:replay' | 'trace:read' | 'user:read' | 'user:write' | 'user:role_write' | 'audit:read' | 'data_lifecycle:read' | 'data_lifecycle:export' | 'data_lifecycle:forget' | 'data_lifecycle:retention_manage' | 'data_lifecycle:backup_drill_record';
 
 /**
  * AdminRole
@@ -3272,6 +3272,177 @@ export type EpisodeResponse = {
 export type EpisodeStatus = 'open' | 'closed' | 'consolidated';
 
 /**
+ * EvaluationApprovalCreate
+ *
+ * 为一个不可变评测决策写入唯一终态审批。
+ */
+export type EvaluationApprovalCreate = {
+    /**
+     * Change Reference
+     */
+    change_reference?: string | null;
+    outcome: EvaluationApprovalOutcome;
+    reason: EvaluationApprovalReason;
+    release_environment?: EvaluationReleaseEnvironment | null;
+};
+
+/**
+ * EvaluationApprovalOutcome
+ *
+ * 审批终态；只记录治理结论，不授予执行能力。
+ */
+export type EvaluationApprovalOutcome = 'approved' | 'rejected';
+
+/**
+ * EvaluationApprovalProofPayloadResponse
+ *
+ * 签名覆盖的审批白名单载荷。
+ */
+export type EvaluationApprovalProofPayloadResponse = {
+    /**
+     * Agent Id
+     */
+    agent_id: string;
+    /**
+     * Approved At
+     */
+    approved_at: string;
+    /**
+     * Approved By
+     */
+    approved_by: string;
+    /**
+     * Automatic Actions Allowed
+     */
+    automatic_actions_allowed: false;
+    /**
+     * Decision Id
+     */
+    decision_id: string;
+    /**
+     * Decision Sha256
+     */
+    decision_sha256: string;
+    /**
+     * Id
+     */
+    id: string;
+    outcome: EvaluationApprovalOutcome;
+    reason: EvaluationApprovalReason;
+    release_reference: EvaluationApprovalReleaseReferenceResponse | null;
+    /**
+     * Schema Version
+     */
+    schema_version: 1;
+    /**
+     * Tenant Id
+     */
+    tenant_id: string;
+};
+
+/**
+ * EvaluationApprovalProofResponse
+ *
+ * 可下载并独立验证的完整签名证明。
+ */
+export type EvaluationApprovalProofResponse = {
+    payload: EvaluationApprovalProofPayloadResponse;
+    /**
+     * Schema Version
+     */
+    schema_version: 1;
+    signature: EvaluationDecisionSignatureResponse;
+};
+
+/**
+ * EvaluationApprovalReason
+ *
+ * 审批使用的受控原因代码。
+ */
+export type EvaluationApprovalReason = 'evidence_confirmed' | 'risk_unresolved' | 'governance_blocked' | 'release_not_ready';
+
+/**
+ * EvaluationApprovalReleaseReferenceResponse
+ *
+ * 只读发布变更引用，不授予发布或配置写入能力。
+ */
+export type EvaluationApprovalReleaseReferenceResponse = {
+    /**
+     * Change Id
+     */
+    change_id: string;
+    environment: EvaluationReleaseEnvironment;
+};
+
+/**
+ * EvaluationApprovalResponse
+ *
+ * 审批索引字段及其不可变签名证明。
+ */
+export type EvaluationApprovalResponse = {
+    /**
+     * Approved At
+     */
+    approved_at: string;
+    /**
+     * Approved By
+     */
+    approved_by: string;
+    /**
+     * Change Reference
+     */
+    change_reference: string | null;
+    /**
+     * Decision Id
+     */
+    decision_id: string;
+    /**
+     * Id
+     */
+    id: string;
+    outcome: EvaluationApprovalOutcome;
+    proof: EvaluationApprovalProofResponse;
+    reason: EvaluationApprovalReason;
+    release_environment: EvaluationReleaseEnvironment | null;
+    /**
+     * Sha256
+     */
+    sha256: string;
+};
+
+/**
+ * EvaluationApprovalVerificationResponse
+ *
+ * 服务端对持久化审批证明执行的独立完整性检查。
+ */
+export type EvaluationApprovalVerificationResponse = {
+    /**
+     * Canonical Content Valid
+     */
+    canonical_content_valid: boolean;
+    /**
+     * Content Hash Valid
+     */
+    content_hash_valid: boolean;
+    /**
+     * Decision Hash Matches
+     */
+    decision_hash_matches: boolean;
+    /**
+     * Signature Valid
+     */
+    signature_valid: boolean;
+    /**
+     * Valid
+     */
+    valid: boolean;
+    /**
+     * Verified At
+     */
+    verified_at: string;
+};
+
+/**
  * EvaluationCaseCreate
  *
  * 创建评测集版本时提交的对话样例。
@@ -3784,6 +3955,30 @@ export type EvaluationDecisionResponse = {
 };
 
 /**
+ * EvaluationDecisionSignatureResponse
+ *
+ * 审批证明公开的 Ed25519 验签材料。
+ */
+export type EvaluationDecisionSignatureResponse = {
+    /**
+     * Algorithm
+     */
+    algorithm: 'Ed25519';
+    /**
+     * Key Id
+     */
+    key_id: string;
+    /**
+     * Public Key
+     */
+    public_key: string;
+    /**
+     * Value
+     */
+    value: string;
+};
+
+/**
  * EvaluationDecisionSummaryResponse
  *
  * 不携带报告字节的不可变决策索引。
@@ -4024,6 +4219,13 @@ export type EvaluationQualityTrendPointResponse = {
      */
     total_runs: number;
 };
+
+/**
+ * EvaluationReleaseEnvironment
+ *
+ * 只读发布变更引用所处环境。
+ */
+export type EvaluationReleaseEnvironment = 'development' | 'staging' | 'production';
 
 /**
  * EvaluationReportResponse
@@ -15534,6 +15736,252 @@ export type GetApiV1EvaluationsDecisionsByDecisionIdResponses = {
 };
 
 export type GetApiV1EvaluationsDecisionsByDecisionIdResponse = GetApiV1EvaluationsDecisionsByDecisionIdResponses[keyof GetApiV1EvaluationsDecisionsByDecisionIdResponses];
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdApprovalData = {
+    body?: never;
+    path: {
+        /**
+         * Decision Id
+         */
+        decision_id: string;
+    };
+    query?: never;
+    url: '/api/v1/evaluations/decisions/{decision_id}/approval';
+};
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdApprovalErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdApprovalError = GetApiV1EvaluationsDecisionsByDecisionIdApprovalErrors[keyof GetApiV1EvaluationsDecisionsByDecisionIdApprovalErrors];
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdApprovalResponses = {
+    /**
+     * 请求成功
+     */
+    200: EvaluationApprovalResponse;
+};
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdApprovalResponse = GetApiV1EvaluationsDecisionsByDecisionIdApprovalResponses[keyof GetApiV1EvaluationsDecisionsByDecisionIdApprovalResponses];
+
+export type PostApiV1EvaluationsDecisionsByDecisionIdApprovalData = {
+    body: EvaluationApprovalCreate;
+    path: {
+        /**
+         * Decision Id
+         */
+        decision_id: string;
+    };
+    query?: never;
+    url: '/api/v1/evaluations/decisions/{decision_id}/approval';
+};
+
+export type PostApiV1EvaluationsDecisionsByDecisionIdApprovalErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1EvaluationsDecisionsByDecisionIdApprovalError = PostApiV1EvaluationsDecisionsByDecisionIdApprovalErrors[keyof PostApiV1EvaluationsDecisionsByDecisionIdApprovalErrors];
+
+export type PostApiV1EvaluationsDecisionsByDecisionIdApprovalResponses = {
+    /**
+     * 请求成功
+     */
+    201: EvaluationApprovalResponse;
+};
+
+export type PostApiV1EvaluationsDecisionsByDecisionIdApprovalResponse = PostApiV1EvaluationsDecisionsByDecisionIdApprovalResponses[keyof PostApiV1EvaluationsDecisionsByDecisionIdApprovalResponses];
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdApprovalExportData = {
+    body?: never;
+    path: {
+        /**
+         * Decision Id
+         */
+        decision_id: string;
+    };
+    query?: never;
+    url: '/api/v1/evaluations/decisions/{decision_id}/approval/export';
+};
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdApprovalExportErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdApprovalExportError = GetApiV1EvaluationsDecisionsByDecisionIdApprovalExportErrors[keyof GetApiV1EvaluationsDecisionsByDecisionIdApprovalExportErrors];
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdApprovalExportResponses = {
+    /**
+     * 原样下载审批证明
+     */
+    200: unknown;
+};
+
+export type PostApiV1EvaluationsDecisionsByDecisionIdApprovalVerificationData = {
+    body?: never;
+    path: {
+        /**
+         * Decision Id
+         */
+        decision_id: string;
+    };
+    query?: never;
+    url: '/api/v1/evaluations/decisions/{decision_id}/approval/verification';
+};
+
+export type PostApiV1EvaluationsDecisionsByDecisionIdApprovalVerificationErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1EvaluationsDecisionsByDecisionIdApprovalVerificationError = PostApiV1EvaluationsDecisionsByDecisionIdApprovalVerificationErrors[keyof PostApiV1EvaluationsDecisionsByDecisionIdApprovalVerificationErrors];
+
+export type PostApiV1EvaluationsDecisionsByDecisionIdApprovalVerificationResponses = {
+    /**
+     * 请求成功
+     */
+    200: EvaluationApprovalVerificationResponse;
+};
+
+export type PostApiV1EvaluationsDecisionsByDecisionIdApprovalVerificationResponse = PostApiV1EvaluationsDecisionsByDecisionIdApprovalVerificationResponses[keyof PostApiV1EvaluationsDecisionsByDecisionIdApprovalVerificationResponses];
 
 export type GetApiV1EvaluationsDecisionsByDecisionIdExportData = {
     body?: never;

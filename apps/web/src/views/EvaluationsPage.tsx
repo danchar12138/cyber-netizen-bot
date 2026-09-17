@@ -8,15 +8,19 @@ import {
   FlaskConical,
   Plus,
   Rocket,
+  ShieldCheck,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import {
   claimBlindReviewAssignment,
+  createEvaluationApproval,
   createEvaluationDecision,
   createEvaluationSuite,
+  downloadEvaluationApproval,
   downloadEvaluationDecision,
   getAdminSession,
+  getEvaluationApproval,
   getEvaluationComparison,
   getEvaluationComparisons,
   getEvaluationComparisonTargets,
@@ -31,8 +35,12 @@ import {
   runEvaluation,
   runEvaluationComparison,
   submitBlindReview,
+  verifyEvaluationApproval,
   type BlindReviewAssignment,
   type BlindReviewScore,
+  type EvaluationApprovalReasonCode,
+  type EvaluationApprovalReleaseEnvironment,
+  type EvaluationApprovalResult,
   type EvaluationCaseDefinition,
   type EvaluationDecisionReasonCode,
   type EvaluationDecisionResult,
@@ -133,6 +141,24 @@ const decisionReasonLabels: Record<EvaluationDecisionReasonCode, string> = {
   manual_review: '人工复核',
 }
 
+const approvalOutcomeLabels: Record<EvaluationApprovalResult, string> = {
+  approved: '批准',
+  rejected: '驳回',
+}
+
+const approvalReasonLabels: Record<EvaluationApprovalReasonCode, string> = {
+  evidence_confirmed: '证据已确认',
+  risk_unresolved: '风险尚未解决',
+  governance_blocked: '治理规则阻止',
+  release_not_ready: '发布尚未就绪',
+}
+
+const releaseEnvironmentLabels: Record<EvaluationApprovalReleaseEnvironment, string> = {
+  development: '开发环境',
+  staging: '预发布环境',
+  production: '生产环境',
+}
+
 function snapshotKey(snapshot: EvaluationVersionSnapshot) {
   return [
     snapshot.suite_key,
@@ -206,6 +232,11 @@ export function EvaluationsPage() {
   const [decisionReason, setDecisionReason] = useState<EvaluationDecisionReasonCode>('insufficient_evidence')
   const [selectedDecision, setSelectedDecision] = useState<string | null>(null)
   const [decisionDownloadNotice, setDecisionDownloadNotice] = useState('')
+  const [approvalOutcome, setApprovalOutcome] = useState<EvaluationApprovalResult>('rejected')
+  const [approvalReason, setApprovalReason] = useState<EvaluationApprovalReasonCode>('risk_unresolved')
+  const [releaseEnvironment, setReleaseEnvironment] = useState<'' | EvaluationApprovalReleaseEnvironment>('')
+  const [changeReference, setChangeReference] = useState('')
+  const [approvalNotice, setApprovalNotice] = useState('')
   const [assignment, setAssignment] = useState<BlindReviewAssignment | null>(null)
   const [scoreA, setScoreA] = useState(neutralScore)
   const [scoreB, setScoreB] = useState(neutralScore)
@@ -266,6 +297,12 @@ export function EvaluationsPage() {
     queryFn: () => getEvaluationDecision(selectedDecision ?? ''),
     enabled: Boolean(selectedDecision),
   })
+  const approval = useQuery({
+    queryKey: ['evaluation-approval', selectedAgentId, selectedDecision],
+    queryFn: () => getEvaluationApproval(selectedDecision ?? ''),
+    enabled: Boolean(selectedDecision),
+    retry: false,
+  })
 
   const candidateVersion = useMemo(
     () => qualityHistory.data?.versions.find(
@@ -292,6 +329,11 @@ export function EvaluationsPage() {
     setDecisionCandidateKey('')
     setDecisionBaselineKey('')
     setDecisionDownloadNotice('')
+    setApprovalOutcome('rejected')
+    setApprovalReason('risk_unresolved')
+    setReleaseEnvironment('')
+    setChangeReference('')
+    setApprovalNotice('')
   }, [selectedAgentId])
   useEffect(() => {
     const versions = qualityHistory.data?.versions ?? []
@@ -314,10 +356,20 @@ export function EvaluationsPage() {
       items.some((item) => item.id === current) ? current : items[0]?.id ?? null
     ))
   }, [decisions.data?.items])
+  useEffect(() => {
+    setApprovalOutcome('rejected')
+    setApprovalReason('risk_unresolved')
+    setReleaseEnvironment('')
+    setChangeReference('')
+    setApprovalNotice('')
+  }, [selectedDecision])
   const canManage = session.data?.permissions.includes('cognition:write') ?? false
   const canRun = session.data?.permissions.includes('cognition:evaluate') ?? false
   const canReview = session.data?.permissions.includes('evaluation:review') ?? false
+  const canApproveDecisions = session.data?.permissions.includes('evaluation:approve') ?? false
   const canExportDecisions = session.data?.permissions.includes('data_lifecycle:export') ?? false
+  const approvalReleasePairValid = approvalOutcome === 'rejected'
+    || (Boolean(releaseEnvironment) === Boolean(changeReference.trim()))
 
   const parsedCases = useMemo(() => {
     try {
@@ -424,10 +476,44 @@ export function EvaluationsPage() {
       setDecisionDownloadNotice(`报告已开始下载${download.sha256 ? `，SHA-256：${download.sha256}` : ''}。`)
     },
   })
+  const createApproval = useMutation({
+    mutationFn: () => {
+      if (!selectedDecision) throw new Error('请先选择评测决策')
+      return createEvaluationApproval(selectedDecision, {
+        outcome: approvalOutcome,
+        reason: approvalReason,
+        release_environment: releaseEnvironment || null,
+        change_reference: changeReference.trim() || null,
+      })
+    },
+    onSuccess: async () => {
+      setApprovalNotice('审批已冻结并完成 Ed25519 签名。')
+      await queryClient.invalidateQueries({ queryKey: ['evaluation-approval'] })
+    },
+  })
+  const verifyApproval = useMutation({
+    mutationFn: verifyEvaluationApproval,
+    onSuccess: (result) => {
+      setApprovalNotice(result.valid ? '签名、原始字节和决策摘要验证通过。' : '证明验证失败，请立即停止使用该审批结果。')
+    },
+  })
+  const downloadApproval = useMutation({
+    mutationFn: downloadEvaluationApproval,
+    onSuccess: (download) => {
+      const url = URL.createObjectURL(download.blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = download.filename
+      anchor.click()
+      URL.revokeObjectURL(url)
+      setApprovalNotice(`审批证明已开始下载${download.sha256 ? `，SHA-256：${download.sha256}` : ''}。`)
+    },
+  })
 
   const operationError = createSuite.error ?? publishSuite.error ?? runSuite.error
     ?? runComparison.error
     ?? claimReview.error ?? submitReview.error ?? createDecision.error ?? downloadDecision.error
+    ?? createApproval.error ?? verifyApproval.error ?? downloadApproval.error
 
   const toggleProfile = (profileKey: string) => {
     setSelectedProfileKeys((current) => current.includes(profileKey)
@@ -800,6 +886,157 @@ export function EvaluationsPage() {
                   </div>
                 </div>
                 <p className="quality-baseline-note">未评估统计显著性，不允许作因果结论，不允许自动执行任何调参或发布动作。</p>
+                <section className="evaluation-approval-section" aria-labelledby="evaluation-approval-title">
+                  <div className="evaluation-approval-heading">
+                    <div>
+                      <ShieldCheck size={16} />
+                      <div>
+                        <strong id="evaluation-approval-title">决策审批与签名证明</strong>
+                        <span>终态审批要求独立管理员，并冻结为 Ed25519 可验证证明</span>
+                      </div>
+                    </div>
+                    <small>发布引用仅为只读关联，不触发配置修改或实际发布</small>
+                  </div>
+                  {approvalNotice && <div className={`notice ${verifyApproval.data && !verifyApproval.data.valid ? 'error' : 'info'}`}>{approvalNotice}</div>}
+                  {approval.isPending && <div className="empty-state compact">正在读取审批状态…</div>}
+                  {approval.error && <div className="notice error">审批状态加载失败：{approval.error.message}</div>}
+                  {approval.data === null && <>
+                    <div className="evaluation-approval-empty">
+                      <strong>尚无终态审批</strong>
+                      <span>{decision.created_by === session.data?.user_id
+                        ? '当前账号创建了该决策，必须由另一名管理员审批。'
+                        : canApproveDecisions
+                          ? '审批一经提交不可修改或重复创建。'
+                          : '当前账号没有审批权限。'}</span>
+                    </div>
+                    {canApproveDecisions && <div className="evaluation-approval-form">
+                      <label>审批结论
+                        <select
+                          value={approvalOutcome}
+                          onChange={(event) => {
+                            const next = event.target.value as EvaluationApprovalResult
+                            setApprovalOutcome(next)
+                            if (next === 'approved') {
+                              setApprovalReason('evidence_confirmed')
+                            } else {
+                              setApprovalReason('risk_unresolved')
+                              setReleaseEnvironment('')
+                              setChangeReference('')
+                            }
+                          }}
+                        >
+                          <option value="approved" disabled={decision.outcome === 'wait_for_evidence'}>批准</option>
+                          <option value="rejected">驳回</option>
+                        </select>
+                      </label>
+                      <label>受控原因
+                        <select
+                          value={approvalReason}
+                          onChange={(event) => setApprovalReason(event.target.value as EvaluationApprovalReasonCode)}
+                        >
+                          {Object.entries(approvalReasonLabels)
+                            .filter(([value]) => approvalOutcome === 'approved'
+                              ? value === 'evidence_confirmed'
+                              : value !== 'evidence_confirmed')
+                            .map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        </select>
+                      </label>
+                      {approvalOutcome === 'approved' && <>
+                        <label>发布环境（可选）
+                          <select
+                            value={releaseEnvironment}
+                            onChange={(event) => setReleaseEnvironment(event.target.value as '' | EvaluationApprovalReleaseEnvironment)}
+                          >
+                            <option value="">不关联发布</option>
+                            {Object.entries(releaseEnvironmentLabels).map(([value, label]) => (
+                              <option key={value} value={value}>{label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>变更编号（可选）
+                          <input
+                            maxLength={120}
+                            placeholder="如 CHG-2026-0917"
+                            value={changeReference}
+                            onChange={(event) => setChangeReference(event.target.value)}
+                          />
+                        </label>
+                      </>}
+                      <button
+                        className="primary-button"
+                        disabled={
+                          decision.created_by === session.data?.user_id
+                          || !approvalReleasePairValid
+                          || (decision.outcome === 'wait_for_evidence' && approvalOutcome === 'approved')
+                          || createApproval.isPending
+                        }
+                        onClick={() => createApproval.mutate()}
+                        type="button"
+                      >
+                        <ShieldCheck size={14} /> {createApproval.isPending ? '签署中…' : '提交终态审批'}
+                      </button>
+                    </div>}
+                    {approvalOutcome === 'approved' && !approvalReleasePairValid && (
+                      <div className="notice error">发布环境与变更编号必须同时填写，或同时留空。</div>
+                    )}
+                    {decision.outcome === 'wait_for_evidence' && (
+                      <p className="quality-baseline-note">等待更多证据的决策只能驳回，不能批准。</p>
+                    )}
+                  </>}
+                  {approval.data && (() => {
+                    const record = approval.data
+                    const verification = verifyApproval.variables === decision.id
+                      ? verifyApproval.data
+                      : undefined
+                    return <div className="evaluation-approval-proof">
+                      <div className="evaluation-approval-proof-heading">
+                        <div>
+                          <span className={`entity-status ${record.outcome === 'approved' ? 'active' : 'disabled'}`}>
+                            {approvalOutcomeLabels[record.outcome]}
+                          </span>
+                          <strong>{approvalReasonLabels[record.reason]}</strong>
+                          <small>{formatQualityDateTime(record.approved_at)}</small>
+                        </div>
+                        <div className="table-actions">
+                          <button
+                            disabled={verifyApproval.isPending}
+                            onClick={() => verifyApproval.mutate(decision.id)}
+                            type="button"
+                          >
+                            <ShieldCheck size={13} /> {verifyApproval.isPending ? '验签中…' : '验证证明'}
+                          </button>
+                          {canExportDecisions && <button
+                            disabled={downloadApproval.isPending}
+                            onClick={() => downloadApproval.mutate(decision.id)}
+                            type="button"
+                          >
+                            <Download size={13} /> {downloadApproval.isPending ? '下载中…' : '下载证明'}
+                          </button>}
+                        </div>
+                      </div>
+                      <dl className="evaluation-approval-metadata">
+                        <div><dt>审批人</dt><dd><code>{record.approved_by}</code></dd></div>
+                        <div><dt>证明 SHA-256</dt><dd><code>{record.sha256}</code></dd></div>
+                        <div><dt>签名算法</dt><dd>{record.proof.signature.algorithm}</dd></div>
+                        <div><dt>Key ID</dt><dd><code>{record.proof.signature.key_id}</code></dd></div>
+                        <div><dt>公开验签密钥</dt><dd><code>{record.proof.signature.public_key}</code></dd></div>
+                        <div><dt>只读发布引用</dt><dd>{record.release_environment && record.change_reference
+                          ? `${releaseEnvironmentLabels[record.release_environment]} · ${record.change_reference}`
+                          : '未关联'}</dd></div>
+                      </dl>
+                      {verification && <div className={`notice ${verification.valid ? 'success' : 'error'}`}>
+                        <ShieldCheck size={16} />
+                        <div>
+                          <strong>{verification.valid ? '审批证明验证通过' : '审批证明验证失败'}</strong>
+                          <span>
+                            原始字节 {verification.canonical_content_valid ? '通过' : '失败'} · 内容摘要 {verification.content_hash_valid ? '通过' : '失败'} · 决策摘要 {verification.decision_hash_matches ? '通过' : '失败'} · Ed25519 签名 {verification.signature_valid ? '通过' : '失败'}
+                          </span>
+                        </div>
+                      </div>}
+                      <p className="quality-baseline-note">证明公开公钥和签名以支持独立复核；私钥不会通过 API、日志、导出或配置差异返回。</p>
+                    </div>
+                  })()}
+                </section>
               </>
             })()}
           </div>

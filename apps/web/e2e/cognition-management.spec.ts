@@ -24,6 +24,7 @@ async function mockAdminSession(page: Page) {
           'cognition:write',
           'cognition:evaluate',
           'evaluation:review',
+          'evaluation:approve',
           'trace:read',
           'data_lifecycle:export',
         ],
@@ -108,6 +109,7 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
   let completedReviews = 0
   let evaluationSuites: Record<string, unknown>[] = []
   let evaluationDecisions: Record<string, unknown>[] = []
+  let evaluationApproval: Record<string, unknown> | null = null
   const evaluationRun = {
     id: runId,
     suite_id: null,
@@ -419,6 +421,92 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
   await page.route(/\/api\/v1\/evaluations\/decisions(?:\/.*)?(?:\?.*)?$/, async (route) => {
     const request = route.request()
     const url = new URL(request.url())
+    if (url.pathname.endsWith('/approval/export')) {
+      await route.fulfill({
+        body: JSON.stringify({ schema_version: 1, id: historicalId }),
+        contentType: 'application/json',
+        headers: {
+          'Content-Disposition': `attachment; filename="evaluation-approval-${historicalId}.json"`,
+          'X-Content-SHA256': 'c'.repeat(64),
+        },
+      })
+      return
+    }
+    if (url.pathname.endsWith('/approval/verification')) {
+      await route.fulfill({ json: {
+        valid: true,
+        content_hash_valid: true,
+        canonical_content_valid: true,
+        decision_hash_matches: true,
+        signature_valid: true,
+        verified_at: timestamp,
+      } })
+      return
+    }
+    if (url.pathname.endsWith('/approval')) {
+      if (request.method() === 'POST') {
+        const command = request.postDataJSON() as {
+          outcome: string
+          reason: string
+          release_environment: string | null
+          change_reference: string | null
+        }
+        expect(command).toEqual({
+          outcome: 'approved',
+          reason: 'evidence_confirmed',
+          release_environment: 'staging',
+          change_reference: 'CHG-2026-0917',
+        })
+        evaluationApproval = {
+          id: historicalId,
+          decision_id: decisionId,
+          approved_by: userId,
+          approved_at: timestamp,
+          outcome: command.outcome,
+          reason: command.reason,
+          release_environment: command.release_environment,
+          change_reference: command.change_reference,
+          sha256: 'c'.repeat(64),
+          proof: {
+            schema_version: 1,
+            payload: {
+              schema_version: 1,
+              id: historicalId,
+              decision_id: decisionId,
+              decision_sha256: 'b'.repeat(64),
+              tenant_id: tenantId,
+              agent_id: agentId,
+              approved_by: userId,
+              approved_at: timestamp,
+              outcome: command.outcome,
+              reason: command.reason,
+              release_reference: {
+                environment: command.release_environment,
+                change_id: command.change_reference,
+              },
+              automatic_actions_allowed: false,
+            },
+            signature: {
+              algorithm: 'Ed25519',
+              key_id: 'ed25519:example-key',
+              public_key: 'cHVibGljLWtleQ==',
+              value: 'c2lnbmF0dXJl',
+            },
+          },
+        }
+        await route.fulfill({ status: 201, json: evaluationApproval })
+        return
+      }
+      if (evaluationApproval) {
+        await route.fulfill({ json: evaluationApproval })
+      } else {
+        await route.fulfill({
+          status: 404,
+          json: { error: { code: 'not_found', message: '评测决策尚无审批' } },
+        })
+      }
+      return
+    }
     if (url.pathname.endsWith('/export')) {
       await route.fulfill({
         body: JSON.stringify({ schema_version: 1, id: decisionId }),
@@ -451,7 +539,7 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
       })
       const decision = {
         id: decisionId,
-        created_by: userId,
+        created_by: historicalId,
         created_at: timestamp,
         outcome: command.outcome,
         reason: command.reason,
@@ -461,7 +549,7 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
           id: decisionId,
           tenant_id: tenantId,
           agent_id: agentId,
-          created_by: userId,
+          created_by: historicalId,
           created_at: timestamp,
           window_started_at: '2026-08-11T08:00:00Z',
           window_ended_at: timestamp,
@@ -552,11 +640,25 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
   await expect(page.getByText('-0.25')).toBeVisible()
   await expect(page.getByText('样本门槛只决定是否展示差值；本比较未进行统计显著性评估，也不允许作因果结论。')).toBeVisible()
   await expect(page.getByText('决策记录不会自动调参、发布配置或改变运行时行为')).toBeVisible()
+  await page.getByLabel('人工结论').selectOption('adopt_candidate')
+  await page.getByLabel('受控理由').selectOption('quality_gain')
   await page.getByRole('button', { name: '创建决策记录' }).click()
-  await expect(page.getByLabel('评测决策历史').getByText('等待更多证据', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('评测决策历史').getByText('采纳候选', { exact: true })).toBeVisible()
   await expect(page.getByText(`SHA-256`)).toBeVisible()
   await page.getByRole('button', { name: '下载 JSON' }).click()
   await expect(page.getByText(`报告已开始下载，SHA-256：${'b'.repeat(64)}。`)).toBeVisible()
+  await expect(page.getByText('尚无终态审批')).toBeVisible()
+  await page.getByLabel('审批结论').selectOption('approved')
+  await page.getByLabel('发布环境（可选）').selectOption('staging')
+  await page.getByLabel('变更编号（可选）').fill('CHG-2026-0917')
+  await page.getByRole('button', { name: '提交终态审批' }).click()
+  await expect(page.getByText('审批已冻结并完成 Ed25519 签名。')).toBeVisible()
+  await expect(page.getByText('预发布环境 · CHG-2026-0917')).toBeVisible()
+  await expect(page.getByText('发布引用仅为只读关联，不触发配置修改或实际发布')).toBeVisible()
+  await page.getByRole('button', { name: '验证证明' }).click()
+  await expect(page.getByText('审批证明验证通过')).toBeVisible()
+  await page.getByRole('button', { name: '下载证明' }).click()
+  await expect(page.getByText(`审批证明已开始下载，SHA-256：${'c'.repeat(64)}。`)).toBeVisible()
   await page.getByRole('button', { name: '7 天' }).click()
   await expect(page.getByText('近 7 天 · 10 次回归 · 10 份盲评')).toBeVisible()
   await expect(page.locator('.quality-trend-bucket')).toHaveCount(7)

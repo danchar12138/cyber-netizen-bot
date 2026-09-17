@@ -28,6 +28,10 @@ from cnb_infrastructure.data_lifecycle_repository import (
     MemoryDataLifecycleRepository,
     SqlAlchemyDataLifecycleRepository,
 )
+from cnb_infrastructure.evaluation_approval_signer import (
+    EVALUATION_APPROVAL_SIGNING_KEY,
+    Ed25519EvaluationApprovalSigner,
+)
 from cnb_infrastructure.evaluation_repository import (
     MemoryEvaluationRepository,
     SqlAlchemyEvaluationRepository,
@@ -64,10 +68,12 @@ from cnb_infrastructure.task_repository import (
 )
 
 __all__ = [
+    "EVALUATION_APPROVAL_SIGNING_KEY",
     "AesGcmEnvelopeCipher",
     "ConfiguredModelProviderResolver",
     "DependencyProbe",
     "DevelopmentModelProvider",
+    "Ed25519EvaluationApprovalSigner",
     "InMemoryMemoryRepository",
     "InMemoryTaskRepository",
     "MemoryAdministrationRepository",

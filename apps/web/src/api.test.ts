@@ -4,15 +4,18 @@ import {
   acknowledgeObservabilityAlert,
   batchDisposeObservabilityAlerts,
   clearObservabilityAlertDisposition,
+  createEvaluationApproval,
   createEvaluationDecision,
   createObservabilityAlertRecommendationCalibrationDraft,
   type ConfigPackageDocument,
+  downloadEvaluationApproval,
   downloadObservabilityAlertHistory,
   downloadEvaluationDecision,
   exportConfigPackage,
   formatConfigValue,
   formatConfigVersionStatus,
   getAuditRecords,
+  getEvaluationApproval,
   getEvaluationDecision,
   getEvaluationDecisions,
   getEvaluationQualityHistory,
@@ -33,6 +36,7 @@ import {
   setApiAccessToken,
   submitObservabilityAlertRecommendationFeedback,
   suppressObservabilityAlert,
+  verifyEvaluationApproval,
 } from './api'
 import { setSelectedAgentId } from './agentSelection'
 
@@ -680,6 +684,102 @@ describe('拟人评测决策客户端', () => {
     })
     expect(download.sha256).toBe('b'.repeat(64))
     expect(download.filename).toBe(`evaluation-decision-${decisionId}.json`)
+    expect(await download.blob.text()).toBe('{"schema_version":1}')
+  })
+
+  it('区分未审批状态并创建、验证和下载签名证明', async () => {
+    setSelectedAgentId('33333333-3333-4333-8333-333333333333')
+    const decisionId = '44444444-4444-4444-8444-444444444444'
+    const approvalId = '55555555-5555-4555-8555-555555555555'
+    let approvalExists = false
+    const approval = {
+      id: approvalId,
+      decision_id: decisionId,
+      approved_by: '66666666-6666-4666-8666-666666666666',
+      approved_at: '2026-09-17T08:00:00Z',
+      outcome: 'approved',
+      reason: 'evidence_confirmed',
+      release_environment: 'staging',
+      change_reference: 'CHG-2026-0917',
+      sha256: 'c'.repeat(64),
+      proof: {
+        schema_version: 1,
+        payload: {},
+        signature: {},
+      },
+    }
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const request = input as Request
+      const url = new URL(request.url)
+      if (url.pathname.endsWith('/approval/export')) {
+        return new Response('{"schema_version":1}', {
+          status: 200,
+          headers: {
+            'Content-Disposition': `attachment; filename="evaluation-approval-${approvalId}.json"`,
+            'Content-Type': 'application/json',
+            'X-Content-SHA256': 'c'.repeat(64),
+          },
+        })
+      }
+      if (url.pathname.endsWith('/approval/verification')) {
+        return new Response(JSON.stringify({
+          valid: true,
+          content_hash_valid: true,
+          canonical_content_valid: true,
+          decision_hash_matches: true,
+          signature_valid: true,
+          verified_at: '2026-09-17T08:01:00Z',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (request.method === 'POST') {
+        approvalExists = true
+        return new Response(JSON.stringify(approval), {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (!approvalExists) {
+        return new Response(JSON.stringify({ error: { message: '评测决策尚无审批' } }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify(approval), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await getEvaluationApproval(decisionId)).toBeNull()
+    await createEvaluationApproval(decisionId, {
+      outcome: 'approved',
+      reason: 'evidence_confirmed',
+      release_environment: 'staging',
+      change_reference: 'CHG-2026-0917',
+    })
+    expect((await getEvaluationApproval(decisionId))?.id).toBe(approvalId)
+    expect((await verifyEvaluationApproval(decisionId)).valid).toBe(true)
+    const download = await downloadEvaluationApproval(decisionId)
+
+    const requests = fetchMock.mock.calls.map((call) => call[0] as Request)
+    expect(requests.map((request) => [request.method, new URL(request.url).pathname])).toEqual([
+      ['GET', `/api/v1/evaluations/decisions/${decisionId}/approval`],
+      ['POST', `/api/v1/evaluations/decisions/${decisionId}/approval`],
+      ['GET', `/api/v1/evaluations/decisions/${decisionId}/approval`],
+      ['POST', `/api/v1/evaluations/decisions/${decisionId}/approval/verification`],
+      ['GET', `/api/v1/evaluations/decisions/${decisionId}/approval/export`],
+    ])
+    expect(requests.every((request) => request.headers.get('X-CNB-Agent-ID')
+      === '33333333-3333-4333-8333-333333333333')).toBe(true)
+    expect(await requests[1]?.json()).toEqual({
+      outcome: 'approved',
+      reason: 'evidence_confirmed',
+      release_environment: 'staging',
+      change_reference: 'CHG-2026-0917',
+    })
+    expect(download.filename).toBe(`evaluation-approval-${approvalId}.json`)
+    expect(download.sha256).toBe('c'.repeat(64))
     expect(await download.blob.text()).toBe('{"schema_version":1}')
   })
 })

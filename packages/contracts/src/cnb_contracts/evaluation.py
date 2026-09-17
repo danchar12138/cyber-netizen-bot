@@ -9,9 +9,12 @@ from pydantic import BaseModel, Field, model_validator
 from cnb_contracts.observability import ObservabilityAlertRecommendationQualityMetricsResponse
 from cnb_domain import (
     BlindReviewPreference,
+    EvaluationApprovalOutcome,
+    EvaluationApprovalReason,
     EvaluationComparisonStatus,
     EvaluationDecisionOutcome,
     EvaluationDecisionReason,
+    EvaluationReleaseEnvironment,
     EvaluationRunStatus,
     EvaluationSuiteStatus,
     QualityDataCoverage,
@@ -467,6 +470,82 @@ class EvaluationDecisionReportResponse(BaseModel):
 
 class EvaluationDecisionResponse(EvaluationDecisionSummaryResponse):
     report: EvaluationDecisionReportResponse
+
+
+class EvaluationApprovalCreate(BaseModel):
+    """为一个不可变评测决策写入唯一终态审批。"""
+
+    outcome: EvaluationApprovalOutcome
+    reason: EvaluationApprovalReason
+    release_environment: EvaluationReleaseEnvironment | None = None
+    change_reference: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+class EvaluationApprovalReleaseReferenceResponse(BaseModel):
+    """只读发布变更引用，不授予发布或配置写入能力。"""
+
+    environment: EvaluationReleaseEnvironment
+    change_id: str
+
+
+class EvaluationDecisionSignatureResponse(BaseModel):
+    """审批证明公开的 Ed25519 验签材料。"""
+
+    algorithm: Literal["Ed25519"]
+    key_id: str
+    public_key: str
+    value: str
+
+
+class EvaluationApprovalProofPayloadResponse(BaseModel):
+    """签名覆盖的审批白名单载荷。"""
+
+    schema_version: Literal[1]
+    id: UUID
+    decision_id: UUID
+    decision_sha256: str
+    tenant_id: UUID
+    agent_id: UUID
+    approved_by: UUID
+    approved_at: datetime
+    outcome: EvaluationApprovalOutcome
+    reason: EvaluationApprovalReason
+    release_reference: EvaluationApprovalReleaseReferenceResponse | None
+    automatic_actions_allowed: Literal[False]
+
+
+class EvaluationApprovalProofResponse(BaseModel):
+    """可下载并独立验证的完整签名证明。"""
+
+    schema_version: Literal[1]
+    payload: EvaluationApprovalProofPayloadResponse
+    signature: EvaluationDecisionSignatureResponse
+
+
+class EvaluationApprovalResponse(BaseModel):
+    """审批索引字段及其不可变签名证明。"""
+
+    id: UUID
+    decision_id: UUID
+    approved_by: UUID
+    approved_at: datetime
+    outcome: EvaluationApprovalOutcome
+    reason: EvaluationApprovalReason
+    release_environment: EvaluationReleaseEnvironment | None
+    change_reference: str | None
+    sha256: str
+    proof: EvaluationApprovalProofResponse
+
+
+class EvaluationApprovalVerificationResponse(BaseModel):
+    """服务端对持久化审批证明执行的独立完整性检查。"""
+
+    valid: bool
+    content_hash_valid: bool
+    canonical_content_valid: bool
+    decision_hash_matches: bool
+    signature_valid: bool
+    verified_at: datetime
 
 
 class UnifiedQualityOverviewResponse(BaseModel):

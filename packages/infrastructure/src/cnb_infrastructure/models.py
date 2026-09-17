@@ -1441,6 +1441,66 @@ class EvaluationDecisionModel(Base):
     )
 
 
+class EvaluationDecisionApprovalModel(Base):
+    """评测决策唯一终态审批的不可变签名证明。"""
+
+    __tablename__ = "evaluation_decision_approvals"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    decision_id: Mapped[UUID] = mapped_column(
+        ForeignKey("evaluation_decisions.id", ondelete="CASCADE"), nullable=False
+    )
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    approved_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(24), nullable=False)
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    release_environment: Mapped[str | None] = mapped_column(String(24))
+    change_reference: Mapped[str | None] = mapped_column(String(120))
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("decision_id", name="uq_evaluation_decision_approvals_decision"),
+        CheckConstraint(
+            "outcome IN ('approved', 'rejected')",
+            name="ck_evaluation_decision_approvals_outcome",
+        ),
+        CheckConstraint(
+            "reason IN ('evidence_confirmed', 'risk_unresolved', "
+            "'governance_blocked', 'release_not_ready')",
+            name="ck_evaluation_decision_approvals_reason",
+        ),
+        CheckConstraint(
+            "release_environment IS NULL OR "
+            "release_environment IN ('development', 'staging', 'production')",
+            name="ck_evaluation_decision_approvals_environment",
+        ),
+        CheckConstraint(
+            "(release_environment IS NULL AND change_reference IS NULL) OR "
+            "(release_environment IS NOT NULL AND change_reference IS NOT NULL)",
+            name="ck_evaluation_decision_approvals_release_pair",
+        ),
+        CheckConstraint(
+            "outcome <> 'rejected' OR (release_environment IS NULL AND change_reference IS NULL)",
+            name="ck_evaluation_decision_approvals_rejected_release",
+        ),
+        Index(
+            "ix_evaluation_decision_approvals_scope_time",
+            "tenant_id",
+            "agent_id",
+            "approved_at",
+        ),
+    )
+
+
 class EvaluationComparisonEntryModel(Base):
     """对比实验与有序候选回放的不可变关联。"""
 

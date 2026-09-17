@@ -1,5 +1,7 @@
 """配置注册表领域层与应用层测试。"""
 
+import base64
+
 import pytest
 
 from cnb_application import ConfigurationRegistry, build_default_registry
@@ -99,6 +101,21 @@ def test_model_comparison_candidate_limit_is_runtime_managed() -> None:
     assert definition.minimum == 2
     assert definition.maximum == 8
     assert ConfigScope.AGENT in definition.scopes
+
+
+def test_evaluation_approval_signing_key_is_agent_scoped_and_validated() -> None:
+    registry = build_default_registry()
+    definition = registry.get("evaluation.approval.ed25519_private_key")
+
+    assert definition.section == "evaluation"
+    assert definition.value_kind is ConfigValueKind.SECRET
+    assert definition.secret is True
+    assert definition.default is None
+    assert definition.scopes == (ConfigScope.AGENT,)
+    registry.validate_secret(
+        definition.key,
+        base64.b64encode(bytes(range(32))).decode("ascii"),
+    )
 
 
 def test_alert_recovery_notification_is_runtime_managed_and_enabled_by_default() -> None:

@@ -407,7 +407,7 @@ class SecretManagementService:
         actor_id: UUID | None = None,
     ) -> SecretMetadata:
         self._validate_target(key, scope_type, scope_id)
-        self._validate_plaintext(plaintext)
+        self._registry.validate_secret(key, plaintext)
         return await self._store.set_secret(
             key=key,
             scope_type=scope_type,
@@ -423,7 +423,12 @@ class SecretManagementService:
         plaintext: str,
         actor_id: UUID | None = None,
     ) -> SecretMetadata:
-        self._validate_plaintext(plaintext)
+        metadata = next(
+            (item for item in await self._store.list_metadata() if item.id == secret_id),
+            None,
+        )
+        if metadata is not None:
+            self._registry.validate_secret(metadata.key, plaintext)
         return await self._store.rotate_secret(secret_id, plaintext=plaintext, actor_id=actor_id)
 
     async def test_secret(self, secret_id: UUID, *, actor_id: UUID | None = None) -> SecretMetadata:
@@ -445,8 +450,3 @@ class SecretManagementService:
             raise ConfigurationValidationError("系统作用域不能设置作用域 ID")
         if scope_type is not ConfigScope.SYSTEM and scope_id is None:
             raise ConfigurationValidationError(f"作用域 {scope_type.value} 必须设置作用域 ID")
-
-    @staticmethod
-    def _validate_plaintext(plaintext: str) -> None:
-        if not plaintext:
-            raise ConfigurationValidationError("密钥内容不能为空")

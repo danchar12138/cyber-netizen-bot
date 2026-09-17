@@ -124,3 +124,34 @@ async def test_secret_service_rejects_non_secret_and_invalid_scope() -> None:
             scope_id=None,
             plaintext="不应保存",
         )
+
+
+async def test_evaluation_approval_signing_key_requires_base64_ed25519_seed() -> None:
+    service = SecretManagementService(build_default_registry(), MemorySecretStore())
+    agent_id = uuid4()
+
+    with pytest.raises(ConfigurationValidationError, match="Base64"):
+        await service.set_secret(
+            key="evaluation.approval.ed25519_private_key",
+            scope_type=ConfigScope.AGENT,
+            scope_id=agent_id,
+            plaintext="not-base64",
+        )
+    with pytest.raises(ConfigurationValidationError, match="32 字节"):
+        await service.set_secret(
+            key="evaluation.approval.ed25519_private_key",
+            scope_type=ConfigScope.AGENT,
+            scope_id=agent_id,
+            plaintext=base64.b64encode(b"too-short").decode("ascii"),
+        )
+
+    metadata = await service.set_secret(
+        key="evaluation.approval.ed25519_private_key",
+        scope_type=ConfigScope.AGENT,
+        scope_id=agent_id,
+        plaintext=base64.b64encode(bytes(range(32))).decode("ascii"),
+    )
+
+    assert metadata.scope_type is ConfigScope.AGENT
+    assert metadata.scope_id == agent_id
+    assert "AAECAw" not in repr(metadata)

@@ -127,6 +127,15 @@ from cnb_application.data_lifecycle_service import (
     ObservabilityHistoryRetentionResult,
     RetentionCandidate,
 )
+from cnb_application.evaluation_approval_service import (
+    EvaluationApprovalConflictError,
+    EvaluationApprovalNotFoundError,
+    EvaluationApprovalRepository,
+    EvaluationApprovalService,
+    EvaluationApprovalSigner,
+    EvaluationApprovalSigningError,
+    EvaluationApprovalValidationError,
+)
 from cnb_application.evaluation_decision_service import (
     EvaluationDecisionNotFoundError,
     EvaluationDecisionRepository,
@@ -326,6 +335,13 @@ __all__ = [
     "EnqueueResult",
     "EntityCursor",
     "EpisodeConsolidationTaskHandler",
+    "EvaluationApprovalConflictError",
+    "EvaluationApprovalNotFoundError",
+    "EvaluationApprovalRepository",
+    "EvaluationApprovalService",
+    "EvaluationApprovalSigner",
+    "EvaluationApprovalSigningError",
+    "EvaluationApprovalValidationError",
     "EvaluationCaseDraft",
     "EvaluationConflictError",
     "EvaluationDecisionNotFoundError",

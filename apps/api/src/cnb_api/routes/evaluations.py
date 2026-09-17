@@ -8,6 +8,7 @@ from fastapi.responses import Response
 
 from cnb_api.dependencies import (
     get_admin_principal,
+    get_evaluation_approval_service,
     get_evaluation_decision_service,
     get_evaluation_quality_history_service,
     get_evaluation_service,
@@ -15,6 +16,11 @@ from cnb_api.dependencies import (
     require_permission,
 )
 from cnb_application import (
+    EvaluationApprovalConflictError,
+    EvaluationApprovalNotFoundError,
+    EvaluationApprovalService,
+    EvaluationApprovalSigningError,
+    EvaluationApprovalValidationError,
     EvaluationCaseDraft,
     EvaluationConflictError,
     EvaluationDecisionNotFoundError,
@@ -33,6 +39,10 @@ from cnb_contracts import (
     BlindReviewAssignmentResponse,
     BlindReviewResponse,
     BlindReviewSubmit,
+    EvaluationApprovalCreate,
+    EvaluationApprovalProofResponse,
+    EvaluationApprovalResponse,
+    EvaluationApprovalVerificationResponse,
     EvaluationComparisonCreate,
     EvaluationComparisonListResponse,
     EvaluationComparisonResponse,
@@ -59,6 +69,7 @@ from cnb_domain import (
     AdminPermission,
     AdminPrincipal,
     BlindReviewScore,
+    EvaluationDecisionApprovalRecord,
     EvaluationDecisionRecord,
     EvaluationVersionSnapshot,
 )
@@ -71,6 +82,23 @@ def _decision_response(record: EvaluationDecisionRecord) -> EvaluationDecisionRe
     summary = EvaluationDecisionSummaryResponse.model_validate(record, from_attributes=True)
     report = EvaluationDecisionReportResponse.model_validate_json(record.content)
     return EvaluationDecisionResponse(**summary.model_dump(), report=report)
+
+
+def _approval_response(record: EvaluationDecisionApprovalRecord) -> EvaluationApprovalResponse:
+    """从原始证明字节解析严格响应，避免重新构造签名内容。"""
+    proof = EvaluationApprovalProofResponse.model_validate_json(record.content)
+    return EvaluationApprovalResponse(
+        id=record.id,
+        decision_id=record.decision_id,
+        approved_by=record.approved_by,
+        approved_at=record.approved_at,
+        outcome=record.outcome,
+        reason=record.reason,
+        release_environment=record.release_environment,
+        change_reference=record.change_reference,
+        sha256=record.sha256,
+        proof=proof,
+    )
 
 
 @router.post(
@@ -160,6 +188,117 @@ async def export_evaluation_decision(
         media_type="application/json",
         headers={
             "Content-Disposition": f'attachment; filename="evaluation-decision-{item.id}.json"',
+            "X-Content-SHA256": item.sha256,
+        },
+    )
+
+
+@router.post(
+    "/decisions/{decision_id}/approval",
+    response_model=EvaluationApprovalResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(AdminPermission.EVALUATION_APPROVE))],
+)
+async def create_evaluation_approval(
+    decision_id: UUID,
+    command: EvaluationApprovalCreate,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[EvaluationApprovalService, Depends(get_evaluation_approval_service)],
+) -> EvaluationApprovalResponse:
+    """由独立管理员冻结并签署唯一审批结论。"""
+    try:
+        item = await service.create_approval(
+            decision_id=decision_id,
+            tenant_id=principal.tenant_id,
+            actor_id=principal.user_id,
+            outcome=command.outcome,
+            reason=command.reason,
+            release_environment=command.release_environment,
+            change_reference=command.change_reference,
+        )
+    except EvaluationApprovalNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except EvaluationApprovalValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(error),
+        ) from error
+    except (EvaluationApprovalConflictError, EvaluationApprovalSigningError) as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return _approval_response(item)
+
+
+@router.get(
+    "/decisions/{decision_id}/approval",
+    response_model=EvaluationApprovalResponse,
+    dependencies=[Depends(require_permission(AdminPermission.COGNITION_READ))],
+)
+async def get_evaluation_approval(
+    decision_id: UUID,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[EvaluationApprovalService, Depends(get_evaluation_approval_service)],
+) -> EvaluationApprovalResponse:
+    """读取当前决策的终态审批与公开验签材料。"""
+    try:
+        item = await service.get_approval(
+            decision_id=decision_id,
+            tenant_id=principal.tenant_id,
+        )
+    except EvaluationApprovalNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    return _approval_response(item)
+
+
+@router.post(
+    "/decisions/{decision_id}/approval/verification",
+    response_model=EvaluationApprovalVerificationResponse,
+    dependencies=[Depends(require_permission(AdminPermission.COGNITION_READ))],
+)
+async def verify_evaluation_approval(
+    decision_id: UUID,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[EvaluationApprovalService, Depends(get_evaluation_approval_service)],
+) -> EvaluationApprovalVerificationResponse:
+    """使用证明内公钥复核原始字节、决策摘要和 Ed25519 签名。"""
+    try:
+        verification = await service.verify_approval(
+            decision_id=decision_id,
+            tenant_id=principal.tenant_id,
+        )
+    except EvaluationApprovalNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    return EvaluationApprovalVerificationResponse.model_validate(
+        verification,
+        from_attributes=True,
+    )
+
+
+@router.get(
+    "/decisions/{decision_id}/approval/export",
+    dependencies=[
+        Depends(require_permission(AdminPermission.COGNITION_READ)),
+        Depends(require_permission(AdminPermission.DATA_EXPORT)),
+    ],
+    responses={200: {"content": {"application/json": {}}, "description": "原样下载审批证明"}},
+)
+async def export_evaluation_approval(
+    decision_id: UUID,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[EvaluationApprovalService, Depends(get_evaluation_approval_service)],
+) -> Response:
+    """原样下载不可变审批证明，不包含签名私钥。"""
+    try:
+        item = await service.get_approval(
+            decision_id=decision_id,
+            tenant_id=principal.tenant_id,
+        )
+    except EvaluationApprovalNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    return Response(
+        content=item.content,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="evaluation-approval-{item.id}.json"',
             "X-Content-SHA256": item.sha256,
         },
     )

@@ -32,6 +32,8 @@ from cnb_application import (
     ConversationService,
     DataLifecycleRepository,
     DataLifecycleService,
+    EvaluationApprovalService,
+    EvaluationApprovalSigner,
     EvaluationDecisionService,
     EvaluationQualityHistoryService,
     EvaluationRepository,
@@ -519,6 +521,21 @@ def get_evaluation_decision_service(
 ) -> EvaluationDecisionService:
     """创建绑定当前 Agent 和安全质量窗口的人工决策服务。"""
     return EvaluationDecisionService(repository, history_service, agent_id=identity.agent_id)
+
+
+def get_evaluation_approval_signer(request: HTTPConnection) -> EvaluationApprovalSigner:
+    """返回组合根创建的审批证明签名与公开材料验证器。"""
+    signer: EvaluationApprovalSigner = request.app.state.evaluation_approval_signer
+    return signer
+
+
+def get_evaluation_approval_service(
+    repository: Annotated[EvaluationRepository, Depends(get_evaluation_repository)],
+    signer: Annotated[EvaluationApprovalSigner, Depends(get_evaluation_approval_signer)],
+    identity: Annotated[DevelopmentIdentity, Depends(get_request_identity)],
+) -> EvaluationApprovalService:
+    """创建绑定当前 Agent 的职责分离评测审批服务。"""
+    return EvaluationApprovalService(repository, signer, agent_id=identity.agent_id)
 
 
 def get_data_lifecycle_service(

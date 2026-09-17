@@ -1,5 +1,7 @@
 """向管理平面公开的内置配置定义。"""
 
+import base64
+import binascii
 from collections.abc import Iterable
 
 from cnb_adapters import AlertWebhookValidationError, validate_webhook_url
@@ -52,6 +54,27 @@ class ConfigurationRegistry:
             raise ConfigurationValidationError(f"作用域 {entry.scope_type.value} 必须设置作用域 ID")
 
         self._validate_value(definition, entry.value)
+
+    def validate_secret(self, key: str, plaintext: str) -> None:
+        """校验密钥定义和少数具有固定编码格式的密钥材料。"""
+        try:
+            definition = self.get(key)
+        except KeyError as error:
+            raise ConfigurationValidationError(f"未知配置键：{key}") from error
+        if not definition.secret:
+            raise ConfigurationValidationError(f"配置不是密钥类型：{key}")
+        if not plaintext:
+            raise ConfigurationValidationError("密钥内容不能为空")
+        if key != "evaluation.approval.ed25519_private_key":
+            return
+        try:
+            private_bytes = base64.b64decode(plaintext, validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise ConfigurationValidationError(
+                "评测审批签名私钥必须是有效的 Base64 编码"
+            ) from error
+        if len(private_bytes) != 32:
+            raise ConfigurationValidationError("评测审批签名私钥解码后必须恰好为 32 字节")
 
     @staticmethod
     def _validate_value(definition: ConfigDefinition, value: JsonValue) -> None:
@@ -904,6 +927,16 @@ def build_default_registry() -> ConfigurationRegistry:
                 scopes=system_and_tenant,
                 minimum=0,
                 maximum=1000000,
+            ),
+            ConfigDefinition(
+                key="evaluation.approval.ed25519_private_key",
+                section="evaluation",
+                label="评测审批 Ed25519 私钥",
+                description="32 字节 Ed25519 seed 的 Base64 编码，仅写入加密存储且永不回显。",
+                value_kind=ConfigValueKind.SECRET,
+                default=None,
+                scopes=(ConfigScope.AGENT,),
+                secret=True,
             ),
             ConfigDefinition(
                 key="memory.recall.limit",

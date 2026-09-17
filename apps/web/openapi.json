@@ -147,6 +147,7 @@
           "cognition:write",
           "cognition:evaluate",
           "evaluation:review",
+          "evaluation:approve",
           "memory:read",
           "memory:write",
           "memory:rebuild",
@@ -5456,6 +5457,301 @@
         "title": "EpisodeStatus",
         "type": "string"
       },
+      "EvaluationApprovalCreate": {
+        "description": "为一个不可变评测决策写入唯一终态审批。",
+        "properties": {
+          "change_reference": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Reference"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/EvaluationApprovalOutcome"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/EvaluationApprovalReason"
+          },
+          "release_environment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvaluationReleaseEnvironment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "outcome",
+          "reason"
+        ],
+        "title": "EvaluationApprovalCreate",
+        "type": "object"
+      },
+      "EvaluationApprovalOutcome": {
+        "description": "审批终态；只记录治理结论，不授予执行能力。",
+        "enum": [
+          "approved",
+          "rejected"
+        ],
+        "title": "EvaluationApprovalOutcome",
+        "type": "string"
+      },
+      "EvaluationApprovalProofPayloadResponse": {
+        "description": "签名覆盖的审批白名单载荷。",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "approved_at": {
+            "format": "date-time",
+            "title": "Approved At",
+            "type": "string"
+          },
+          "approved_by": {
+            "format": "uuid",
+            "title": "Approved By",
+            "type": "string"
+          },
+          "automatic_actions_allowed": {
+            "const": false,
+            "title": "Automatic Actions Allowed",
+            "type": "boolean"
+          },
+          "decision_id": {
+            "format": "uuid",
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "decision_sha256": {
+            "title": "Decision Sha256",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/EvaluationApprovalOutcome"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/EvaluationApprovalReason"
+          },
+          "release_reference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvaluationApprovalReleaseReferenceResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "id",
+          "decision_id",
+          "decision_sha256",
+          "tenant_id",
+          "agent_id",
+          "approved_by",
+          "approved_at",
+          "outcome",
+          "reason",
+          "release_reference",
+          "automatic_actions_allowed"
+        ],
+        "title": "EvaluationApprovalProofPayloadResponse",
+        "type": "object"
+      },
+      "EvaluationApprovalProofResponse": {
+        "description": "可下载并独立验证的完整签名证明。",
+        "properties": {
+          "payload": {
+            "$ref": "#/components/schemas/EvaluationApprovalProofPayloadResponse"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/EvaluationDecisionSignatureResponse"
+          }
+        },
+        "required": [
+          "schema_version",
+          "payload",
+          "signature"
+        ],
+        "title": "EvaluationApprovalProofResponse",
+        "type": "object"
+      },
+      "EvaluationApprovalReason": {
+        "description": "审批使用的受控原因代码。",
+        "enum": [
+          "evidence_confirmed",
+          "risk_unresolved",
+          "governance_blocked",
+          "release_not_ready"
+        ],
+        "title": "EvaluationApprovalReason",
+        "type": "string"
+      },
+      "EvaluationApprovalReleaseReferenceResponse": {
+        "description": "只读发布变更引用，不授予发布或配置写入能力。",
+        "properties": {
+          "change_id": {
+            "title": "Change Id",
+            "type": "string"
+          },
+          "environment": {
+            "$ref": "#/components/schemas/EvaluationReleaseEnvironment"
+          }
+        },
+        "required": [
+          "environment",
+          "change_id"
+        ],
+        "title": "EvaluationApprovalReleaseReferenceResponse",
+        "type": "object"
+      },
+      "EvaluationApprovalResponse": {
+        "description": "审批索引字段及其不可变签名证明。",
+        "properties": {
+          "approved_at": {
+            "format": "date-time",
+            "title": "Approved At",
+            "type": "string"
+          },
+          "approved_by": {
+            "format": "uuid",
+            "title": "Approved By",
+            "type": "string"
+          },
+          "change_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Reference"
+          },
+          "decision_id": {
+            "format": "uuid",
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/EvaluationApprovalOutcome"
+          },
+          "proof": {
+            "$ref": "#/components/schemas/EvaluationApprovalProofResponse"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/EvaluationApprovalReason"
+          },
+          "release_environment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvaluationReleaseEnvironment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "decision_id",
+          "approved_by",
+          "approved_at",
+          "outcome",
+          "reason",
+          "release_environment",
+          "change_reference",
+          "sha256",
+          "proof"
+        ],
+        "title": "EvaluationApprovalResponse",
+        "type": "object"
+      },
+      "EvaluationApprovalVerificationResponse": {
+        "description": "服务端对持久化审批证明执行的独立完整性检查。",
+        "properties": {
+          "canonical_content_valid": {
+            "title": "Canonical Content Valid",
+            "type": "boolean"
+          },
+          "content_hash_valid": {
+            "title": "Content Hash Valid",
+            "type": "boolean"
+          },
+          "decision_hash_matches": {
+            "title": "Decision Hash Matches",
+            "type": "boolean"
+          },
+          "signature_valid": {
+            "title": "Signature Valid",
+            "type": "boolean"
+          },
+          "valid": {
+            "title": "Valid",
+            "type": "boolean"
+          },
+          "verified_at": {
+            "format": "date-time",
+            "title": "Verified At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "valid",
+          "content_hash_valid",
+          "canonical_content_valid",
+          "decision_hash_matches",
+          "signature_valid",
+          "verified_at"
+        ],
+        "title": "EvaluationApprovalVerificationResponse",
+        "type": "object"
+      },
       "EvaluationCaseCreate": {
         "description": "创建评测集版本时提交的对话样例。",
         "properties": {
@@ -6246,6 +6542,36 @@
         "title": "EvaluationDecisionResponse",
         "type": "object"
       },
+      "EvaluationDecisionSignatureResponse": {
+        "description": "审批证明公开的 Ed25519 验签材料。",
+        "properties": {
+          "algorithm": {
+            "const": "Ed25519",
+            "title": "Algorithm",
+            "type": "string"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "public_key": {
+            "title": "Public Key",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "algorithm",
+          "key_id",
+          "public_key",
+          "value"
+        ],
+        "title": "EvaluationDecisionSignatureResponse",
+        "type": "object"
+      },
       "EvaluationDecisionSummaryResponse": {
         "description": "不携带报告字节的不可变决策索引。",
         "properties": {
@@ -6642,6 +6968,16 @@
         ],
         "title": "EvaluationQualityTrendPointResponse",
         "type": "object"
+      },
+      "EvaluationReleaseEnvironment": {
+        "description": "只读发布变更引用所处环境。",
+        "enum": [
+          "development",
+          "staging",
+          "production"
+        ],
+        "title": "EvaluationReleaseEnvironment",
+        "type": "string"
       },
       "EvaluationReportResponse": {
         "description": "拟人自动回归与人工盲评聚合报告。",
@@ -28696,6 +29032,508 @@
           }
         },
         "summary": "执行评测实验室操作",
+        "tags": [
+          "评测实验室"
+        ]
+      }
+    },
+    "/api/v1/evaluations/decisions/{decision_id}/approval": {
+      "get": {
+        "description": "读取当前决策的终态审批与公开验签材料。",
+        "operationId": "get_api_v1_evaluations_decisions_by_decision_id_approval",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Decision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationApprovalResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "读取当前决策的终态审批与公开验签材料",
+        "tags": [
+          "评测实验室"
+        ]
+      },
+      "post": {
+        "description": "由独立管理员冻结并签署唯一审批结论。",
+        "operationId": "post_api_v1_evaluations_decisions_by_decision_id_approval",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Decision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluationApprovalCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationApprovalResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "由独立管理员冻结并签署唯一审批结论",
+        "tags": [
+          "评测实验室"
+        ]
+      }
+    },
+    "/api/v1/evaluations/decisions/{decision_id}/approval/export": {
+      "get": {
+        "description": "原样下载不可变审批证明，不包含签名私钥。",
+        "operationId": "get_api_v1_evaluations_decisions_by_decision_id_approval_export",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Decision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "原样下载审批证明"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "原样下载不可变审批证明，不包含签名私钥",
+        "tags": [
+          "评测实验室"
+        ]
+      }
+    },
+    "/api/v1/evaluations/decisions/{decision_id}/approval/verification": {
+      "post": {
+        "description": "使用证明内公钥复核原始字节、决策摘要和 Ed25519 签名。",
+        "operationId": "post_api_v1_evaluations_decisions_by_decision_id_approval_verification",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Decision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationApprovalVerificationResponse"
+                }
+              }
+            },
+            "description": "请求成功"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求格式或业务条件无效"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "尚未通过身份认证"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "当前身份没有所需权限"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "资源状态或幂等约束冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求字段校验失败"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求超过允许频率"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务发生已安全处理的内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "依赖服务暂时不可用"
+          }
+        },
+        "summary": "使用证明内公钥复核原始字节、决策摘要和 Ed25519 签名",
         "tags": [
           "评测实验室"
         ]

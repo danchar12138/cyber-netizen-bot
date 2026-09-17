@@ -49,6 +49,8 @@ describe('管理后台中文显示文案', () => {
     expect(configScopeLabels.agent).toBe('智能体')
     expect(auditActionLabels['agent.created']).toBe('创建智能体')
     expect(auditActionLabels['evaluation.decision_created']).toBe('创建拟人评测决策')
+    expect(auditActionLabels['evaluation.decision_approved']).toBe('审批拟人评测决策')
+    expect(permissionLabels['evaluation:approve']).toBe('审批评测决策')
     expect(auditResourceLabels.prompt).toBe('提示词版本')
     expect(permissionLabels['observability_alert:manage']).toBe('处置通用告警')
     expect(auditActionLabels['observability_alert.suppressed']).toBe('抑制通用告警')
