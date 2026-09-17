@@ -404,7 +404,7 @@ mc mirror --overwrite "source/$MINIO_BUCKET" /backup >/dev/null
         "--tmpfs", "/data",
         "--env", "MINIO_ROOT_USER=$restoreMinioUser",
         "--env", "MINIO_ROOT_PASSWORD=$restoreMinioPassword",
-        "minio/minio:RELEASE.2025-04-22T22-12-26Z", "server", "/data"
+        "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z", "server", "/data"
     )
     Invoke-Docker -Arguments @(
         "run", "--detach", "--name", $restoreRedis, "--network", $restoreNetwork,
@@ -433,21 +433,21 @@ mc mirror --overwrite "source/$MINIO_BUCKET" /backup >/dev/null
     Invoke-Docker -Arguments @(
         "run", "--rm", "--network", $restoreNetwork,
         "--env", "MC_HOST_restore=http://${restoreMinioUser}:${restoreMinioPassword}@${restoreMinio}:9000",
-        "minio/mc:RELEASE.2025-04-16T18-13-26Z", "mb", "--ignore-existing",
+        "quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z", "mb", "--ignore-existing",
         "restore/cyber-netizen"
     )
     Invoke-Docker -Arguments @(
         "run", "--rm", "--network", $restoreNetwork,
         "--volume", "${backupObjects}:/backup:ro",
         "--env", "MC_HOST_restore=http://${restoreMinioUser}:${restoreMinioPassword}@${restoreMinio}:9000",
-        "minio/mc:RELEASE.2025-04-16T18-13-26Z", "mirror", "/backup",
+        "quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z", "mirror", "/backup",
         "restore/cyber-netizen"
     )
     Invoke-Docker -Arguments @(
         "run", "--rm", "--network", $restoreNetwork,
         "--volume", "${restoredObjects}:/restored",
         "--env", "MC_HOST_restore=http://${restoreMinioUser}:${restoreMinioPassword}@${restoreMinio}:9000",
-        "minio/mc:RELEASE.2025-04-16T18-13-26Z", "mirror", "restore/cyber-netizen",
+        "quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z", "mirror", "restore/cyber-netizen",
         "/restored"
     )
 
@@ -551,7 +551,7 @@ if not conversations.get("items"):
         & docker image rm --force $env:CNB_API_IMAGE $env:CNB_WORKER_IMAGE $env:CNB_WEB_IMAGE *> $null
     }
     & docker run --rm --volume "${workRoot}:/work" --entrypoint /bin/sh `
-        minio/mc:RELEASE.2025-04-16T18-13-26Z -c "chmod -R a+rwX /work" *> $null
+        quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z -c "chmod -R a+rwX /work" *> $null
     Remove-AcceptanceDirectory -Target $workRoot -AllowedRoot $temporaryRoot
 }
 

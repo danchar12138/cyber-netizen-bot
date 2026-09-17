@@ -2,7 +2,15 @@
 
 FROM ghcr.io/astral-sh/uv:0.12.10 AS uv
 
-FROM python:3.12.14-slim-bookworm AS python-dependencies
+FROM python:3.12.14-slim-bookworm AS python-runtime
+
+# Debian 安全修复可能早于 Python 基础镜像重建。
+# hadolint ignore=DL3005
+RUN apt-get update \
+    && apt-get upgrade --yes \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM python-runtime AS python-dependencies
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -38,7 +46,7 @@ COPY packages packages
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable --package cnb-worker
 
-FROM python:3.12.14-slim-bookworm AS api
+FROM python-runtime AS api
 
 ARG VERSION=0.0.0-dev
 ARG VCS_REF=unknown
@@ -66,7 +74,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=3).read()"]
 CMD ["python", "-m", "uvicorn", "cnb_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
 
-FROM python:3.12.14-slim-bookworm AS worker
+FROM python-runtime AS worker
 
 ARG VERSION=0.0.0-dev
 ARG VCS_REF=unknown

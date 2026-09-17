@@ -1,5 +1,6 @@
 """生产容器与发布供应链的静态安全契约。"""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -66,6 +67,29 @@ def test_web_runtime_only_renders_configuration_into_tmp() -> None:
     assert "RUN apk upgrade --no-cache" in _docker_stage("web")
     assert '"--output-document=/dev/null"' in _docker_stage("web")
     assert '"--spider"' not in _docker_stage("web")
+
+
+def test_python_runtime_is_patched_and_minio_uses_official_quay_images() -> None:
+    dockerfile = (REPOSITORY_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    runtime = _docker_stage("python-runtime")
+
+    assert "FROM python:3.12.14-slim-bookworm AS python-runtime" in dockerfile
+    assert "apt-get update" in runtime
+    assert "apt-get upgrade --yes" in runtime
+    assert "rm -rf /var/lib/apt/lists/*" in runtime
+    for stage in ("python-dependencies", "api", "worker"):
+        assert f"FROM python-runtime AS {stage}" in dockerfile
+
+    minio_files = (
+        REPOSITORY_ROOT / "compose.yaml",
+        REPOSITORY_ROOT / "scripts/verify-infrastructure.ps1",
+        REPOSITORY_ROOT / "docs/runbooks/backup-restore.md",
+    )
+    for path in minio_files:
+        content = path.read_text(encoding="utf-8")
+        assert "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z" in content
+        assert "quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z" in content
+        assert re.search(r"(?<!quay\.io/)minio/(?:minio|mc):", content) is None
 
 
 def test_release_workflow_produces_signed_attested_sboms() -> None:

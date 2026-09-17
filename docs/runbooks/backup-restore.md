@@ -93,7 +93,7 @@ docker run --detach --name cnb-restore-minio `
   --tmpfs /data `
   --env MINIO_ROOT_USER=restore-user `
   --env MINIO_ROOT_PASSWORD=restore-only-password `
-  minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+  quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
 ```
 
 等待两个容器就绪后恢复数据库与对象：
@@ -112,7 +112,7 @@ docker run --rm `
   --network cnb-restore-drill `
   --volume "${backupRoot}:/backup:ro" `
   --entrypoint /bin/sh `
-  minio/mc:RELEASE.2025-04-16T18-13-26Z `
+  quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z `
   -c 'mc alias set target http://cnb-restore-minio:9000 restore-user restore-only-password >/dev/null && mc mb --ignore-existing target/cyber-netizen >/dev/null && mc mirror /backup/objects target/cyber-netizen'
 ```
 
