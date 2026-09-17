@@ -127,6 +127,12 @@ from cnb_application.data_lifecycle_service import (
     ObservabilityHistoryRetentionResult,
     RetentionCandidate,
 )
+from cnb_application.evaluation_decision_service import (
+    EvaluationDecisionNotFoundError,
+    EvaluationDecisionRepository,
+    EvaluationDecisionService,
+    EvaluationDecisionValidationError,
+)
 from cnb_application.evaluation_service import (
     EvaluationCaseDraft,
     EvaluationConflictError,
@@ -322,6 +328,10 @@ __all__ = [
     "EpisodeConsolidationTaskHandler",
     "EvaluationCaseDraft",
     "EvaluationConflictError",
+    "EvaluationDecisionNotFoundError",
+    "EvaluationDecisionRepository",
+    "EvaluationDecisionService",
+    "EvaluationDecisionValidationError",
     "EvaluationNotFoundError",
     "EvaluationQualityHistoryReader",
     "EvaluationQualityHistoryService",

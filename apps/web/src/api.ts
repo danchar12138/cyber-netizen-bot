@@ -26,8 +26,14 @@ import type {
   ConversationResponse,
   EvaluationComparisonResponse,
   EvaluationComparisonSummaryResponse,
+  EvaluationDecisionCreate,
+  EvaluationDecisionOutcome,
+  EvaluationDecisionReason,
+  EvaluationDecisionResponse,
+  EvaluationDecisionSummaryResponse,
   EvaluationModelTargetResponse,
   EvaluationQualityHistoryResponse,
+  EvaluationVersionSnapshotResponse,
   ExternalConversationMappingResponse,
   ExternalIdentityMappingResponse,
   InboxEventResponse,
@@ -953,6 +959,12 @@ export type EvaluationQualityHistory = EvaluationQualityHistoryResponse
 export type EvaluationModelTarget = EvaluationModelTargetResponse
 export type EvaluationComparison = EvaluationComparisonResponse
 export type EvaluationComparisonSummary = EvaluationComparisonSummaryResponse
+export type EvaluationDecision = EvaluationDecisionResponse
+export type EvaluationDecisionSummary = EvaluationDecisionSummaryResponse
+export type EvaluationDecisionInput = EvaluationDecisionCreate
+export type EvaluationDecisionResult = EvaluationDecisionOutcome
+export type EvaluationDecisionReasonCode = EvaluationDecisionReason
+export type EvaluationVersionSnapshot = EvaluationVersionSnapshotResponse
 
 export type MemoryKind =
   | 'working'
@@ -1957,6 +1969,35 @@ export const getEvaluationQualityHistory = (
     bucket_minutes: bucketMinutes,
   },
 })
+
+export const getEvaluationDecisions = () =>
+  apiSdk.getApiV1EvaluationsDecisions({ query: { limit: 20 } })
+
+export const getEvaluationDecision = (decisionId: string) =>
+  apiSdk.getApiV1EvaluationsDecisionsByDecisionId({
+    path: { decision_id: decisionId },
+  })
+
+export const createEvaluationDecision = (input: EvaluationDecisionInput) =>
+  apiSdk.postApiV1EvaluationsDecisions({ body: input })
+
+export async function downloadEvaluationDecision(
+  decisionId: string,
+): Promise<DataExportDownload> {
+  const { data, response } = await apiClient.get<{ 200: Blob }, unknown, true, 'fields'>({
+    url: '/api/v1/evaluations/decisions/{decision_id}/export',
+    path: { decision_id: decisionId },
+    parseAs: 'blob',
+    responseStyle: 'fields',
+    throwOnError: true,
+  })
+  return {
+    blob: data,
+    filename: `evaluation-decision-${decisionId}.json`,
+    sha256: response.headers.get('X-Content-SHA256'),
+    runId: null,
+  }
+}
 
 export const claimBlindReviewAssignment = (runId: string | null = null) =>
   apiSdk.postApiV1EvaluationsBlindAssignments({ body: { run_id: runId } })

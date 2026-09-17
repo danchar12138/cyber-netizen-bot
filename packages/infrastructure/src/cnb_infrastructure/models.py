@@ -1406,6 +1406,41 @@ class EvaluationComparisonModel(Base):
     )
 
 
+class EvaluationDecisionModel(Base):
+    """人工评测决策的不可变 JSON 字节和摘要。"""
+
+    __tablename__ = "evaluation_decisions"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "outcome IN ('adopt_candidate', 'keep_baseline', 'wait_for_evidence')",
+            name="ck_evaluation_decisions_outcome",
+        ),
+        CheckConstraint(
+            "reason IN ('quality_gain', 'regression_risk', 'insufficient_evidence', "
+            "'manual_review')",
+            name="ck_evaluation_decisions_reason",
+        ),
+        Index("ix_evaluation_decisions_scope_created", "tenant_id", "agent_id", "created_at"),
+    )
+
+
 class EvaluationComparisonEntryModel(Base):
     """对比实验与有序候选回放的不可变关联。"""
 

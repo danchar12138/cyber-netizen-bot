@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Mapping
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import cast
@@ -42,6 +43,8 @@ from cnb_contracts import (
     ConversationResponse,
     DataLifecycleOverviewResponse,
     EvaluationComparisonResponse,
+    EvaluationDecisionListResponse,
+    EvaluationDecisionResponse,
     EvaluationModelTargetListResponse,
     EvaluationQualityHistoryResponse,
     EvaluationReportResponse,
@@ -81,11 +84,16 @@ from cnb_domain import (
     AdminRole,
     AlertSeverity,
     BackgroundJobKind,
+    BlindReviewPreference,
     ChannelAlert,
     ChannelAlertLifecycleStatus,
     ConfigEntry,
     ConfigScope,
     DevelopmentIdentity,
+    EvaluationQualityReviewSample,
+    EvaluationQualityRunSample,
+    EvaluationQualitySamples,
+    EvaluationVersionSnapshot,
     JsonValue,
     ManagedAdminSession,
     ObservabilityAlertLifecycle,
@@ -107,6 +115,7 @@ from cnb_infrastructure import (
     MemoryConfigurationRepository,
     MemoryConversationRepository,
     MemoryDataLifecycleRepository,
+    MemoryEvaluationRepository,
     MemoryObjectStorage,
     MemoryObservabilityRepository,
     Settings,
@@ -1219,6 +1228,187 @@ async def test_persisted_evaluation_replay_and_blind_review_api() -> None:
     assert isolated_quality_history.baseline_comparisons == ()
     assert invalid_quality_history_response.status_code == 422
     assert viewer_suite_create.status_code == 403
+
+
+async def test_evaluation_decision_api_freezes_bytes_and_enforces_scope_and_permissions() -> None:
+    """决策报告保持原始字节稳定，并同时执行租户、Agent 和导出权限隔离。"""
+    now = datetime.now(UTC)
+    baseline = EvaluationVersionSnapshot(
+        suite_key="anthropomorphic",
+        suite_version=1,
+        configuration_version=1,
+        persona_version=1,
+        prompt_version=1,
+        policy_version=1,
+        model_route_version=1,
+        provider="openai",
+        model="gpt-test",
+    )
+    candidate = EvaluationVersionSnapshot(
+        suite_key=baseline.suite_key,
+        suite_version=baseline.suite_version,
+        configuration_version=baseline.configuration_version,
+        persona_version=baseline.persona_version,
+        prompt_version=2,
+        policy_version=baseline.policy_version,
+        model_route_version=baseline.model_route_version,
+        provider=baseline.provider,
+        model=baseline.model,
+    )
+    runs: list[EvaluationQualityRunSample] = []
+    reviews: list[EvaluationQualityReviewSample] = []
+    for snapshot_index, snapshot in enumerate((baseline, candidate)):
+        for index in range(5):
+            run_id = uuid4()
+            created_at = now - timedelta(days=3 - snapshot_index, minutes=index)
+            runs.append(
+                EvaluationQualityRunSample(
+                    run_id=run_id,
+                    created_at=created_at,
+                    gate_passed=snapshot is candidate,
+                    pass_rate=90.0 if snapshot is candidate else 70.0,
+                    snapshot=snapshot,
+                )
+            )
+            reviews.append(
+                EvaluationQualityReviewSample(
+                    run_id=run_id,
+                    preference=BlindReviewPreference.CANDIDATE,
+                    candidate_average_score=4.5 if snapshot is candidate else 3.5,
+                    reference_average_score=3.0,
+                    created_at=created_at + timedelta(minutes=1),
+                )
+            )
+
+    class FixedQualityEvaluationRepository(MemoryEvaluationRepository):
+        async def get_quality_samples(
+            self,
+            *,
+            tenant_id: UUID,
+            agent_id: UUID,
+            window_started_at: datetime,
+            window_ended_at: datetime,
+        ) -> EvaluationQualitySamples:
+            del tenant_id, agent_id, window_started_at, window_ended_at
+            return EvaluationQualitySamples(runs=tuple(runs), reviews=tuple(reviews))
+
+    repository = FixedQualityEvaluationRepository()
+    app = create_app(
+        Settings(environment="test"),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+        evaluation_repository=repository,
+    )
+    payload = {
+        "window_minutes": 10_080,
+        "candidate": asdict(candidate),
+        "baseline": asdict(baseline),
+        "outcome": "adopt_candidate",
+        "reason": "quality_gain",
+    }
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created_response = await client.post("/api/v1/evaluations/decisions", json=payload)
+        created = EvaluationDecisionResponse.model_validate(created_response.json())
+        listed_response = await client.get(
+            "/api/v1/evaluations/decisions",
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        detail_response = await client.get(
+            f"/api/v1/evaluations/decisions/{created.id}",
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        first_export = await client.get(f"/api/v1/evaluations/decisions/{created.id}/export")
+        second_export = await client.get(f"/api/v1/evaluations/decisions/{created.id}/export")
+        viewer_create = await client.post(
+            "/api/v1/evaluations/decisions",
+            json=payload,
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        viewer_export = await client.get(
+            f"/api/v1/evaluations/decisions/{created.id}/export",
+            headers={"X-CNB-Development-Role": "viewer"},
+        )
+        second_agent = await client.post(
+            "/api/v1/administration/agents",
+            json={"name": "决策隔离 Agent"},
+        )
+        isolated_detail = await client.get(
+            f"/api/v1/evaluations/decisions/{created.id}",
+            headers={"X-CNB-Agent-ID": second_agent.json()["id"]},
+        )
+
+    listed = EvaluationDecisionListResponse.model_validate(listed_response.json())
+    detail = EvaluationDecisionResponse.model_validate(detail_response.json())
+    assert created_response.status_code == 201
+    assert listed.items[0].id == created.id
+    assert detail.report.comparison.pass_rate_delta_percentage_points == 20.0
+    assert detail.report.statistical_significance_assessed is False
+    assert detail.report.causal_conclusion_allowed is False
+    assert detail.report.automatic_actions_allowed is False
+    assert first_export.content == second_export.content
+    assert first_export.headers["X-Content-SHA256"] == sha256(first_export.content).hexdigest()
+    assert first_export.headers["X-Content-SHA256"] == created.sha256
+    assert all(
+        forbidden not in first_export.text
+        for forbidden in ("input_text", "candidate_response", "reference_response", '"note":')
+    )
+    assert viewer_create.status_code == 403
+    assert viewer_export.status_code == 403
+    assert isolated_detail.status_code == 404
+
+    other_tenant_id, other_user_id, other_agent_id = uuid4(), uuid4(), uuid4()
+    other_identity = DevelopmentIdentity(
+        tenant_id=other_tenant_id,
+        user_id=other_user_id,
+        agent_id=other_agent_id,
+        user_name="跨租户决策读取测试用户",
+        agent_name="跨租户决策读取测试 Agent",
+    )
+
+    class PermissionPreservingRepository(MemoryAdministrationRepository):
+        async def authorize_admin_request(
+            self,
+            *,
+            principal: AdminPrincipal,
+            requested_at: datetime,
+            window_started_at: datetime,
+        ) -> AdminPrincipal:
+            return principal
+
+    other_principal = AdminPrincipal(
+        tenant_id=other_tenant_id,
+        user_id=other_user_id,
+        display_name=other_identity.user_name,
+        role=AdminRole.ADMIN,
+        permissions=permissions_for_role(AdminRole.ADMIN),
+        authentication_mode="oidc",
+    )
+    other_app = create_app(
+        Settings(
+            environment="test",
+            authentication_mode="oidc",
+            oidc_issuer_url="https://identity.example.test/realms/cnb",
+            oidc_client_id="cyber-netizen-web",
+            oidc_audience="cyber-netizen-api",
+            oidc_tenant_id=other_tenant_id,
+            oidc_agent_id=other_agent_id,
+        ),
+        configuration_repository=MemoryConfigurationRepository(),
+        conversation_repository=MemoryConversationRepository(),
+        evaluation_repository=repository,
+        administration_repository=PermissionPreservingRepository(other_identity),
+        admin_authenticator=FakeOidcAuthenticator(other_principal),
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=other_app),
+        base_url="http://test",
+    ) as client:
+        tenant_isolated_detail = await client.get(
+            f"/api/v1/evaluations/decisions/{created.id}",
+            headers={"Authorization": "Bearer signed-test-token"},
+        )
+
+    assert tenant_isolated_detail.status_code == 404
 
 
 async def test_unified_quality_overview_requires_both_read_permissions() -> None:

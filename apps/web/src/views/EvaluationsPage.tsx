@@ -1,14 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, CircleX, Eye, FlaskConical, Plus, Rocket } from 'lucide-react'
+import {
+  CheckCircle2,
+  CircleX,
+  Download,
+  Eye,
+  FileCheck2,
+  FlaskConical,
+  Plus,
+  Rocket,
+} from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import {
   claimBlindReviewAssignment,
+  createEvaluationDecision,
   createEvaluationSuite,
+  downloadEvaluationDecision,
   getAdminSession,
   getEvaluationComparison,
   getEvaluationComparisons,
   getEvaluationComparisonTargets,
+  getEvaluationDecision,
+  getEvaluationDecisions,
   getEvaluationQualityHistory,
   getUnifiedQualityOverview,
   getEvaluationRun,
@@ -21,7 +34,10 @@ import {
   type BlindReviewAssignment,
   type BlindReviewScore,
   type EvaluationCaseDefinition,
+  type EvaluationDecisionReasonCode,
+  type EvaluationDecisionResult,
   type EvaluationSuiteDraft,
+  type EvaluationVersionSnapshot,
 } from '../api'
 import { useSelectedAgentId } from '../agentSelection'
 import { cognitiveActionLabels, displayLabel } from '../displayLabels'
@@ -104,6 +120,44 @@ function formatQualityDelta(value: number | null | undefined, suffix = '') {
   return `${sign}${value.toFixed(2)}${suffix}`
 }
 
+const decisionOutcomeLabels: Record<EvaluationDecisionResult, string> = {
+  adopt_candidate: '采纳候选',
+  keep_baseline: '保持基线',
+  wait_for_evidence: '等待更多证据',
+}
+
+const decisionReasonLabels: Record<EvaluationDecisionReasonCode, string> = {
+  quality_gain: '质量提升',
+  regression_risk: '回归风险',
+  insufficient_evidence: '证据不足',
+  manual_review: '人工复核',
+}
+
+function snapshotKey(snapshot: EvaluationVersionSnapshot) {
+  return [
+    snapshot.suite_key,
+    snapshot.suite_version,
+    snapshot.configuration_version,
+    snapshot.persona_version,
+    snapshot.prompt_version,
+    snapshot.policy_version,
+    snapshot.model_route_version,
+    snapshot.provider,
+    snapshot.model,
+  ].join(':')
+}
+
+function snapshotLabel(snapshot: EvaluationVersionSnapshot) {
+  return `${snapshot.suite_key} v${snapshot.suite_version} · ${snapshot.provider}/${snapshot.model} · 配置 ${snapshot.configuration_version} / 人格 ${snapshot.persona_version} / 提示词 ${snapshot.prompt_version} / 策略 ${snapshot.policy_version} / 路由 ${snapshot.model_route_version}`
+}
+
+function isSameDecisionSource(left: EvaluationVersionSnapshot, right: EvaluationVersionSnapshot) {
+  return left.suite_key === right.suite_key
+    && left.suite_version === right.suite_version
+    && left.provider === right.provider
+    && left.model === right.model
+}
+
 function ScoreEditor({
   label,
   value,
@@ -146,6 +200,12 @@ export function EvaluationsPage() {
   const [selectedProfileKeys, setSelectedProfileKeys] = useState<string[]>([])
   const [selectedComparison, setSelectedComparison] = useState<string | null>(null)
   const [qualityWindowDays, setQualityWindowDays] = useState<7 | 30 | 90>(30)
+  const [decisionCandidateKey, setDecisionCandidateKey] = useState('')
+  const [decisionBaselineKey, setDecisionBaselineKey] = useState('')
+  const [decisionOutcome, setDecisionOutcome] = useState<EvaluationDecisionResult>('wait_for_evidence')
+  const [decisionReason, setDecisionReason] = useState<EvaluationDecisionReasonCode>('insufficient_evidence')
+  const [selectedDecision, setSelectedDecision] = useState<string | null>(null)
+  const [decisionDownloadNotice, setDecisionDownloadNotice] = useState('')
   const [assignment, setAssignment] = useState<BlindReviewAssignment | null>(null)
   const [scoreA, setScoreA] = useState(neutralScore)
   const [scoreB, setScoreB] = useState(neutralScore)
@@ -187,6 +247,10 @@ export function EvaluationsPage() {
     queryKey: ['evaluation-comparisons', selectedAgentId],
     queryFn: getEvaluationComparisons,
   })
+  const decisions = useQuery({
+    queryKey: ['evaluation-decisions', selectedAgentId],
+    queryFn: getEvaluationDecisions,
+  })
   const runDetail = useQuery({
     queryKey: ['evaluation-run', selectedAgentId, selectedRun],
     queryFn: () => getEvaluationRun(selectedRun ?? ''),
@@ -197,15 +261,63 @@ export function EvaluationsPage() {
     queryFn: () => getEvaluationComparison(selectedComparison ?? ''),
     enabled: Boolean(selectedComparison),
   })
+  const decisionDetail = useQuery({
+    queryKey: ['evaluation-decision', selectedAgentId, selectedDecision],
+    queryFn: () => getEvaluationDecision(selectedDecision ?? ''),
+    enabled: Boolean(selectedDecision),
+  })
+
+  const candidateVersion = useMemo(
+    () => qualityHistory.data?.versions.find(
+      (version) => snapshotKey(version.snapshot) === decisionCandidateKey,
+    ),
+    [decisionCandidateKey, qualityHistory.data?.versions],
+  )
+  const eligibleBaselines = useMemo(() => {
+    if (!candidateVersion) return []
+    return (qualityHistory.data?.versions ?? []).filter((version) => (
+      snapshotKey(version.snapshot) !== decisionCandidateKey
+      && isSameDecisionSource(version.snapshot, candidateVersion.snapshot)
+    ))
+  }, [candidateVersion, decisionCandidateKey, qualityHistory.data?.versions])
+  const baselineVersion = eligibleBaselines.find(
+    (version) => snapshotKey(version.snapshot) === decisionBaselineKey,
+  )
 
   useEffect(() => {
     setSelectedRun(null)
     setSelectedComparison(null)
     setSelectedProfileKeys([])
+    setSelectedDecision(null)
+    setDecisionCandidateKey('')
+    setDecisionBaselineKey('')
+    setDecisionDownloadNotice('')
   }, [selectedAgentId])
+  useEffect(() => {
+    const versions = qualityHistory.data?.versions ?? []
+    setDecisionCandidateKey((current) => (
+      versions.some((version) => snapshotKey(version.snapshot) === current)
+        ? current
+        : versions[0] ? snapshotKey(versions[0].snapshot) : ''
+    ))
+  }, [qualityHistory.data?.versions])
+  useEffect(() => {
+    setDecisionBaselineKey((current) => (
+      eligibleBaselines.some((version) => snapshotKey(version.snapshot) === current)
+        ? current
+        : eligibleBaselines[0] ? snapshotKey(eligibleBaselines[0].snapshot) : ''
+    ))
+  }, [eligibleBaselines])
+  useEffect(() => {
+    const items = decisions.data?.items ?? []
+    setSelectedDecision((current) => (
+      items.some((item) => item.id === current) ? current : items[0]?.id ?? null
+    ))
+  }, [decisions.data?.items])
   const canManage = session.data?.permissions.includes('cognition:write') ?? false
   const canRun = session.data?.permissions.includes('cognition:evaluate') ?? false
   const canReview = session.data?.permissions.includes('evaluation:review') ?? false
+  const canExportDecisions = session.data?.permissions.includes('data_lifecycle:export') ?? false
 
   const parsedCases = useMemo(() => {
     try {
@@ -283,10 +395,39 @@ export function EvaluationsPage() {
       await queryClient.invalidateQueries({ queryKey: ['evaluation-quality-history'] })
     },
   })
+  const createDecision = useMutation({
+    mutationFn: () => {
+      if (!candidateVersion || !baselineVersion) throw new Error('请选择同源候选与基线快照')
+      return createEvaluationDecision({
+        window_minutes: qualityWindow.windowMinutes,
+        candidate: candidateVersion.snapshot,
+        baseline: baselineVersion.snapshot,
+        outcome: decisionOutcome,
+        reason: decisionReason,
+      })
+    },
+    onSuccess: async (value) => {
+      setSelectedDecision(value.id)
+      setDecisionDownloadNotice('')
+      await invalidateAcrossTabs(queryClient, ['evaluation-decisions'])
+    },
+  })
+  const downloadDecision = useMutation({
+    mutationFn: (decisionId: string) => downloadEvaluationDecision(decisionId),
+    onSuccess: (download) => {
+      const url = URL.createObjectURL(download.blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = download.filename
+      anchor.click()
+      URL.revokeObjectURL(url)
+      setDecisionDownloadNotice(`报告已开始下载${download.sha256 ? `，SHA-256：${download.sha256}` : ''}。`)
+    },
+  })
 
   const operationError = createSuite.error ?? publishSuite.error ?? runSuite.error
     ?? runComparison.error
-    ?? claimReview.error ?? submitReview.error
+    ?? claimReview.error ?? submitReview.error ?? createDecision.error ?? downloadDecision.error
 
   const toggleProfile = (profileKey: string) => {
     setSelectedProfileKeys((current) => current.includes(profileKey)
@@ -508,6 +649,161 @@ export function EvaluationsPage() {
             </div>
           )}
         </>}
+      </section>
+
+      <section className="evaluation-decision-section" aria-labelledby="evaluation-decision-title">
+        <div className="quality-history-heading">
+          <div>
+            <h2 id="evaluation-decision-title">不可变评测决策</h2>
+            <span>冻结人工结论、聚合证据与原始报告校验值</span>
+          </div>
+          <small>决策记录不会自动调参、发布配置或改变运行时行为</small>
+        </div>
+        <div className="evaluation-decision-form">
+          <label>候选快照
+            <select
+              value={decisionCandidateKey}
+              onChange={(event) => setDecisionCandidateKey(event.target.value)}
+            >
+              {!qualityHistory.data?.versions.length && <option value="">当前窗口暂无快照</option>}
+              {qualityHistory.data?.versions.map((version) => <option
+                key={snapshotKey(version.snapshot)}
+                value={snapshotKey(version.snapshot)}
+              >
+                {snapshotLabel(version.snapshot)}
+              </option>)}
+            </select>
+          </label>
+          <label>同源基线
+            <select
+              value={decisionBaselineKey}
+              onChange={(event) => setDecisionBaselineKey(event.target.value)}
+            >
+              {!eligibleBaselines.length && <option value="">没有可用的同源基线</option>}
+              {eligibleBaselines.map((version) => <option
+                key={snapshotKey(version.snapshot)}
+                value={snapshotKey(version.snapshot)}
+              >
+                {snapshotLabel(version.snapshot)}
+              </option>)}
+            </select>
+          </label>
+          <label>人工结论
+            <select
+              value={decisionOutcome}
+              onChange={(event) => setDecisionOutcome(event.target.value as EvaluationDecisionResult)}
+            >
+              {Object.entries(decisionOutcomeLabels).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <label>受控理由
+            <select
+              value={decisionReason}
+              onChange={(event) => setDecisionReason(event.target.value as EvaluationDecisionReasonCode)}
+            >
+              {Object.entries(decisionReasonLabels).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="primary-button"
+            disabled={!canRun || !candidateVersion || !baselineVersion || createDecision.isPending}
+            onClick={() => createDecision.mutate()}
+            type="button"
+          >
+            <FileCheck2 size={14} /> {createDecision.isPending ? '正在冻结…' : '创建决策记录'}
+          </button>
+        </div>
+        {decisionDownloadNotice && <div className="notice info">{decisionDownloadNotice}</div>}
+        {decisions.error && <div className="notice error">决策历史加载失败：{decisions.error.message}</div>}
+        <div className="evaluation-decision-workspace">
+          <div className="evaluation-decision-history" aria-label="评测决策历史">
+            <div className="evaluation-decision-column-heading">
+              <strong>历史记录</strong>
+              <span>{decisions.data?.items.length ?? 0} 条</span>
+            </div>
+            {decisions.isPending && <div className="empty-state compact">正在读取决策记录…</div>}
+            {decisions.data?.items.length === 0 && <div className="empty-state compact">暂无决策记录。</div>}
+            {decisions.data?.items.map((decision) => <button
+              className={selectedDecision === decision.id ? 'selected' : ''}
+              key={decision.id}
+              onClick={() => setSelectedDecision(decision.id)}
+              type="button"
+            >
+              <FileCheck2 size={15} />
+              <span>
+                <strong>{decisionOutcomeLabels[decision.outcome]}</strong>
+                <small>{decisionReasonLabels[decision.reason]} · {formatQualityDateTime(decision.created_at)}</small>
+                <code>{decision.sha256}</code>
+              </span>
+            </button>)}
+          </div>
+          <div className="evaluation-decision-detail">
+            {!selectedDecision && <div className="empty-state compact">选择记录后查看冻结证据。</div>}
+            {decisionDetail.isPending && <div className="empty-state compact">正在读取冻结报告…</div>}
+            {decisionDetail.error && <div className="notice error">决策详情加载失败：{decisionDetail.error.message}</div>}
+            {decisionDetail.data && (() => {
+              const decision = decisionDetail.data
+              const comparison = decision.report.comparison
+              return <>
+                <div className="evaluation-decision-detail-heading">
+                  <div>
+                    <strong>{decisionOutcomeLabels[decision.outcome]}</strong>
+                    <span>{decisionReasonLabels[decision.reason]} · {formatQualityDateTime(decision.created_at)}</span>
+                  </div>
+                  {canExportDecisions && <button
+                    className="secondary-button"
+                    disabled={downloadDecision.isPending}
+                    onClick={() => downloadDecision.mutate(decision.id)}
+                    title="下载冻结 JSON 报告"
+                    type="button"
+                  >
+                    <Download size={14} /> {downloadDecision.isPending ? '下载中…' : '下载 JSON'}
+                  </button>}
+                </div>
+                <dl className="evaluation-decision-metadata">
+                  <div><dt>证据窗口</dt><dd>{formatQualityWindow(decision.report.window_minutes)}</dd></div>
+                  <div><dt>冻结区间</dt><dd>{formatQualityDateTime(decision.report.window_started_at)} 至 {formatQualityDateTime(decision.report.window_ended_at)}</dd></div>
+                  <div><dt>操作者</dt><dd><code>{decision.created_by}</code></dd></div>
+                  <div><dt>SHA-256</dt><dd><code>{decision.sha256}</code></dd></div>
+                </dl>
+                <div className="quality-baseline-snapshots">
+                  <div className="quality-baseline-snapshot">
+                    <strong>候选 · {formatQualityDateTime(comparison.candidate.latest_run_at)}</strong>
+                    <span>{snapshotLabel(comparison.candidate.snapshot)}</span>
+                    <small>{comparison.candidate.total_runs} 次回归 · {comparison.candidate.completed_reviews} 份盲评</small>
+                  </div>
+                  <div className="quality-baseline-snapshot">
+                    <strong>基线 · {formatQualityDateTime(comparison.baseline.latest_run_at)}</strong>
+                    <span>{snapshotLabel(comparison.baseline.snapshot)}</span>
+                    <small>{comparison.baseline.total_runs} 次回归 · {comparison.baseline.completed_reviews} 份盲评</small>
+                  </div>
+                </div>
+                <div className="quality-baseline-metrics">
+                  <div>
+                    <span>自动回归通过率差</span>
+                    <strong>{formatQualityDelta(comparison.pass_rate_delta_percentage_points, ' 个百分点')}</strong>
+                    <small>门槛：双方各 {comparison.minimum_runs_per_snapshot} 次</small>
+                  </div>
+                  <div>
+                    <span>候选盲评均分差</span>
+                    <strong>{formatQualityDelta(comparison.candidate_average_score_delta)}</strong>
+                    <small>门槛：双方各 {comparison.minimum_reviews_per_snapshot} 份</small>
+                  </div>
+                  <div>
+                    <span>参考盲评均分差</span>
+                    <strong>{formatQualityDelta(comparison.reference_average_score_delta)}</strong>
+                    <small>{comparison.blind_review_comparable ? '盲评证据达到门槛' : '盲评证据不足'}</small>
+                  </div>
+                </div>
+                <p className="quality-baseline-note">未评估统计显著性，不允许作因果结论，不允许自动执行任何调参或发布动作。</p>
+              </>
+            })()}
+          </div>
+        </div>
       </section>
 
       {editing && <section className="panel evaluation-editor">

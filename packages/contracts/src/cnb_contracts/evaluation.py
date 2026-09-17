@@ -10,6 +10,8 @@ from cnb_contracts.observability import ObservabilityAlertRecommendationQualityM
 from cnb_domain import (
     BlindReviewPreference,
     EvaluationComparisonStatus,
+    EvaluationDecisionOutcome,
+    EvaluationDecisionReason,
     EvaluationRunStatus,
     EvaluationSuiteStatus,
     QualityDataCoverage,
@@ -415,6 +417,56 @@ class EvaluationQualityHistoryResponse(BaseModel):
     baseline_comparisons: tuple[EvaluationQualityBaselineComparisonResponse, ...]
     comparable_versions: bool
     automatic_actions_allowed: Literal[False]
+
+
+class EvaluationDecisionCreate(BaseModel):
+    """明确选取同源冻结快照并记录受控人工结论。"""
+
+    window_minutes: Literal[10_080, 43_200, 129_600] = 43_200
+    candidate: EvaluationVersionSnapshotResponse
+    baseline: EvaluationVersionSnapshotResponse
+    outcome: EvaluationDecisionOutcome
+    reason: EvaluationDecisionReason
+
+
+class EvaluationDecisionSummaryResponse(BaseModel):
+    """不携带报告字节的不可变决策索引。"""
+
+    id: UUID
+    created_by: UUID
+    created_at: datetime
+    outcome: EvaluationDecisionOutcome
+    reason: EvaluationDecisionReason
+    sha256: str
+
+
+class EvaluationDecisionListResponse(BaseModel):
+    items: tuple[EvaluationDecisionSummaryResponse, ...]
+
+
+class EvaluationDecisionReportResponse(BaseModel):
+    """严格白名单的安全冻结报告，不包含原始评测或评审正文。"""
+
+    schema_version: Literal[1]
+    id: UUID
+    tenant_id: UUID
+    agent_id: UUID
+    created_by: UUID
+    created_at: datetime
+    window_started_at: datetime
+    window_ended_at: datetime
+    window_minutes: int
+    review_attribution: QualityReviewAttribution
+    comparison: EvaluationQualityBaselineComparisonResponse
+    outcome: EvaluationDecisionOutcome
+    reason: EvaluationDecisionReason
+    statistical_significance_assessed: Literal[False]
+    causal_conclusion_allowed: Literal[False]
+    automatic_actions_allowed: Literal[False]
+
+
+class EvaluationDecisionResponse(EvaluationDecisionSummaryResponse):
+    report: EvaluationDecisionReportResponse
 
 
 class UnifiedQualityOverviewResponse(BaseModel):

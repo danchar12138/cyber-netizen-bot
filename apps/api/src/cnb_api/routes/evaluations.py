@@ -4,9 +4,11 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 
 from cnb_api.dependencies import (
     get_admin_principal,
+    get_evaluation_decision_service,
     get_evaluation_quality_history_service,
     get_evaluation_service,
     get_quality_overview_service,
@@ -15,6 +17,9 @@ from cnb_api.dependencies import (
 from cnb_application import (
     EvaluationCaseDraft,
     EvaluationConflictError,
+    EvaluationDecisionNotFoundError,
+    EvaluationDecisionService,
+    EvaluationDecisionValidationError,
     EvaluationNotFoundError,
     EvaluationQualityHistoryService,
     EvaluationService,
@@ -32,6 +37,11 @@ from cnb_contracts import (
     EvaluationComparisonListResponse,
     EvaluationComparisonResponse,
     EvaluationComparisonSummaryResponse,
+    EvaluationDecisionCreate,
+    EvaluationDecisionListResponse,
+    EvaluationDecisionReportResponse,
+    EvaluationDecisionResponse,
+    EvaluationDecisionSummaryResponse,
     EvaluationModelTargetListResponse,
     EvaluationModelTargetResponse,
     EvaluationQualityHistoryResponse,
@@ -45,9 +55,114 @@ from cnb_contracts import (
     EvaluationSuiteListResponse,
     UnifiedQualityOverviewResponse,
 )
-from cnb_domain import AdminPermission, AdminPrincipal, BlindReviewScore
+from cnb_domain import (
+    AdminPermission,
+    AdminPrincipal,
+    BlindReviewScore,
+    EvaluationDecisionRecord,
+    EvaluationVersionSnapshot,
+)
 
 router = APIRouter(prefix="/evaluations", tags=["evaluations"])
+
+
+def _decision_response(record: EvaluationDecisionRecord) -> EvaluationDecisionResponse:
+    """仅从持久化原始报告读取白名单详情。"""
+    summary = EvaluationDecisionSummaryResponse.model_validate(record, from_attributes=True)
+    report = EvaluationDecisionReportResponse.model_validate_json(record.content)
+    return EvaluationDecisionResponse(**summary.model_dump(), report=report)
+
+
+@router.post(
+    "/decisions",
+    response_model=EvaluationDecisionResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission(AdminPermission.COGNITION_EVALUATE))],
+)
+async def create_evaluation_decision(
+    command: EvaluationDecisionCreate,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[EvaluationDecisionService, Depends(get_evaluation_decision_service)],
+) -> EvaluationDecisionResponse:
+    """冻结选中快照的安全聚合和手工决策。"""
+    try:
+        item = await service.create_decision(
+            tenant_id=principal.tenant_id,
+            actor_id=principal.user_id,
+            window_minutes=command.window_minutes,
+            candidate=EvaluationVersionSnapshot(**command.candidate.model_dump()),
+            baseline=EvaluationVersionSnapshot(**command.baseline.model_dump()),
+            outcome=command.outcome,
+            reason=command.reason,
+        )
+    except (EvaluationDecisionValidationError, QualityHistoryValidationError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return _decision_response(item)
+
+
+@router.get(
+    "/decisions",
+    response_model=EvaluationDecisionListResponse,
+    dependencies=[Depends(require_permission(AdminPermission.COGNITION_READ))],
+)
+async def list_evaluation_decisions(
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[EvaluationDecisionService, Depends(get_evaluation_decision_service)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> EvaluationDecisionListResponse:
+    items = await service.list_decisions(tenant_id=principal.tenant_id, limit=limit)
+    return EvaluationDecisionListResponse(
+        items=tuple(
+            EvaluationDecisionSummaryResponse.model_validate(item, from_attributes=True)
+            for item in items
+        )
+    )
+
+
+@router.get(
+    "/decisions/{decision_id}",
+    response_model=EvaluationDecisionResponse,
+    dependencies=[Depends(require_permission(AdminPermission.COGNITION_READ))],
+)
+async def get_evaluation_decision(
+    decision_id: UUID,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[EvaluationDecisionService, Depends(get_evaluation_decision_service)],
+) -> EvaluationDecisionResponse:
+    try:
+        item = await service.get_decision(decision_id=decision_id, tenant_id=principal.tenant_id)
+    except EvaluationDecisionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    return _decision_response(item)
+
+
+@router.get(
+    "/decisions/{decision_id}/export",
+    dependencies=[
+        Depends(require_permission(AdminPermission.COGNITION_READ)),
+        Depends(require_permission(AdminPermission.DATA_EXPORT)),
+    ],
+    responses={200: {"content": {"application/json": {}}, "description": "原样下载冻结报告"}},
+)
+async def export_evaluation_decision(
+    decision_id: UUID,
+    principal: Annotated[AdminPrincipal, Depends(get_admin_principal)],
+    service: Annotated[EvaluationDecisionService, Depends(get_evaluation_decision_service)],
+) -> Response:
+    try:
+        item = await service.get_decision(decision_id=decision_id, tenant_id=principal.tenant_id)
+    except EvaluationDecisionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    return Response(
+        content=item.content,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="evaluation-decision-{item.id}.json"',
+            "X-Content-SHA256": item.sha256,
+        },
+    )
 
 
 @router.get(

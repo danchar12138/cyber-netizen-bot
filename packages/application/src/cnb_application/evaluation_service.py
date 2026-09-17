@@ -42,6 +42,7 @@ from cnb_domain import (
     EvaluationComparison,
     EvaluationComparisonEntry,
     EvaluationComparisonStatus,
+    EvaluationDecisionRecord,
     EvaluationModelTarget,
     EvaluationQualitySamples,
     EvaluationReport,
@@ -122,6 +123,16 @@ class EvaluationRepository(Protocol):
     async def get_comparison(
         self, *, comparison_id: UUID, tenant_id: UUID, agent_id: UUID
     ) -> EvaluationComparison | None: ...
+
+    async def save_decision(self, record: EvaluationDecisionRecord) -> EvaluationDecisionRecord: ...
+
+    async def list_decisions(
+        self, *, tenant_id: UUID, agent_id: UUID, limit: int
+    ) -> tuple[EvaluationDecisionRecord, ...]: ...
+
+    async def get_decision(
+        self, *, decision_id: UUID, tenant_id: UUID, agent_id: UUID
+    ) -> EvaluationDecisionRecord | None: ...
 
     async def list_runs(
         self, *, tenant_id: UUID, agent_id: UUID, limit: int

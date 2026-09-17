@@ -27,6 +27,9 @@ from cnb_domain import (
     EvaluationComparison,
     EvaluationComparisonEntry,
     EvaluationComparisonStatus,
+    EvaluationDecisionOutcome,
+    EvaluationDecisionReason,
+    EvaluationDecisionRecord,
     EvaluationQualityReviewSample,
     EvaluationQualityRunSample,
     EvaluationQualitySamples,
@@ -45,6 +48,7 @@ from cnb_infrastructure.models import (
     EvaluationCaseResultModel,
     EvaluationComparisonEntryModel,
     EvaluationComparisonModel,
+    EvaluationDecisionModel,
     EvaluationRunModel,
     EvaluationSuiteModel,
 )
@@ -89,6 +93,7 @@ class MemoryEvaluationRepository:
         self._suites: dict[UUID, EvaluationSuiteDefinition] = {}
         self._runs: dict[UUID, EvaluationRun] = {}
         self._comparisons: dict[UUID, EvaluationComparison] = {}
+        self._decisions: dict[UUID, EvaluationDecisionRecord] = {}
         self._assignments: dict[UUID, BlindReviewAssignment] = {}
         self._reviews: dict[UUID, BlindReview] = {}
         self._lock = asyncio.Lock()
@@ -249,6 +254,33 @@ class MemoryEvaluationRepository:
                     :limit
                 ]
             )
+
+    async def save_decision(self, record: EvaluationDecisionRecord) -> EvaluationDecisionRecord:
+        async with self._lock:
+            if record.id in self._decisions:
+                raise EvaluationConflictError("评测决策已经存在")
+            self._decisions[record.id] = record
+            return record
+
+    async def list_decisions(
+        self, *, tenant_id: UUID, agent_id: UUID, limit: int
+    ) -> tuple[EvaluationDecisionRecord, ...]:
+        async with self._lock:
+            rows = (
+                item
+                for item in self._decisions.values()
+                if item.tenant_id == tenant_id and item.agent_id == agent_id
+            )
+            return tuple(sorted(rows, key=lambda item: item.created_at, reverse=True)[:limit])
+
+    async def get_decision(
+        self, *, decision_id: UUID, tenant_id: UUID, agent_id: UUID
+    ) -> EvaluationDecisionRecord | None:
+        async with self._lock:
+            item = self._decisions.get(decision_id)
+            if item is None or item.tenant_id != tenant_id or item.agent_id != agent_id:
+                return None
+            return item
 
     async def get_comparison(
         self, *, comparison_id: UUID, tenant_id: UUID, agent_id: UUID
@@ -489,6 +521,79 @@ class SqlAlchemyEvaluationRepository:
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
+
+    async def save_decision(self, record: EvaluationDecisionRecord) -> EvaluationDecisionRecord:
+        async with self._session_factory() as session, session.begin():
+            session.add(
+                EvaluationDecisionModel(
+                    id=record.id,
+                    tenant_id=record.tenant_id,
+                    agent_id=record.agent_id,
+                    created_by=record.created_by,
+                    created_at=record.created_at,
+                    outcome=record.outcome.value,
+                    reason=record.reason.value,
+                    content=record.content,
+                    sha256=record.sha256,
+                )
+            )
+            self._audit(
+                session,
+                tenant_id=record.tenant_id,
+                actor_id=record.created_by,
+                action="evaluation.decision_created",
+                resource_id=record.id,
+                detail={
+                    "outcome": record.outcome.value,
+                    "reason": record.reason.value,
+                    "sha256": record.sha256,
+                },
+            )
+        return record
+
+    async def list_decisions(
+        self, *, tenant_id: UUID, agent_id: UUID, limit: int
+    ) -> tuple[EvaluationDecisionRecord, ...]:
+        async with self._session_factory() as session:
+            rows = (
+                await session.scalars(
+                    select(EvaluationDecisionModel)
+                    .where(
+                        EvaluationDecisionModel.tenant_id == tenant_id,
+                        EvaluationDecisionModel.agent_id == agent_id,
+                    )
+                    .order_by(EvaluationDecisionModel.created_at.desc())
+                    .limit(limit)
+                )
+            ).all()
+            return tuple(self._decision(row) for row in rows)
+
+    async def get_decision(
+        self, *, decision_id: UUID, tenant_id: UUID, agent_id: UUID
+    ) -> EvaluationDecisionRecord | None:
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(EvaluationDecisionModel).where(
+                    EvaluationDecisionModel.id == decision_id,
+                    EvaluationDecisionModel.tenant_id == tenant_id,
+                    EvaluationDecisionModel.agent_id == agent_id,
+                )
+            )
+            return self._decision(row) if row else None
+
+    @staticmethod
+    def _decision(row: EvaluationDecisionModel) -> EvaluationDecisionRecord:
+        return EvaluationDecisionRecord(
+            id=row.id,
+            tenant_id=row.tenant_id,
+            agent_id=row.agent_id,
+            created_by=row.created_by,
+            created_at=row.created_at,
+            outcome=EvaluationDecisionOutcome(row.outcome),
+            reason=EvaluationDecisionReason(row.reason),
+            content=row.content,
+            sha256=row.sha256,
+        )
 
     async def list_suites(
         self, *, tenant_id: UUID, agent_id: UUID

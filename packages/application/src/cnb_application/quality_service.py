@@ -375,6 +375,37 @@ class EvaluationQualityHistoryService:
         )
 
     @classmethod
+    def compare_snapshots(
+        cls,
+        candidate: EvaluationVersionQualitySummary,
+        baseline: EvaluationVersionQualitySummary,
+    ) -> EvaluationQualityBaselineComparison:
+        """比较管理员指定的两组同源完整快照，沿用历史趋势的独立样本门槛。"""
+        left, right = candidate.snapshot, baseline.snapshot
+        if left == right or (
+            left.suite_key,
+            left.suite_version,
+            left.provider,
+            left.model,
+        ) != (
+            right.suite_key,
+            right.suite_version,
+            right.provider,
+            right.model,
+        ):
+            raise QualityHistoryValidationError("候选和基线必须是不同的同源完整快照")
+        return cls._baseline_comparison(
+            key=EvaluationQualityComparisonKey(
+                suite_key=left.suite_key,
+                suite_version=left.suite_version,
+                provider=left.provider,
+                model=left.model,
+            ),
+            candidate=candidate,
+            baseline=baseline,
+        )
+
+    @classmethod
     def _baseline_comparison(
         cls,
         *,

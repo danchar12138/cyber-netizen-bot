@@ -117,6 +117,11 @@ from cnb_domain.evaluation import (
     EvaluationSuiteDefinition,
     EvaluationSuiteStatus,
 )
+from cnb_domain.evaluation_decision import (
+    EvaluationDecisionOutcome,
+    EvaluationDecisionReason,
+    EvaluationDecisionRecord,
+)
 from cnb_domain.inbound import (
     INBOUND_ENVELOPE_SCHEMA_VERSION,
     ExternalConversationKind,
@@ -307,6 +312,9 @@ __all__ = [
     "EvaluationComparison",
     "EvaluationComparisonEntry",
     "EvaluationComparisonStatus",
+    "EvaluationDecisionOutcome",
+    "EvaluationDecisionReason",
+    "EvaluationDecisionRecord",
     "EvaluationModelTarget",
     "EvaluationQualityBaselineComparison",
     "EvaluationQualityComparisonKey",

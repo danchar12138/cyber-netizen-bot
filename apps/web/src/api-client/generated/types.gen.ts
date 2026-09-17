@@ -3659,6 +3659,157 @@ export type EvaluationComparisonSummaryResponse = {
 };
 
 /**
+ * EvaluationDecisionCreate
+ *
+ * 明确选取同源冻结快照并记录受控人工结论。
+ */
+export type EvaluationDecisionCreate = {
+    baseline: EvaluationVersionSnapshotResponse;
+    candidate: EvaluationVersionSnapshotResponse;
+    outcome: EvaluationDecisionOutcome;
+    reason: EvaluationDecisionReason;
+    /**
+     * Window Minutes
+     */
+    window_minutes?: 10080 | 43200 | 129600;
+};
+
+/**
+ * EvaluationDecisionListResponse
+ */
+export type EvaluationDecisionListResponse = {
+    /**
+     * Items
+     */
+    items: Array<EvaluationDecisionSummaryResponse>;
+};
+
+/**
+ * EvaluationDecisionOutcome
+ *
+ * 人工结论，不授予发布或调参权限。
+ */
+export type EvaluationDecisionOutcome = 'adopt_candidate' | 'keep_baseline' | 'wait_for_evidence';
+
+/**
+ * EvaluationDecisionReason
+ *
+ * 受控原因代码，避免自由文本进入可下载报告。
+ */
+export type EvaluationDecisionReason = 'quality_gain' | 'regression_risk' | 'insufficient_evidence' | 'manual_review';
+
+/**
+ * EvaluationDecisionReportResponse
+ *
+ * 严格白名单的安全冻结报告，不包含原始评测或评审正文。
+ */
+export type EvaluationDecisionReportResponse = {
+    /**
+     * Agent Id
+     */
+    agent_id: string;
+    /**
+     * Automatic Actions Allowed
+     */
+    automatic_actions_allowed: false;
+    /**
+     * Causal Conclusion Allowed
+     */
+    causal_conclusion_allowed: false;
+    comparison: EvaluationQualityBaselineComparisonResponse;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Created By
+     */
+    created_by: string;
+    /**
+     * Id
+     */
+    id: string;
+    outcome: EvaluationDecisionOutcome;
+    reason: EvaluationDecisionReason;
+    review_attribution: QualityReviewAttribution;
+    /**
+     * Schema Version
+     */
+    schema_version: 1;
+    /**
+     * Statistical Significance Assessed
+     */
+    statistical_significance_assessed: false;
+    /**
+     * Tenant Id
+     */
+    tenant_id: string;
+    /**
+     * Window Ended At
+     */
+    window_ended_at: string;
+    /**
+     * Window Minutes
+     */
+    window_minutes: number;
+    /**
+     * Window Started At
+     */
+    window_started_at: string;
+};
+
+/**
+ * EvaluationDecisionResponse
+ */
+export type EvaluationDecisionResponse = {
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Created By
+     */
+    created_by: string;
+    /**
+     * Id
+     */
+    id: string;
+    outcome: EvaluationDecisionOutcome;
+    reason: EvaluationDecisionReason;
+    report: EvaluationDecisionReportResponse;
+    /**
+     * Sha256
+     */
+    sha256: string;
+};
+
+/**
+ * EvaluationDecisionSummaryResponse
+ *
+ * 不携带报告字节的不可变决策索引。
+ */
+export type EvaluationDecisionSummaryResponse = {
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Created By
+     */
+    created_by: string;
+    /**
+     * Id
+     */
+    id: string;
+    outcome: EvaluationDecisionOutcome;
+    reason: EvaluationDecisionReason;
+    /**
+     * Sha256
+     */
+    sha256: string;
+};
+
+/**
  * EvaluationModelTargetListResponse
  *
  * 当前 Agent 允许参加同源对比的模型档案。
@@ -15202,6 +15353,247 @@ export type GetApiV1EvaluationsComparisonsByComparisonIdResponses = {
 };
 
 export type GetApiV1EvaluationsComparisonsByComparisonIdResponse = GetApiV1EvaluationsComparisonsByComparisonIdResponses[keyof GetApiV1EvaluationsComparisonsByComparisonIdResponses];
+
+export type GetApiV1EvaluationsDecisionsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/evaluations/decisions';
+};
+
+export type GetApiV1EvaluationsDecisionsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1EvaluationsDecisionsError = GetApiV1EvaluationsDecisionsErrors[keyof GetApiV1EvaluationsDecisionsErrors];
+
+export type GetApiV1EvaluationsDecisionsResponses = {
+    /**
+     * 请求成功
+     */
+    200: EvaluationDecisionListResponse;
+};
+
+export type GetApiV1EvaluationsDecisionsResponse = GetApiV1EvaluationsDecisionsResponses[keyof GetApiV1EvaluationsDecisionsResponses];
+
+export type PostApiV1EvaluationsDecisionsData = {
+    body: EvaluationDecisionCreate;
+    path?: never;
+    query?: never;
+    url: '/api/v1/evaluations/decisions';
+};
+
+export type PostApiV1EvaluationsDecisionsErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type PostApiV1EvaluationsDecisionsError = PostApiV1EvaluationsDecisionsErrors[keyof PostApiV1EvaluationsDecisionsErrors];
+
+export type PostApiV1EvaluationsDecisionsResponses = {
+    /**
+     * 请求成功
+     */
+    201: EvaluationDecisionResponse;
+};
+
+export type PostApiV1EvaluationsDecisionsResponse = PostApiV1EvaluationsDecisionsResponses[keyof PostApiV1EvaluationsDecisionsResponses];
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdData = {
+    body?: never;
+    path: {
+        /**
+         * Decision Id
+         */
+        decision_id: string;
+    };
+    query?: never;
+    url: '/api/v1/evaluations/decisions/{decision_id}';
+};
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdError = GetApiV1EvaluationsDecisionsByDecisionIdErrors[keyof GetApiV1EvaluationsDecisionsByDecisionIdErrors];
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdResponses = {
+    /**
+     * 请求成功
+     */
+    200: EvaluationDecisionResponse;
+};
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdResponse = GetApiV1EvaluationsDecisionsByDecisionIdResponses[keyof GetApiV1EvaluationsDecisionsByDecisionIdResponses];
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdExportData = {
+    body?: never;
+    path: {
+        /**
+         * Decision Id
+         */
+        decision_id: string;
+    };
+    query?: never;
+    url: '/api/v1/evaluations/decisions/{decision_id}/export';
+};
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdExportErrors = {
+    /**
+     * 请求格式或业务条件无效
+     */
+    400: ApiErrorResponse;
+    /**
+     * 尚未通过身份认证
+     */
+    401: ApiErrorResponse;
+    /**
+     * 当前身份没有所需权限
+     */
+    403: ApiErrorResponse;
+    /**
+     * 请求的资源不存在
+     */
+    404: ApiErrorResponse;
+    /**
+     * 资源状态或幂等约束冲突
+     */
+    409: ApiErrorResponse;
+    /**
+     * 请求字段校验失败
+     */
+    422: ApiErrorResponse;
+    /**
+     * 请求超过允许频率
+     */
+    429: ApiErrorResponse;
+    /**
+     * 服务发生已安全处理的内部错误
+     */
+    500: ApiErrorResponse;
+    /**
+     * 依赖服务暂时不可用
+     */
+    503: ApiErrorResponse;
+};
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdExportError = GetApiV1EvaluationsDecisionsByDecisionIdExportErrors[keyof GetApiV1EvaluationsDecisionsByDecisionIdExportErrors];
+
+export type GetApiV1EvaluationsDecisionsByDecisionIdExportResponses = {
+    /**
+     * 原样下载冻结报告
+     */
+    200: unknown;
+};
 
 export type GetApiV1EvaluationsQualityHistoryData = {
     body?: never;

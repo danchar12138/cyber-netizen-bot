@@ -4,13 +4,17 @@ import {
   acknowledgeObservabilityAlert,
   batchDisposeObservabilityAlerts,
   clearObservabilityAlertDisposition,
+  createEvaluationDecision,
   createObservabilityAlertRecommendationCalibrationDraft,
   type ConfigPackageDocument,
   downloadObservabilityAlertHistory,
+  downloadEvaluationDecision,
   exportConfigPackage,
   formatConfigValue,
   formatConfigVersionStatus,
   getAuditRecords,
+  getEvaluationDecision,
+  getEvaluationDecisions,
   getEvaluationQualityHistory,
   getObservabilityAlertLifecycles,
   getObservabilityAlertDispositionEvents,
@@ -597,6 +601,86 @@ describe('统一质量概览客户端', () => {
       '33333333-3333-4333-8333-333333333333',
     )
     expect(history.baseline_comparisons).toEqual([])
+  })
+})
+
+describe('拟人评测决策客户端', () => {
+  it('使用当前 Agent 创建、查询并按原始字节下载冻结报告', async () => {
+    setSelectedAgentId('33333333-3333-4333-8333-333333333333')
+    const decisionId = '44444444-4444-4444-8444-444444444444'
+    const snapshot = {
+      suite_key: 'anthropomorphic',
+      suite_version: 1,
+      configuration_version: 1,
+      persona_version: 1,
+      prompt_version: 2,
+      policy_version: 1,
+      model_route_version: 1,
+      provider: 'openai',
+      model: 'gpt-test',
+    }
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const request = input as Request
+      const url = new URL(request.url)
+      if (url.pathname.endsWith('/export')) {
+        return new Response('{"schema_version":1}', {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Content-SHA256': 'b'.repeat(64),
+          },
+        })
+      }
+      if (request.method === 'POST') {
+        return new Response(JSON.stringify({ id: decisionId }), {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url.pathname === '/api/v1/evaluations/decisions') {
+        return new Response(JSON.stringify({ items: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify({ id: decisionId }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getEvaluationDecisions()
+    await getEvaluationDecision(decisionId)
+    await createEvaluationDecision({
+      window_minutes: 43_200,
+      candidate: snapshot,
+      baseline: { ...snapshot, prompt_version: 1 },
+      outcome: 'wait_for_evidence',
+      reason: 'insufficient_evidence',
+    })
+    const download = await downloadEvaluationDecision(decisionId)
+
+    const requests = fetchMock.mock.calls.map((call) => call[0] as Request)
+    expect(requests.map((request) => [request.method, new URL(request.url).pathname])).toEqual([
+      ['GET', '/api/v1/evaluations/decisions'],
+      ['GET', `/api/v1/evaluations/decisions/${decisionId}`],
+      ['POST', '/api/v1/evaluations/decisions'],
+      ['GET', `/api/v1/evaluations/decisions/${decisionId}/export`],
+    ])
+    expect(requests.every((request) => request.headers.get('X-CNB-Agent-ID')
+      === '33333333-3333-4333-8333-333333333333')).toBe(true)
+    const createRequest = requests[2]
+    expect(createRequest).toBeDefined()
+    expect(await createRequest?.json()).toMatchObject({
+      outcome: 'wait_for_evidence',
+      reason: 'insufficient_evidence',
+      candidate: { prompt_version: 2 },
+      baseline: { prompt_version: 1 },
+    })
+    expect(download.sha256).toBe('b'.repeat(64))
+    expect(download.filename).toBe(`evaluation-decision-${decisionId}.json`)
+    expect(await download.blob.text()).toBe('{"schema_version":1}')
   })
 })
 

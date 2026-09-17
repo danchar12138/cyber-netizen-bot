@@ -529,6 +529,7 @@ export const auditActionLabels: Readonly<Record<string, string>> = {
   'evaluation.suite_published': '发布评测集',
   'evaluation.run_completed': '完成自动评测',
   'evaluation.blind_review_submitted': '提交匿名盲评',
+  'evaluation.decision_created': '创建拟人评测决策',
   'channel_instance.created': '创建渠道实例',
   'channel_instance.updated': '更新渠道实例',
   'channel_instance.connection_tested': '测试渠道连接',

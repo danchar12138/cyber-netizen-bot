@@ -8,6 +8,7 @@ const draftId = '55555555-5555-4555-8555-555555555555'
 const historicalId = '66666666-6666-4666-8666-666666666666'
 const runId = '77777777-7777-4777-8777-777777777777'
 const comparisonId = '99999999-9999-4999-8999-999999999999'
+const decisionId = '12121212-1212-4212-8212-121212121212'
 const timestamp = '2026-09-10T08:00:00Z'
 
 async function mockAdminSession(page: Page) {
@@ -18,7 +19,14 @@ async function mockAdminSession(page: Page) {
         user_id: userId,
         display_name: '本地开发者',
         role: 'admin',
-        permissions: ['cognition:read', 'cognition:write', 'cognition:evaluate', 'evaluation:review', 'trace:read'],
+        permissions: [
+          'cognition:read',
+          'cognition:write',
+          'cognition:evaluate',
+          'evaluation:review',
+          'trace:read',
+          'data_lifecycle:export',
+        ],
         authentication_mode: 'development',
       },
     })
@@ -99,6 +107,7 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
   await mockAdminSession(page)
   let completedReviews = 0
   let evaluationSuites: Record<string, unknown>[] = []
+  let evaluationDecisions: Record<string, unknown>[] = []
   const evaluationRun = {
     id: runId,
     suite_id: null,
@@ -407,6 +416,104 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
       },
     })
   })
+  await page.route(/\/api\/v1\/evaluations\/decisions(?:\/.*)?(?:\?.*)?$/, async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (url.pathname.endsWith('/export')) {
+      await route.fulfill({
+        body: JSON.stringify({ schema_version: 1, id: decisionId }),
+        contentType: 'application/json',
+        headers: { 'X-Content-SHA256': 'b'.repeat(64) },
+      })
+      return
+    }
+    if (request.method() === 'POST') {
+      const command = request.postDataJSON() as {
+        window_minutes: number
+        candidate: Record<string, unknown>
+        baseline: Record<string, unknown>
+        outcome: string
+        reason: string
+      }
+      const versionSummary = (snapshot: Record<string, unknown>, candidate: boolean) => ({
+        snapshot,
+        first_run_at: candidate ? '2026-09-10T07:55:00Z' : '2026-09-09T07:55:00Z',
+        latest_run_at: candidate ? timestamp : '2026-09-09T08:00:00Z',
+        total_runs: 5,
+        gate_passed_runs: candidate ? 5 : 4,
+        average_pass_rate: candidate ? 100 : 80,
+        completed_reviews: 5,
+        candidate_wins: 4,
+        reference_wins: 0,
+        ties: 1,
+        candidate_average_score: candidate ? 4.25 : 3.25,
+        reference_average_score: candidate ? 3.25 : 3.5,
+      })
+      const decision = {
+        id: decisionId,
+        created_by: userId,
+        created_at: timestamp,
+        outcome: command.outcome,
+        reason: command.reason,
+        sha256: 'b'.repeat(64),
+        report: {
+          schema_version: 1,
+          id: decisionId,
+          tenant_id: tenantId,
+          agent_id: agentId,
+          created_by: userId,
+          created_at: timestamp,
+          window_started_at: '2026-08-11T08:00:00Z',
+          window_ended_at: timestamp,
+          window_minutes: command.window_minutes,
+          review_attribution: 'run_created_at',
+          comparison: {
+            key: {
+              suite_key: command.candidate.suite_key,
+              suite_version: command.candidate.suite_version,
+              provider: command.candidate.provider,
+              model: command.candidate.model,
+            },
+            candidate: versionSummary(command.candidate, true),
+            baseline: versionSummary(command.baseline, false),
+            minimum_runs_per_snapshot: 5,
+            minimum_reviews_per_snapshot: 5,
+            automatic_regression_comparable: true,
+            blind_review_comparable: true,
+            pass_rate_delta_percentage_points: 20,
+            candidate_average_score_delta: 1,
+            reference_average_score_delta: -0.25,
+            statistical_significance_assessed: false,
+            causal_conclusion_allowed: false,
+          },
+          outcome: command.outcome,
+          reason: command.reason,
+          statistical_significance_assessed: false,
+          causal_conclusion_allowed: false,
+          automatic_actions_allowed: false,
+        },
+      }
+      evaluationDecisions = [decision]
+      await route.fulfill({ status: 201, json: decision })
+      return
+    }
+    if (url.pathname.endsWith(`/${decisionId}`)) {
+      await route.fulfill({ json: evaluationDecisions[0] })
+      return
+    }
+    await route.fulfill({
+      json: {
+        items: evaluationDecisions.map((decision) => ({
+          id: decision.id,
+          created_by: decision.created_by,
+          created_at: decision.created_at,
+          outcome: decision.outcome,
+          reason: decision.reason,
+          sha256: decision.sha256,
+        })),
+      },
+    })
+  })
   await page.route('**/api/v1/evaluations/blind-assignments', async (route) => {
     await route.fulfill({ json: {
       id: draftId,
@@ -444,6 +551,12 @@ test('可以运行拟人回归、查看质量门并提交匿名盲评', async ({
   await expect(page.getByText('+1.00')).toBeVisible()
   await expect(page.getByText('-0.25')).toBeVisible()
   await expect(page.getByText('样本门槛只决定是否展示差值；本比较未进行统计显著性评估，也不允许作因果结论。')).toBeVisible()
+  await expect(page.getByText('决策记录不会自动调参、发布配置或改变运行时行为')).toBeVisible()
+  await page.getByRole('button', { name: '创建决策记录' }).click()
+  await expect(page.getByLabel('评测决策历史').getByText('等待更多证据', { exact: true })).toBeVisible()
+  await expect(page.getByText(`SHA-256`)).toBeVisible()
+  await page.getByRole('button', { name: '下载 JSON' }).click()
+  await expect(page.getByText(`报告已开始下载，SHA-256：${'b'.repeat(64)}。`)).toBeVisible()
   await page.getByRole('button', { name: '7 天' }).click()
   await expect(page.getByText('近 7 天 · 10 次回归 · 10 份盲评')).toBeVisible()
   await expect(page.locator('.quality-trend-bucket')).toHaveCount(7)
