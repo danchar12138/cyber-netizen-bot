@@ -1,10 +1,17 @@
 # 赛博网友机器人（Cyber Netizen Bot）
 
+[![CI](https://github.com/danchar12138/cyber-netizen-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/danchar12138/cyber-netizen-bot/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/danchar12138/cyber-netizen-bot)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](.python-version)
+[![Node.js](https://img.shields.io/badge/Node.js-24%2B-5FA04E?logo=nodedotjs&logoColor=white)](package.json)
+
 以自研拟人智能体（Agent）认知运行时为核心的“赛博网友”项目。Web 首发形态是统一管理后台，其中包含内部全功能对话工作台；后续即时通讯平台通过统一渠道适配器接入。
+
+本项目已在 GitHub 公开开源，采用 [Apache License 2.0](LICENSE)。欢迎通过 [Issues](https://github.com/danchar12138/cyber-netizen-bot/issues) 反馈问题或提出建议，并通过 [Pull Requests](https://github.com/danchar12138/cyber-netizen-bot/pulls) 参与开发。
 
 当前已完成原始计划 P0 至 P7 的代码与基础设施范围，并持续增强到通用告警生命周期、处置审计、重放复核、安全历史导出、稳健异常基线、值班交接摘要，以及带人工确认护栏、反馈记录、质量统计和离线阈值校准的确定性告警处置建议。身份安全、数据生命周期、性能成本、拟人评测、不可变人工评测决策、职责分离审批与 Ed25519 签名证明、生产镜像、发布供应链，以及 Telegram 安全收发与运营闭环均已落地；生产式 Docker Compose、全链迁移、服务闭环和隔离备份恢复已由 Linux CI 实跑通过。
 
-最新开发计划见 [`docs/plans/2026-09-17-v54.md`](docs/plans/2026-09-17-v54.md)，版本总进度见 [`docs/plans/2026-09-16-总进度概览.md`](docs/plans/2026-09-16-总进度概览.md)。原始范围见 [`docs/plans/2026-09-09-v2.md`](docs/plans/2026-09-09-v2.md)，MinIO 唯一对象存储修订与 P0 至 P7 完成清单见 [`docs/plans/2026-09-09-v3.md`](docs/plans/2026-09-09-v3.md)。GitHub `main` 分支保护仍受私有仓库套餐能力限制，仓库内功能与质量门禁不受影响。
+最新开发计划见 [`docs/plans/2026-09-17-v54.md`](docs/plans/2026-09-17-v54.md)，版本总进度见 [`docs/plans/2026-09-16-总进度概览.md`](docs/plans/2026-09-16-总进度概览.md)。原始范围见 [`docs/plans/2026-09-09-v2.md`](docs/plans/2026-09-09-v2.md)，MinIO 唯一对象存储修订与 P0 至 P7 完成清单见 [`docs/plans/2026-09-09-v3.md`](docs/plans/2026-09-09-v3.md)。
 
 管理后台、OpenAPI 文档、运行配置说明和安全错误采用中文优先语境；字段名、operation ID、数据库枚举及必要的协议或品牌缩写保持稳定。产品界面统一使用“智能体、提示词、模型服务、渠道适配器、入站箱、任务进程”等名称。
 
@@ -209,8 +216,11 @@ Telegram 已支持 Bot Token 连接测试、纯文本主动发送、Forum 话题
 
 `POST /api/v1/integrations/inbound/{channel_id}/simulate` 仍是内部 Web Adapter 管理联调入口。Telegram 真实入站使用公开的 `POST /api/v1/webhooks/telegram/{channel_id}`：部署侧将该 URL 和渠道级 `telegram_webhook_secret` 注册到 Telegram Bot API 的 `secret_token` 后，平台必须在 `X-Telegram-Bot-Api-Secret-Token` 请求头携带对应值。该端点不要求管理登录，只接受受限大小的 JSON 文本 Update，验证外部身份和会话/线程映射后返回 `204`，不回显正文、密钥或内部 Inbox/任务 ID。Worker 会严格解析净化后的 Envelope，以租户、渠道和外部消息 ID 生成确定性 `client_message_id`，复用现有 Conversation、长期记忆、多模态和自研认知运行时创建并处理 Agent Run；仅对已完成且有正文的 Agent Run 自动回复 Telegram，收件人和 Forum 线程沿用入站映射，出站使用稳定幂等键，因此平台重试、Worker 重投和人工重放不会重复生成消息、Run 或外部回复。管理后台可查看内部消息/Run ID、终态和幂等结果，但不展示正文、附件对象键、凭证或模型原始响应。飞书和 Discord 仍然是零外部副作用占位，不访问平台 API。
 
-## GitHub
+## 开源协作
 
-代码托管在私有仓库 `danchar12138/cyber-netizen-bot`，默认分支为 `main`。
+- 代码仓库：[`danchar12138/cyber-netizen-bot`](https://github.com/danchar12138/cyber-netizen-bot)，默认分支为 `main`。
+- 参与开发：阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 后提交 Issue 或 Pull Request。
+- 安全问题：请按 [SECURITY.md](SECURITY.md) 私下报告，不要在公开 Issue 中披露漏洞细节、令牌或密钥。
+- 开源许可：本项目采用 [Apache License 2.0](LICENSE)，使用和分发时请遵守许可证条款。
 
 密钥只保存在本地 `.env` 或 GitHub Environments/Secrets 中，不得提交。
