@@ -204,6 +204,26 @@ def test_handwritten_narrative_comments_use_chinese() -> None:
     assert violations == {}, f"手写叙述注释缺少中文说明：{violations}"
 
 
+def test_postgresql_schema_identifiers_fit_length_limit() -> None:
+    schema_paths = (
+        *(REPOSITORY_ROOT / "migrations/versions").glob("*.py"),
+        REPOSITORY_ROOT / "packages/infrastructure/src/cnb_infrastructure/models.py",
+    )
+    violations: dict[str, int] = {}
+    identifier_pattern = re.compile(r"(?:ix|uq|ck|fk|pk)_[a-z0-9_]+")
+
+    for source_path in schema_paths:
+        tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+                continue
+            if identifier_pattern.fullmatch(node.value) and len(node.value) > 63:
+                key = f"{source_path.relative_to(REPOSITORY_ROOT)}:{node.lineno}:{node.value}"
+                violations[key] = len(node.value)
+
+    assert violations == {}, f"PostgreSQL 标识符超过 63 字符：{violations}"
+
+
 def test_readme_tracks_latest_plan_and_migration_head() -> None:
     readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
     plans = tuple((REPOSITORY_ROOT / "docs/plans").glob("*.md"))

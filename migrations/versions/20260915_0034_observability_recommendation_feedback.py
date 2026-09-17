@@ -61,7 +61,7 @@ def upgrade() -> None:
         ),
     )
     op.create_index(
-        "ix_observability_alert_recommendation_feedback_tenant_agent_time",
+        "ix_observability_recommendation_feedback_tenant_agent_time",
         "observability_alert_recommendation_feedback",
         ["tenant_id", "agent_id", "feedback_at"],
     )
@@ -79,7 +79,7 @@ def downgrade() -> None:
         table_name="observability_alert_recommendation_feedback",
     )
     op.drop_index(
-        "ix_observability_alert_recommendation_feedback_tenant_agent_time",
+        "ix_observability_recommendation_feedback_tenant_agent_time",
         table_name="observability_alert_recommendation_feedback",
     )
     op.drop_table("observability_alert_recommendation_feedback")

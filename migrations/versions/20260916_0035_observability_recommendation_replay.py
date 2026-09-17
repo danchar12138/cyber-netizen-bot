@@ -23,7 +23,7 @@ def upgrade() -> None:
         sa.Column("alternative_action", sa.String(length=24), nullable=True),
     )
     op.create_check_constraint(
-        "ck_observability_alert_recommendation_feedback_alternative_action",
+        "ck_observability_recommendation_feedback_alternative_action",
         "observability_alert_recommendation_feedback",
         "alternative_action IS NULL OR alternative_action IN "
         "('acknowledge', 'suppress', 'observe')",
@@ -33,7 +33,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     """删除替代动作标签字段与约束。"""
     op.drop_constraint(
-        "ck_observability_alert_recommendation_feedback_alternative_action",
+        "ck_observability_recommendation_feedback_alternative_action",
         "observability_alert_recommendation_feedback",
         type_="check",
     )

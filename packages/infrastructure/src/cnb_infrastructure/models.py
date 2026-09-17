@@ -469,7 +469,7 @@ class ObservabilityAlertRecommendationFeedbackModel(Base):
         CheckConstraint(
             "alternative_action IS NULL OR alternative_action IN "
             "('acknowledge', 'suppress', 'observe')",
-            name="ck_observability_alert_recommendation_feedback_alternative_action",
+            name="ck_observability_recommendation_feedback_alternative_action",
         ),
         UniqueConstraint(
             "tenant_id",
@@ -478,7 +478,7 @@ class ObservabilityAlertRecommendationFeedbackModel(Base):
             name="uq_observability_alert_recommendation_feedback_lifecycle",
         ),
         Index(
-            "ix_observability_alert_recommendation_feedback_tenant_agent_time",
+            "ix_observability_recommendation_feedback_tenant_agent_time",
             "tenant_id",
             "agent_id",
             "feedback_at",
